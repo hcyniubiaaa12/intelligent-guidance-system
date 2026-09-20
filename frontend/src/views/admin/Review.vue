@@ -132,12 +132,12 @@
                 <div class="a-chips">
                   <button
                     v-for="c in causes"
-                    :key="c"
+                    :key="c.key"
                     class="a-chip"
-                    :class="{ 'a-chip--on': form.causes.includes(c) }"
-                    @click="pickCause(c)"
+                    :class="{ 'a-chip--on': form.causes.includes(c.key) }"
+                    @click="pickCause(c.key)"
                   >
-                    {{ c }}
+                    {{ c.label }}
                   </button>
                 </div>
                 <div class="a-table__ops">
@@ -152,7 +152,7 @@
                 <div v-if="showRecords" class="rev__records">
                   <div v-for="r in b.records" :key="r.id" class="rev__record">
                     <span class="rev__record-text">{{ r.text }}</span>
-                    <span v-if="r.causes.length" class="rev__record-causes">{{ r.causes.join('、') }}</span>
+                    <span v-if="r.causes.length" class="rev__record-causes">{{ r.causes.map(causeLabel).join('、') }}</span>
                     <span v-else class="a-panel__hint">未归因</span>
                     <button
                       class="a-btn a-btn--ghost"
@@ -163,12 +163,12 @@
                     <div v-if="recPickId === r.id" class="a-chips" style="flex-basis: 100%; margin: 6px 0 0">
                       <button
                         v-for="c in causes"
-                        :key="c"
+                        :key="c.key"
                         class="a-chip"
-                        :class="{ 'a-chip--on': r.causes.includes(c) }"
-                        @click="pickRecordCause(r, c)"
+                        :class="{ 'a-chip--on': r.causes.includes(c.key) }"
+                        @click="pickRecordCause(r, c.key)"
                       >
-                        {{ c }}
+                        {{ c.label }}
                       </button>
                     </div>
                   </div>
@@ -197,8 +197,25 @@ const depts = [
   { name: '皮肤科', enabled: false }
 ]
 
-// 根因选项清单：前端硬编码（预定义 7 项，后端原样存取）
-const causes = ['切分破碎', '解析遗漏', '检索失败', '局部映射缺失', '模型未依据检索', '结构化失败', '患者挂错']
+// 根因选项清单：与后端 feedback/enums/RootCauseKey 对齐——**存小写 key、显示中文 label**，
+// 后端那份是唯一定义源（看板要按 key 聚合、并按 label 显示）。本页接真实接口时改为从后端取，
+// 届时这份本地清单即可删除（见进度.md「下一步」）。
+const causes = [
+  { key: 'chunk_broken', label: '切分破碎' },
+  { key: 'parse_missed', label: '解析遗漏' },
+  { key: 'retrieval_fail', label: '检索失败' },
+  { key: 'mapping_missing', label: '局部映射缺失' },
+  { key: 'model_ignored_retrieval', label: '模型未依据检索' },
+  { key: 'structure_fail', label: '结构化失败' },
+  { key: 'patient_wrong', label: '患者挂错' }
+]
+
+const causeLabels = Object.fromEntries(causes.map((c) => [c.key, c.label]))
+
+/** key → 中文名；字典外的 key 原样显示（与后端 labelOf 同口径，不把数据藏起来） */
+function causeLabel(key) {
+  return causeLabels[key] || key
+}
 
 // —— 假数据：聚合桶（方向 + 代表样本 + 桶内记录）——
 const buckets = ref([
@@ -253,9 +270,9 @@ const buckets = ref([
     rawOutput: '{"dept":"骨科","confidence":0.69}',
     evidence: [{ rank: 1, title: '颈椎病分型', score: '0.78' }],
     records: [
-      { id: 'r31', text: '颈肩僵硬 手指发麻', causes: ['检索失败'] },
-      { id: 'r32', text: '脖子肩膀僵，手麻', causes: ['检索失败'] },
-      { id: 'r33', text: '颈肩不适伴上肢麻木', causes: ['检索失败'] }
+      { id: 'r31', text: '颈肩僵硬 手指发麻', causes: ['retrieval_fail'] },
+      { id: 'r32', text: '脖子肩膀僵，手麻', causes: ['retrieval_fail'] },
+      { id: 'r33', text: '颈肩不适伴上肢麻木', causes: ['retrieval_fail'] }
     ]
   }
 ])

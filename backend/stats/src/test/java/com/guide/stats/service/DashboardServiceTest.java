@@ -170,11 +170,11 @@ class DashboardServiceTest {
     }
 
     @Test
-    @DisplayName("根因分布：按标注项计数、降序、坏 JSON 跳过")
+    @DisplayName("根因分布：库里是小写 key、下发中文名；按标注项计数降序；坏 JSON 跳过")
     void rootCauseDistribution() {
         when(rootCauseMapper.selectList(any())).thenReturn(List.of(
-                rootCause("r1", "[\"检索失败\",\"切分破碎\"]"),
-                rootCause("r2", "[\"检索失败\"]"),
+                rootCause("r1", "[\"retrieval_fail\",\"chunk_broken\"]"),
+                rootCause("r2", "[\"retrieval_fail\"]"),
                 rootCause("r3", "这不是 JSON")));
 
         List<DashboardDTO.CauseVO> causes = service.rootCauses();
@@ -188,12 +188,25 @@ class DashboardServiceTest {
     }
 
     @Test
+    @DisplayName("字典外的 key 原样显示，不丢弃（统计可以少一行解释，不能把数据藏起来）")
+    void unknownCauseKeyIsShownAsIs() {
+        when(rootCauseMapper.selectList(any())).thenReturn(List.of(
+                rootCause("r1", "[\"legacy_cause\"]"),
+                rootCause("r2", "[\"retrieval_fail\"]")));
+
+        List<DashboardDTO.CauseVO> causes = service.rootCauses();
+
+        assertThat(causes).extracting(DashboardDTO.CauseVO::getName)
+                .containsExactlyInAnyOrder("legacy_cause", "检索失败");
+    }
+
+    @Test
     @DisplayName("「患者挂错」按数组元素精确判定：LIKE 粗筛误命中的不算")
     void wrongPatientExclusionIsExact() {
         when(rootCauseMapper.selectList(any())).thenReturn(List.of(
-                rootCause("r1", "[\"患者挂错\"]"),
-                // LIKE「患者挂错」会命中这条，但数组元素并不等于它——不能算进去
-                rootCause("r2", "[\"疑似患者挂错待确认\"]")));
+                rootCause("r1", "[\"patient_wrong\"]"),
+                // LIKE `patient_wrong` 会命中这条，但数组元素并不等于它——不能算进去
+                rootCause("r2", "[\"patient_wrong_pending\"]")));
 
         assertThat(service.wrongPatientRecordIds()).containsExactly("r1");
     }

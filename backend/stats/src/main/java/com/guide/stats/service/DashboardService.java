@@ -14,6 +14,7 @@ import com.guide.common.util.PageUtil;
 import com.guide.feedback.entity.ReviewTask;
 import com.guide.feedback.entity.RootCause;
 import com.guide.feedback.enums.ReviewStatus;
+import com.guide.feedback.enums.RootCauseKey;
 import com.guide.feedback.mapper.ReviewTaskMapper;
 import com.guide.feedback.mapper.RootCauseMapper;
 import com.guide.kb.entity.Dept;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * 数据看板聚合（stats，链路 C 第 ⑦⑫ 步的"看板实时反映"）。
@@ -57,11 +59,11 @@ import java.util.Set;
 public class DashboardService {
 
     /**
-     * 根因选项里代表「非系统责任」的一项，准确率口径要排除这些记录。
-     * 取值与《总体架构与链路设计.md》链路 C「证据快照与根因归因」的选项表一致——
-     * 根因清单由前端硬编码、后端原样存取不校验，这里是后端唯一需要识别其语义的地方。
+     * 根因选项里代表「非系统责任」的一项（存的是小写 key），准确率口径要排除标了它的记录。
+     * 取值取自 {@link RootCauseKey}（后端唯一定义 key 与中文名的地方）——不写字面量，
+     * 免得改文案时这处静默失效。
      */
-    private static final String CAUSE_PATIENT_WRONG = "患者挂错";
+    private static final String CAUSE_PATIENT_WRONG = RootCauseKey.PATIENT_WRONG.getKey();
 
     /** 主诉摘要截断长度（看板一行放不下整段主诉） */
     private static final int COMPLAINT_MAX = 40;
@@ -217,21 +219,32 @@ public class DashboardService {
 
     /**
      * 基于 root_cause 最新归因实时聚合；一条记录可标多个根因，故按"标注项"计数。
-     * 包级可见：作为可单测的接缝（不需要为它去凑 overview 的调用顺序）。
+     *
+     * <p>库里存的是小写 key，下发的是中文名（{@link RootCauseKey#labelOf}）；字典外的 key
+     * 原样显示而不丢弃——统计可以少一行解释，不能把数据藏起来。
+     *
+     * <p>包级可见：作为可单测的接缝（不需要为它去凑 overview 的调用顺序）。
      */
     List<DashboardDTO.CauseVO> rootCauses() {
         Map<String, Long> counts = new LinkedHashMap<>();
+        Set<String> unknown = new TreeSet<>();
         for (RootCause row : rootCauseMapper.selectList(Wrappers.<RootCause>lambdaQuery())) {
             for (String cause : parseCauses(row.getCauses())) {
                 counts.merge(cause, 1L, Long::sum);
+                if (RootCauseKey.fromKey(cause).isEmpty()) {
+                    unknown.add(cause);
+                }
             }
+        }
+        if (!unknown.isEmpty()) {
+            log.warn("根因出现字典外的值（原样显示、不影响分组）：{}", unknown);
         }
         long total = counts.values().stream().mapToLong(Long::longValue).sum();
         return counts.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
                 .map(entry -> {
                     DashboardDTO.CauseVO vo = new DashboardDTO.CauseVO();
-                    vo.setName(entry.getKey());
+                    vo.setName(RootCauseKey.labelOf(entry.getKey()));
                     vo.setCount(entry.getValue());
                     vo.setPct(round1(entry.getValue() * 100d / total));
                     return vo;
