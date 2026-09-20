@@ -71,6 +71,23 @@
   align-items: center;
   gap: 12px;
 }
+/* 昵称 = 进「就诊记录」的入口：做成下划线文本而不是按钮，保持抬头式的安静 */
+.p-topbar__nick {
+  background: none;
+  border: none;
+  padding: 0 0 1px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .18em;
+  color: var(--ink-2);
+  border-bottom: 1px dashed var(--ink-2);
+  cursor: pointer;
+  transition: color .18s ease, border-color .18s ease;
+}
+.p-topbar__nick:hover {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
 .p-topbar__logout {
   background: none;
   border: 1px solid var(--line);
@@ -410,16 +427,18 @@
 }
 
 /* ---------- 桌面端适配（≥768px）----------
-   手机浏览器保持全屏原生布局；电脑浏览器将移动版式收窄为
-   居中「病历单」列，避免整宽拉伸。色板与部件规范不变。 */
+   手机浏览器保持全屏原生布局；电脑浏览器把移动版式收成一列居中的「病历单」。
+   1000px 而不是 720px：720 在 1440／1920 屏上两侧各空 360／600px，像张纸条贴在墙中央；
+   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。色板与部件规范不变。 */
 @media (min-width: 768px) {
   .patient-root .p-topbar,
   .patient-root .p-thread,
   .patient-root .p-steps,
   .patient-root .p-composer,
+  .patient-root .p-chat__disc,
   .patient-root .p-reg__body {
     width: 100%;
-    max-width: 720px;
+    max-width: 1000px;
     margin-left: auto;
     margin-right: auto;
   }
@@ -434,5 +453,12 @@
   }
   .patient-root .p-composer {
     border-bottom: 1px solid var(--line);
+  }
+  /* 文字区块的左右内边距跟着放宽，免得 1000px 里文字贴着纸边 */
+  .patient-root .p-topbar,
+  .patient-root .p-thread,
+  .patient-root .p-composer {
+    padding-left: 32px;
+    padding-right: 32px;
   }
 }
