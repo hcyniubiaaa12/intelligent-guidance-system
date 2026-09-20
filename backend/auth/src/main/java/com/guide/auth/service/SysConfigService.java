@@ -24,6 +24,10 @@ public class SysConfigService {
     public static final String KEY_ASK_MAX_ROUNDS = "chat.ask.max.rounds";
     public static final String KEY_LOW_CONFIDENCE = "guide.low.confidence";
     public static final String KEY_TERM_MANUAL_REVIEW = "term.manual.review";
+    /** 聚合归桶相似度阈值（链路 C 后半用，键位先占，管理端已可调） */
+    public static final String KEY_CLUSTER_BUCKET_THRESHOLD = "cluster.bucket.threshold";
+    /** 追问升级阈值（轮次） */
+    public static final String KEY_UPGRADE_ROUNDS = "guide.upgrade.rounds";
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;

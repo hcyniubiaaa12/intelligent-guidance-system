@@ -40,3 +40,24 @@ export function convertWordToBanned(id) {
 export function deleteWord(id) {
   return http.delete(`/admin/sensitive-words/${id}`)
 }
+
+// —— LLM 配置 ——
+// 模型接入信息：模型名与地址可读，密钥只回是否已配置（不回值）
+export function getLlmModels() {
+  return http.get('/admin/llm/models')
+}
+
+// 运行时参数（sys_config）：{ key, label, value, defaultValue, type, range, remark }
+export function getLlmParams() {
+  return http.get('/admin/llm/params')
+}
+
+// 批量保存参数：items = [{ key, value }]，任一项非法则整批不生效
+export function saveLlmParams(items) {
+  return http.put('/admin/llm/params', { items })
+}
+
+// 连通性测试：三路模型各发一次最小请求，返回逐项结果
+export function probeLlm() {
+  return http.post('/admin/llm/probe')
+}

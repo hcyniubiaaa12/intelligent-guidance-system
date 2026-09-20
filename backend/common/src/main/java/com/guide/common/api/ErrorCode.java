@@ -19,6 +19,7 @@ public enum ErrorCode {
     SENSITIVE_WORD_EXISTS(2005, "敏感词已存在"),
     CANNOT_BAN_SELF(2006, "不能封禁自己的账号"),
     SENSITIVE_WORD_NOT_FOUND(2007, "敏感词不存在"),
+    CONFIG_KEY_UNKNOWN(2008, "不支持的配置项"),
 
     // chat 3xxx
     SESSION_CLOSED(3000, "会话已结束，请重新描述症状"),
