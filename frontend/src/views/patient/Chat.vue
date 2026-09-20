@@ -2,8 +2,30 @@
   <div class="patient-root p-chat">
     <div class="p-chat__body">
       <!-- ---------- 左：我的就诊（会话目录，桌面常驻 / 手机覆盖层） ---------- -->
-      <aside class="p-chat__side" :class="{ 'is-open': sideOpen }" @click.self="sideOpen = false">
+      <aside
+        class="p-chat__side"
+        :class="{ 'is-open': sideOpen, 'is-collapsed': isDesktop && sideHidden }"
+        :style="isDesktop && !sideHidden ? { width: sideWidth + 'px' } : null"
+        @click.self="sideOpen = false"
+      >
+        <!-- 精简轨（只在桌面收起时渲染）：「智能导诊」入口在左，折叠图标＋新建对话合成一组相邻按钮 -->
+        <div class="p-chat__rail">
+          <button class="p-chat__railtitle" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">智能导诊</button>
+          <div class="p-chat__railgroup">
+            <button class="p-chat__iconbtn" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">
+              <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+            <button class="p-chat__iconbtn" title="新 的 咨 询" aria-label="新 的 咨 询" @click="startNew">
+              <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.8v4.4M4.8 7h4.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+        </div>
+
         <div class="p-chat__sidebox">
+          <!-- 折叠图标放侧栏顶层、新咨询之上（学 DS 的排布）；点击收成左侧精简轨 -->
+          <button class="p-chat__iconbtn p-chat__foldbtn" title="收起侧栏" aria-label="收起侧栏" @click="toggleSide">
+            <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
           <!-- 新咨询放最上头：会话多了要能一眼够到（学 DeepSeek 的「开启新对话」） -->
           <button class="p-chat__new" @click="startNew">＋ 新 的 咨 询</button>
 
@@ -55,8 +77,8 @@
         </div>
       </aside>
 
-      <!-- ---------- 中：对话舞台 ---------- -->
-      <div class="p-chat__stage">
+      <!-- ---------- 中：对话舞台（收起侧栏时标题挪进精简轨，顶栏标题让位） ---------- -->
+      <div class="p-chat__stage" :class="{ 'is-sideless': isDesktop && sideHidden }">
         <!-- 顶栏：病历抬头式 -->
         <header class="p-topbar">
           <button class="p-chat__menubtn" @click="sideOpen = true">会 话</button>
@@ -96,13 +118,36 @@
                   class="p-q"
                   :class="{ 'is-active': m.qNo && m.qNo === activeQ }"
                 >
-                  <div class="p-user">{{ m.content }}</div>
+                  <div class="p-q__col">
+                    <div class="p-user">{{ m.content }}</div>
+                    <button
+                      class="p-act__btn"
+                      :class="{ 'is-copied': copiedKey === 'u' + i }"
+                      :aria-label="copiedKey === 'u' + i ? '已复制' : '复制这条主诉'"
+                      @click="copyText('u' + i, m.content)"
+                    >
+                      <svg v-if="copiedKey !== 'u' + i" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M8.5 3.5v-2h-7v7h2" fill="none" stroke="currentColor"/></svg>
+                      <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                      {{ copiedKey === 'u' + i ? '已 复 制' : '复 制' }}
+                    </button>
+                  </div>
                 </div>
 
                 <!-- 追问消息：与普通回复同款 -->
                 <div v-else-if="m.type === 'question'" class="p-ai">
                   <div class="p-ai__tag">分 诊 助 理 · 追 问</div>
                   <div class="p-ai__text p-ask">{{ m.content }}</div>
+                  <button
+                    v-if="m.content"
+                    class="p-act__btn"
+                    :class="{ 'is-copied': copiedKey === 'q' + i }"
+                    :aria-label="copiedKey === 'q' + i ? '已复制' : '复制这条追问'"
+                    @click="copyText('q' + i, m.content)"
+                  >
+                    <svg v-if="copiedKey !== 'q' + i" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M8.5 3.5v-2h-7v7h2" fill="none" stroke="currentColor"/></svg>
+                    <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                    {{ copiedKey === 'q' + i ? '已 复 制' : '复 制' }}
+                  </button>
                 </div>
 
                 <!-- AI 回复：直排文字 + moss 小标签（SSE delta 逐字填充同一文本节点）
@@ -110,6 +155,17 @@
                 <div v-else-if="m.type === 'ai'" class="p-ai">
                   <div class="p-ai__tag">分 诊 助 理</div>
                   <div class="p-ai__text">{{ m.content }}<span v-if="!isReplay && chat.streaming && i === shown.length - 1 && !m.content" class="p-ai__wait">正在整理…</span></div>
+                  <button
+                    v-if="m.content"
+                    class="p-act__btn"
+                    :class="{ 'is-copied': copiedKey === 'a' + i }"
+                    :aria-label="copiedKey === 'a' + i ? '已复制' : '复制这条回复'"
+                    @click="copyText('a' + i, m.content)"
+                  >
+                    <svg v-if="copiedKey !== 'a' + i" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M8.5 3.5v-2h-7v7h2" fill="none" stroke="currentColor"/></svg>
+                    <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                    {{ copiedKey === 'a' + i ? '已 复 制' : '复 制' }}
+                  </button>
                 </div>
 
                 <!-- 处置提示（敏感词累计触发的警告）：单独成泡，视觉上与诊断结论区分开 -->
@@ -154,6 +210,18 @@
                   <p v-if="isLow(m.card)" class="p-card__lowhint">
                     信息有限，结果仅供参考，建议进一步咨询医生。
                   </p>
+
+                  <!-- 一键复制结论单（科室＋置信度＋依据），学 DS 的块级复制 -->
+                  <button
+                    class="p-act__btn p-card__copy"
+                    :class="{ 'is-copied': copiedKey === 'c' + i }"
+                    :aria-label="copiedKey === 'c' + i ? '已复制' : '复制这条分诊结论'"
+                    @click="copyText('c' + i, cardText(m.card))"
+                  >
+                    <svg v-if="copiedKey !== 'c' + i" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M8.5 3.5v-2h-7v7h2" fill="none" stroke="currentColor"/></svg>
+                    <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                    {{ copiedKey === 'c' + i ? '已 复 制' : '复 制 结 论' }}
+                  </button>
 
                   <!-- 回放时已挂号的，补一行就诊信息；没有的什么都不加 -->
                   <div v-if="isReplay && m.card.booked" class="p-chat__visit">
@@ -296,6 +364,56 @@ const booked = ref(0)
 const tab = ref('all')
 const sideOpen = ref(false)
 const expanded = ref(new Set())
+
+// ---------- 侧栏收起/展开（学 DS：收起成一条只留「折叠图标＋新建对话」的精简轨） ----------
+const SIDE_HIDDEN_KEY = 'p-chat-side-hidden'
+const SIDE_W_DEFAULT = 248
+
+const sideHidden = ref(localStorage.getItem(SIDE_HIDDEN_KEY) === '1')
+// 只有桌面才收起侧栏；手机侧栏是覆盖层，开关走的是 sideOpen
+const isDesktop = ref(window.matchMedia('(min-width: 768px)').matches)
+const sideWidth = computed(() => SIDE_W_DEFAULT)
+
+function toggleSide() {
+  sideHidden.value = !sideHidden.value
+  localStorage.setItem(SIDE_HIDDEN_KEY, sideHidden.value ? '1' : '0')
+}
+
+// ---------- 一键复制（学 DS：回复/结论旁的复制按钮，1.5s 后复位） ----------
+const copiedKey = ref('')
+let copiedTimer = null
+async function copyText(key, text) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // 剪贴板 API 不可用（非安全上下文）时的兜底
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } catch { /* 复制失败就静默，按钮照样复位 */ }
+    ta.remove()
+  }
+  copiedKey.value = key
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedKey.value = '' }, 1500)
+}
+
+/** 结论卡复制成纯文本：科室＋置信度＋Top3＋说明＋依据，方便贴给医生/家人看 */
+function cardText(card) {
+  const lines = [`分诊结论：${card.dept}（参考置信度 ${confText(card.confidence)}）`]
+  if (card.top3?.length) {
+    lines.push('候选科室：' + card.top3.map((c) => `${c.name}${c.pct == null ? '' : ' ' + c.pct + '%'}`).join('，'))
+  }
+  if (card.note) lines.push(card.note)
+  if (card.cites?.length) {
+    lines.push('判断依据：')
+    card.cites.forEach((c) => lines.push(`  注${c.no}　${c.text}`))
+  }
+  lines.push('（分诊建议，不能替代医生诊断）')
+  return lines.join('\n')
+}
 
 /** 当前 tab 口径下要展示的天：全部对话 = 原样；挂号历史 = 只留挂过号的会话 */
 const shownDays = computed(() => {
@@ -636,14 +754,21 @@ function shortDate(date) {
   return String(date).slice(5)
 }
 
+let desktopMQ = null
+const onDesktopChange = (e) => { isDesktop.value = e.matches }
+
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') marksRO = new ResizeObserver(syncMarksScroll)
+  desktopMQ = window.matchMedia('(min-width: 768px)')
+  desktopMQ.addEventListener?.('change', onDesktopChange)
   loadSessions()
 })
 
 onBeforeUnmount(() => {
   turnAbort?.abort()
   marksRO?.disconnect()
+  desktopMQ?.removeEventListener?.('change', onDesktopChange)
+  clearTimeout(copiedTimer)
 })
 </script>
 
@@ -1113,6 +1238,105 @@ onBeforeUnmount(() => {
 }
 .p-hello__chip:hover { border-color: var(--teal); color: var(--teal); }
 
+/* ---------- 复制按钮（学 DS：悬停浮现，触屏常显；只借用交互，配色仍是现有色板） ---------- */
+.p-q__col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 82%;
+}
+.p-q__col .p-user { max-width: 100%; }
+.p-act__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .12em;
+  color: var(--ink-2);
+  opacity: 0;
+  transition: opacity .15s ease, color .15s ease;
+}
+.p-q:hover .p-act__btn,
+.p-ai:hover .p-act__btn,
+.p-act__btn.is-copied,
+.p-act__btn:focus-visible { opacity: 1; }
+.p-act__btn:hover { color: var(--teal); }
+.p-act__btn.is-copied { color: var(--teal); }
+/* 结论卡的复制常显——卡是单据，hover 才出现会让人找不到 */
+.p-card__copy { margin-top: 10px; opacity: 1; }
+/* 触屏没有 hover：复制按钮常显 */
+@media (hover: none) {
+  .p-act__btn { opacity: 1; }
+}
+
+/* ---------- 侧栏折叠图标与精简轨（桌面） ---------- */
+.p-chat__iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-2);
+  transition: color .18s ease, background .18s ease;
+}
+.p-chat__iconbtn:hover { color: var(--teal); background: var(--card); }
+/* 折叠图标在侧栏顶层、新咨询之上 */
+.p-chat__foldbtn { display: none; }
+/* 精简轨：收起态才出现，与展开态的 sidebox 互换 */
+.p-chat__rail { display: none; }
+@media (min-width: 768px) {
+  .p-chat__foldbtn { display: inline-flex; margin: 12px 0 0 12px; }
+  /* 收起后侧栏只剩横向一条：「智能导诊」入口 + 相邻图标组，宽度随内容 */
+  .p-chat__side.is-collapsed { width: fit-content; }
+  .p-chat__side.is-collapsed .p-chat__sidebox { display: none; }
+  .p-chat__side.is-collapsed .p-chat__rail {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px 10px 16px;
+    /* 贴在顶部，不要撑满高度居中（DS 的悬浮条就在左上角） */
+    height: auto;
+  }
+  /* 「智能导诊」入口：收起态的快速访问点，排版与顶栏标题同阶 */
+  .p-chat__railtitle {
+    border: none;
+    background: none;
+    padding: 0 0 1px;
+    cursor: pointer;
+    font-family: var(--serif);
+    font-size: 15px;
+    letter-spacing: .04em;
+    color: var(--ink);
+    white-space: nowrap;
+    border-bottom: 1px dashed transparent;
+    transition: color .18s ease, border-color .18s ease;
+  }
+  .p-chat__railtitle:hover { color: var(--teal); border-bottom-color: var(--teal); }
+  /* 折叠图标与 ＋ 图标合成一组：一个描边框里两个相邻按钮，中间一道分隔线 */
+  .p-chat__railgroup {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  .p-chat__railgroup .p-chat__iconbtn + .p-chat__iconbtn {
+    border-left: 1px solid var(--line);
+  }
+  /* 标题挪进精简轨后，顶栏标题让位（保留占位，顶栏布局不跳） */
+  .p-chat__stage.is-sideless .p-topbar__title { visibility: hidden; }
+}
+
 /* 流式等待：首字到达前的轻提示，随 delta 填充自动消失 */
 .p-ai__wait {
   font-family: var(--sans);
@@ -1128,26 +1352,34 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-/* ---------- 桌面 ≥768px：纸面 1180px，边界交给 body 统一画 ----------
-   各区块不再各自限宽画边——空状态下对话区会收缩成内容高，
-   边界挂在它身上就会断成两截（一张纸缺了半截边，说不出哪里不对但处处别扭）。 */
+/* ---------- 桌面 ≥768px：DS 式布局——侧栏贴窗口最左，可整个收起；对话内容在中央收 1000px ----------
+   侧栏与对话区之间不画边线：两块同为 paper 底，边线只会把一张床隔成两间病房 */
 @media (min-width: 768px) {
   .p-chat__body {
-    width: 100%;
-    max-width: 1180px;
-    margin: 0 auto;
-    border-left: 1px solid var(--line);
-    border-right: 1px solid var(--line);
+    max-width: none;
+    margin: 0;
+    border: none;
   }
   .p-chat__side {
     display: block;
     flex: none;
-    width: 248px;
+    /* 收起/展开平滑过渡；宽度 0 时裁掉侧栏内容 */
+    overflow: hidden;
+    transition: width .2s ease;
   }
-  .p-chat__sidebox { border-right: 1px dashed var(--line); }
+  /* 侧栏与对话区之间不画任何边线——两个区域都是 paper 底，自然衔接 */
+  .p-chat__sidebox { border-right: none; }
   /* 顶栏不放用户区了——那是侧栏底部的位置 */
   .p-chat__ops { display: none; }
   .p-chat .p-topbar,
+  .p-chat__main {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  /* 顶栏开关 + 标题 + 右侧留白：标题吃掉剩余空间，紧跟开关 */
+  .p-chat .p-topbar__title { flex: 1; }
+  /* 注意：topbar 不在此列——它要与 main 同宽居中，放在这里会把它又拉成全宽 */
   .p-chat .p-thread,
   .p-chat .p-steps {
     max-width: none;
