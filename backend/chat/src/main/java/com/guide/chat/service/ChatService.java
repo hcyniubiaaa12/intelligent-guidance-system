@@ -174,18 +174,20 @@ public class ChatService {
             log.info("入口校验：{}", guard.action() == SensitiveGuard.GuardResult.Action.WATCHED
                     ? "命中观察词「" + guard.word() + "」，放行并留痕" : "通过（无禁止词命中）");
 
-            // ② 规则硬门槛：首条主诉过于笼统 → 模板追问，不调模型
-            if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
+            // ② 规则硬门槛：确定性无效输入 / 首条主诉过于笼统 → 模板追问，不调模型
+            int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
+            int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
+            String gateReason = ruleGateReason(session, content, askRound, askMaxRounds);
+            if (gateReason != null) {
                 String question = sufficiencyRule.templateQuestion();
-                log.info("规则门槛：首条主诉过于笼统（未命中术语且过短），模板追问（未调模型/未检索）");
+                log.info("规则门槛：{}｜追问轮次 {}/{}，模板追问（未调模型/未检索）",
+                        gateReason, askRound, askMaxRounds);
                 saveMessage(sessionId, MessageRole.QUESTION, question);
                 ask(emitter, session, question);
                 return;
             }
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
-            int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
-            int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
             boolean forceConclusion = askRound >= askMaxRounds;
             log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个", askRound, askMaxRounds,
                     forceConclusion, deptOptions().size());
@@ -323,6 +325,30 @@ public class ChatService {
     private boolean isFirstTurn(ChatSession session) {
         int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
         return askRound == 0 && (session.getHasResult() == null || session.getHasResult() == 0);
+    }
+
+    /**
+     * 规则硬门槛判定：返回 null 表示放行。命中任意一条即模板追问（不调模型、不检索）。
+     *
+     * <p>① 确定性无效输入（语气词/寒暄/说不出/纯符号）——不区分轮次；
+     * ② 首条主诉过于笼统（过短且未命中术语）——只对自由陈述生效。
+     * 应答轮不叠加内容门槛，理由见 {@link SufficiencyRule} 类注释。
+     *
+     * <p><b>护栏</b>：追问预算（ask_max_rounds）用尽后规则一律让路。规则门槛位于
+     * forceConclusion 判定之前，若继续拦，askRound 只涨而永远走不到检索分支，
+     * forceConclusion 永不触发，会话会卡死在"回答 → 被问同一句 → 再回答"的循环里。
+     */
+    private String ruleGateReason(ChatSession session, String content, int askRound, int askMaxRounds) {
+        if (askRound >= askMaxRounds) {
+            return null;
+        }
+        if (sufficiencyRule.noSignal(content)) {
+            return "确定性无效输入";
+        }
+        if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
+            return "首条主诉过于笼统（未命中术语且过短）";
+        }
+        return null;
     }
 
     /** 历史消息（不含刚落的当前用户消息），role：question/ai → assistant */
