@@ -16,6 +16,8 @@
   --moss: #4A7C59;
   --teal-soft: #CDE3DD;
   --err: #A94438;
+  /* 侧栏底色：比 paper 暗两档，让「我的就诊」与「对话」分成两块纸，而不用画一条分界线 */
+  --side: #E9EFEC;
 
   /* 字体：正文/显示衬线，界面标签无衬线 + 大字距 */
   --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;

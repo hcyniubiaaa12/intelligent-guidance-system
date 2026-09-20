@@ -8,26 +8,44 @@
         :style="isDesktop && !sideHidden ? { width: sideWidth + 'px' } : null"
         @click.self="sideOpen = false"
       >
-        <!-- 精简轨（只在桌面收起时渲染）：「智能导诊」入口在左，折叠图标＋新建对话合成一组相邻按钮 -->
+        <!-- 精简轨（只在桌面收起时渲染）：收起后只剩标识——它本身就是展开入口，右边再给一个展开图标 -->
         <div class="p-chat__rail">
-          <button class="p-chat__railtitle" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">智能导诊</button>
-          <div class="p-chat__railgroup">
-            <button class="p-chat__iconbtn" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">
-              <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
-            </button>
-            <button class="p-chat__iconbtn" title="新 的 咨 询" aria-label="新 的 咨 询" @click="startNew">
-              <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.8v4.4M4.8 7h4.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
-            </button>
-          </div>
+          <button class="p-chat__railbrand" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="2.6" y="2.6" width="18.8" height="18.8" stroke="currentColor" stroke-width="1.7" />
+              <path d="M6.9 8h10.2" stroke="currentColor" stroke-width="2.3" />
+              <path d="M6.9 12h6.8" stroke="currentColor" stroke-width="2" opacity=".52" />
+              <path d="M6.9 16h3.6" stroke="currentColor" stroke-width="1.7" opacity=".3" />
+            </svg>
+          </button>
+          <span class="p-chat__railsep" />
+          <button class="p-chat__iconbtn" title="展开侧栏" aria-label="展开侧栏" @click="toggleSide">
+            <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <!-- 收起后仍要能开新咨询——否则得先展开侧栏才够得到 -->
+          <button class="p-chat__iconbtn" title="新 的 咨 询" aria-label="新 的 咨 询" @click="startNew">
+            <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.8v4.4M4.8 7h4.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
         </div>
 
         <div class="p-chat__sidebox">
-          <!-- 折叠图标放侧栏顶层、新咨询之上（学 DS 的排布）；点击收成左侧精简轨 -->
-          <button class="p-chat__iconbtn p-chat__foldbtn" title="收起侧栏" aria-label="收起侧栏" @click="toggleSide">
-            <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
-          </button>
+          <!-- 侧栏抬头：标识 ＋ 品牌名 ＋ 收起按钮（学 DS 的排布）；「智能导诊」从对话区顶栏挪到这里 -->
+          <div class="p-chat__hd">
+            <span class="p-chat__logo" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="2.6" y="2.6" width="18.8" height="18.8" stroke="currentColor" stroke-width="1.7" />
+                <path d="M6.9 8h10.2" stroke="currentColor" stroke-width="2.3" />
+                <path d="M6.9 12h6.8" stroke="currentColor" stroke-width="2" opacity=".52" />
+                <path d="M6.9 16h3.6" stroke="currentColor" stroke-width="1.7" opacity=".3" />
+              </svg>
+            </span>
+            <span class="p-chat__brand">智能导诊</span>
+            <button class="p-chat__iconbtn p-chat__foldbtn" title="收起侧栏" aria-label="收起侧栏" @click="toggleSide">
+              <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
           <!-- 新咨询放最上头：会话多了要能一眼够到（学 DeepSeek 的「开启新对话」） -->
-          <button class="p-chat__new" @click="startNew">＋ 新 的 咨 询</button>
+          <button class="p-chat__new" @click="startNew">+ 新 的 咨 询</button>
 
           <div class="p-chat__sidehd">
             <div class="p-eyebrow">我 的 就 诊</div>
@@ -77,14 +95,14 @@
         </div>
       </aside>
 
-      <!-- ---------- 中：对话舞台（收起侧栏时标题挪进精简轨，顶栏标题让位） ---------- -->
-      <div class="p-chat__stage" :class="{ 'is-sideless': isDesktop && sideHidden }">
-        <!-- 顶栏：病历抬头式 -->
-        <header class="p-topbar">
+      <!-- ---------- 中：对话舞台 ---------- -->
+      <div class="p-chat__stage">
+        <!-- 顶栏只剩手机端：桌面端整条移除——标题、用户区都归左侧栏，对话区顶上不再有一条横线。
+             （手机没有侧栏可挂，只能留在顶栏） -->
+        <header class="p-topbar p-chat__topbar">
           <button class="p-chat__menubtn" @click="sideOpen = true">会 话</button>
           <div class="p-topbar__title">智能导诊</div>
-          <!-- 手机才有：桌面把用户区放进左侧栏底部（学 DeepSeek 的排布） -->
-          <div class="p-topbar__ops p-chat__ops">
+          <div class="p-topbar__ops">
             <button class="p-topbar__nick" title="看我的挂号历史" @click="openBooked">{{ user.nickname || '我 的 就 诊' }}</button>
             <button class="p-topbar__logout" @click="onLogout">退 出</button>
           </div>
@@ -287,26 +305,44 @@
         </div>
       </div>
 
-      <!-- ---------- 右缘：书签（只在回放时；一根 = 这条会话里患者的一个问题） ---------- -->
-      <nav v-if="isReplay && marks.length" class="p-chat__marks" aria-label="用户问题书签">
-        <div class="p-chat__markshd">用 户 问 题</div>
-        <!-- 自上而下 = 问题 1 → 最新一问，跟正文同向。放不下时中间的折起来，滚轮滚过去 -->
-        <div
-          ref="marksEl"
-          class="p-chat__markset"
-          :class="{ 'is-dense': marks.length > 8, 'is-scroll': marksScroll }"
-          @wheel="onMarksWheel"
-        >
-          <button
-            v-for="q in marks"
-            :key="q.no"
-            :ref="(el) => setMarkRef(el, q.no)"
-            class="p-mark"
-            :class="{ on: q.no === activeQ }"
-            :title="`问题 ${q.no} · ${hhmm(q.at)} · ${q.content}`"
-            :aria-label="`跳到问题 ${q.no}：${q.content}`"
-            @click="jump(q.no)"
-          ></button>
+      <!-- ---------- 右缘：问题导航（只在回放时）——悬浮面板，鼠标移到右缘就展开 ----------
+           面板脱离布局流（absolute）：进出回放不会把中间那一列顶来顶去。
+           一根 = 这条会话里患者的一个问题，自上而下 = 问题 1 → 最新一问，跟正文同向 -->
+      <nav
+        v-if="isReplay && marks.length"
+        class="p-chat__marks"
+        :class="{ 'is-open': marksOpen }"
+        aria-label="用户问题"
+        @mouseenter="marksOpen = true"
+        @mouseleave="marksOpen = false"
+      >
+        <button class="p-chat__marksgrip" aria-label="展开问题导航" @click="onGripClick" />
+        <div class="p-chat__markspanel">
+          <div class="p-chat__markshd">
+            <span class="p-eyebrow">用 户 问 题</span>
+            <span class="p-chat__marksno">{{ activeQ ? `${activeQ} / ${marks.length}` : `${marks.length} 问` }}</span>
+          </div>
+          <!-- 放不下时面板内部自己滚（滚动条不画），滚到头再滚正文 -->
+          <div
+            ref="marksEl"
+            class="p-chat__markset"
+            :class="{ 'is-scroll': marksScroll }"
+            @wheel="onMarksWheel"
+          >
+            <button
+              v-for="q in marks"
+              :key="q.no"
+              :ref="(el) => setMarkRef(el, q.no)"
+              class="p-mark"
+              :class="{ on: q.no === activeQ }"
+              :title="`问题 ${q.no} · ${hhmm(q.at)}`"
+              :aria-label="`跳到问题 ${q.no}：${q.content}`"
+              @click="jump(q.no)"
+            >
+              <span class="p-mark__x">{{ q.content }}</span>
+              <span class="p-mark__bar" />
+            </button>
+          </div>
         </div>
       </nav>
     </div>
@@ -492,6 +528,7 @@ async function openSession(id) {
     activeQ.value = null
     qRefs.value = {}
     markRefs.value = {}
+    marksOpen.value = false // 每进一次回放都从收起态开始——面板别自己摊在正文上
     await nextTick()
     if (threadEl.value) threadEl.value.scrollTop = 0
     watchMarks()
@@ -515,6 +552,7 @@ function startNew() {
 const marksEl = ref(null)
 const markRefs = ref({})
 const marksScroll = ref(false)
+const marksOpen = ref(false)
 
 function setQRef(el, no) {
   if (el && no) qRefs.value[no] = el
@@ -524,7 +562,12 @@ function setMarkRef(el, no) {
   if (el && no) markRefs.value[no] = el
 }
 
-/** 书签列是否放不下：放不下才允许它自己滚（否则滚轮照常滚对话） */
+/** 触屏没有 hover：点一下把手切换面板（桌面端交给 mouseenter） */
+function onGripClick() {
+  if (window.matchMedia?.('(hover: none)').matches) marksOpen.value = !marksOpen.value
+}
+
+/** 面板内是否放不下：放不下才给它画上下渐隐（不溢出时渐隐会把最后一条抹淡） */
 function syncMarksScroll() {
   const el = marksEl.value
   marksScroll.value = !!el && el.scrollHeight > el.clientHeight + 1
@@ -539,11 +582,17 @@ function watchMarks() {
   syncMarksScroll()
 }
 
-/** 问题多到折起来时，滚轮在书签列上滚书签列 */
+/** 滚轮落在面板上：面板自己没滚到头就归面板，滚到头（或本来就放得下）转给正文 */
 function onMarksWheel(e) {
-  if (!marksScroll.value || !marksEl.value) return
+  const el = marksEl.value
+  if (!el) return
+  if (marksScroll.value) {
+    const atTop = el.scrollTop <= 0 && e.deltaY < 0
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && e.deltaY > 0
+    if (!atTop && !atBottom) return // 面板自己滚，不拦
+  }
   e.preventDefault()
-  marksEl.value.scrollTop += e.deltaY
+  if (threadEl.value) threadEl.value.scrollTop += e.deltaY
 }
 
 /** 把某一根书签带回视野（手动算，不用 scrollIntoView——免得连带滚到别的容器） */
@@ -801,6 +850,21 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding-bottom: 18px;
 }
+/* 滚动条：显式定宽 12px，并淡化成纸面上的一条灰线。
+   定宽是为了让问题导航的把手能精确停在它左边（宽度不定就只能靠猜）。
+   注意不能再用 scrollbar-width——Chromium 一旦认了那个标准属性，下面这套伪元素就整个失效 */
+.p-chat__thread::-webkit-scrollbar,
+.p-chat__main::-webkit-scrollbar { width: 12px; }
+.p-chat__thread::-webkit-scrollbar-track,
+.p-chat__main::-webkit-scrollbar-track { background: transparent; }
+.p-chat__thread::-webkit-scrollbar-thumb,
+.p-chat__main::-webkit-scrollbar-thumb {
+  background: rgba(28, 43, 40, .16);
+  border: 3px solid transparent; /* 12px 轨道里只画中间 6px */
+  background-clip: content-box;
+}
+.p-chat__thread::-webkit-scrollbar-thumb:hover,
+.p-chat__main::-webkit-scrollbar-thumb:hover { background: rgba(28, 43, 40, .32); background-clip: content-box; }
 /* 空状态：欢迎块不撑满，输入框紧随其后，两块一起在这段高度里居中。
    用 auto 外边距而不是 justify-content——空间不够时它退化成 0，不会把顶部裁掉 */
 .p-chat__main.is-empty { overflow-y: auto; }
@@ -883,7 +947,9 @@ onBeforeUnmount(() => {
 }
 .p-chat .p-composer__send:hover { background: var(--teal-deep); }
 
-/* ---------- 左：会话目录 ---------- */
+/* ---------- 左：会话目录 ----------
+   底色比对话区暗两档（--side）：「我的就诊」与「对话」因此自然分成两块，
+   不用在两栏之间画任何一条线（画线会把一张纸隔成两间病房） */
 .p-chat__side {
   display: none;
 }
@@ -891,11 +957,35 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  background: var(--side);
+}
+/* 侧栏抬头：标识 ＋ 品牌名 ＋ 收起按钮，一行排在「+ 新的咨询」之上（学 DS） */
+.p-chat__hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 10px;
+}
+.p-chat__logo {
+  flex: none;
+  display: flex;
+  color: var(--teal);
+}
+.p-chat__brand {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: .04em;
+  color: var(--ink);
 }
 .p-chat__sidehd {
   padding: 16px 14px 0;
-  border-bottom: 1px solid var(--line);
+  /* 侧栏底比 --line 深，原来的浅线在它上面等于不存在，改用 ink 的淡透明 */
+  border-bottom: 1px solid rgba(28, 43, 40, .09);
 }
 .p-chat__count {
   font-family: var(--serif);
@@ -937,7 +1027,7 @@ onBeforeUnmount(() => {
 }
 .p-chat__new {
   flex: none;
-  margin: 14px 14px 0;
+  margin: 4px 14px 14px;
   min-height: 40px;
   border: 1px solid var(--teal);
   background: none;
@@ -958,7 +1048,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 14px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(28, 43, 40, .09);
 }
 .p-chat__unick {
   min-width: 0;
@@ -979,7 +1069,7 @@ onBeforeUnmount(() => {
 .p-chat__unick:hover { color: var(--teal); border-bottom-color: var(--teal); }
 .p-chat__uout {
   flex: none;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(28, 43, 40, .18);
   background: none;
   padding: 4px 10px;
   cursor: pointer;
@@ -991,13 +1081,14 @@ onBeforeUnmount(() => {
 }
 .p-chat__uout:hover { color: var(--err); border-color: var(--err); }
 
-/* 目录条目（与就诊记录页同一套） */
+/* 目录条目（与就诊记录页同一套）。
+   侧栏底是 --side，所以天头用半透明白、选中行用实白卡片——「压在纸面上」的层次才出得来 */
 .p-day {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   padding: 8px 14px 6px;
-  background: var(--card);
+  background: rgba(255, 255, 255, .5);
   font-family: var(--sans);
   font-size: 9.5px;
   letter-spacing: .2em;
@@ -1011,13 +1102,13 @@ onBeforeUnmount(() => {
   gap: 9px;
   padding: 9px 14px;
   border: none;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid rgba(28, 43, 40, .07);
   background: none;
   cursor: pointer;
   text-align: left;
   transition: background .18s ease;
 }
-.p-i:hover { background: var(--card); }
+.p-i:hover { background: rgba(255, 255, 255, .62); }
 .p-i.on { background: var(--card); box-shadow: inset 3px 0 0 var(--teal); }
 .p-i__x {
   flex: 1;
@@ -1042,7 +1133,7 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: 8px 14px;
   border: none;
-  border-bottom: 1px dashed var(--line);
+  border-bottom: 1px dashed rgba(28, 43, 40, .16);
   background: none;
   cursor: pointer;
   font-family: var(--sans);
@@ -1107,73 +1198,136 @@ onBeforeUnmount(() => {
   background: var(--teal);
 }
 
-/* ---------- 右缘：书签列 ---------- */
+/* ---------- 右缘：问题导航（悬浮面板） ----------
+   absolute 而不是列：面板不占布局位，进出回放时正文那一列一动不动。
+   收起时右缘只留一根细把手，鼠标挨到就展开（学 DS 的问题导航） */
 .p-chat__marks {
-  width: 30px;
-  flex: none;
-  min-height: 0;
-  border-left: 1px solid var(--line);
-  background: var(--paper);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
-}
-.p-chat__markshd,
-.p-chat__markset { display: flex; }
-.p-chat__markshd {
-  writing-mode: vertical-rl;
-  flex: none;
-  font-family: var(--sans);
-  font-size: 8px;
-  letter-spacing: .2em;
-  color: var(--ink-2);
-  margin-bottom: 12px;
-}
-/* 一列排不下时自己滚，不撑高页面。滚动条不画——这一栏只有 30px 宽 */
-.p-chat__markset {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 2px 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.p-chat__markset::-webkit-scrollbar { display: none; }
-.p-chat__markset.is-dense { gap: 7px; }
-/* 压缩后仍放不下才滚；上下渐隐——折起来的那几根在两头 */
-.p-chat__markset.is-scroll {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-}
-/* 一根书签 = 这条会话里患者的一个问题。热区比视觉大：细线好点不中 */
-.p-mark {
+  position: absolute;
+  /* 让开最右那条 12px 滚动条：把手停在它左边，两条竖线各归各位、互不打架 */
+  right: 12px;
+  top: 0;
+  bottom: 0;
   width: 22px;
-  height: 14px;
-  flex: none;
-  border: none;
-  padding: 0;
-  background: none;
-  cursor: pointer;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.p-mark::before {
+/* 把手：收起态唯一看得见的东西。热区是整条右缘（够大够好按），视觉只有中间那 2px */
+.p-chat__marksgrip {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.p-chat__marksgrip::before {
   content: '';
-  display: block;
+  width: 2px;
+  height: 46px;
+  background: var(--teal-soft);
+  transition: background .18s ease, height .18s ease;
+}
+.p-chat__marks:hover .p-chat__marksgrip::before { background: var(--teal); height: 62px; }
+.p-chat__marks.is-open .p-chat__marksgrip::before { background: var(--teal); }
+
+.p-chat__markspanel {
+  position: absolute;
+  right: 100%; /* 贴在把手左侧 */
+  top: 50%;
+  width: 220px;
+  max-height: min(56vh, 318px);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  /* 纸面部件一律不加阴影，但这一块是**浮在纸上**的——没阴影就和正文糊在一起了 */
+  box-shadow: 0 4px 18px rgba(28, 43, 40, .1);
+  /* 收起态：往右挪一点 + 透明，不接收鼠标 */
+  transform: translate(12px, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.p-chat__marks.is-open .p-chat__markspanel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+.p-chat__markshd {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.p-chat__marksno {
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  color: var(--ink-2);
+}
+/* 放不下就在面板里自己滚；滚动条不画（220px 的一条卡片，画上滚动条更乱） */
+.p-chat__markset {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 4px 0;
+}
+.p-chat__markset::-webkit-scrollbar { display: none; }
+/* 溢出时上下渐隐——被截掉的那条不该看起来像正常的一条 */
+.p-chat__markset.is-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+}
+/* 一行 = 一个问题的正文首句 + 右缘一根横杠（当前那根长而粗） */
+.p-mark {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s ease;
+}
+.p-mark:hover { background: rgba(28, 43, 40, .045); }
+.p-mark__x {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.p-mark__bar {
+  flex: none;
   width: 13px;
   height: 2.5px;
-  background: var(--teal);
-  opacity: .45;
+  background: var(--ink-2);
+  opacity: .32;
   transition: all .16s ease;
 }
-.p-mark:hover::before { opacity: 1; width: 20px; }
-.p-mark.on::before { opacity: 1; width: 22px; height: 4px; }
+.p-mark.on .p-mark__x { color: var(--teal); }
+.p-mark.on .p-mark__bar {
+  width: 20px;
+  height: 3.5px;
+  background: var(--teal);
+  opacity: 1;
+}
 
 /* ---------- 空状态：一张还没填的接诊单 ---------- */
 .p-hello { display: flex; flex-direction: column; }
@@ -1290,51 +1444,48 @@ onBeforeUnmount(() => {
   transition: color .18s ease, background .18s ease;
 }
 .p-chat__iconbtn:hover { color: var(--teal); background: var(--card); }
-/* 折叠图标在侧栏顶层、新咨询之上 */
+/* 收起按钮在侧栏抬头里（桌面）；精简轨：收起态才出现，与展开态的 sidebox 互换 */
 .p-chat__foldbtn { display: none; }
-/* 精简轨：收起态才出现，与展开态的 sidebox 互换 */
 .p-chat__rail { display: none; }
 @media (min-width: 768px) {
-  .p-chat__foldbtn { display: inline-flex; margin: 12px 0 0 12px; }
-  /* 收起后侧栏只剩横向一条：「智能导诊」入口 + 相邻图标组，宽度随内容 */
-  .p-chat__side.is-collapsed { width: fit-content; }
+  .p-chat__foldbtn { display: inline-flex; margin-left: auto; }
+  /* 收起后侧栏只剩横向一条：标识（点它展开）＋ 展开图标 ＋ 新建。
+     宽度写定值而不是 fit-content——fit-content 不参与 width 插值，收起会「啪」地跳过去，
+     0.2s 的过渡等于白写。min-width 兜底：图标有增减时轨不会挤坏。 */
+  .p-chat__side.is-collapsed { width: 127px; min-width: fit-content; }
   .p-chat__side.is-collapsed .p-chat__sidebox { display: none; }
   .p-chat__side.is-collapsed .p-chat__rail {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px 10px 16px;
+    gap: 6px;
+    padding: 10px 11px;
+    color: var(--teal);
     /* 贴在顶部，不要撑满高度居中（DS 的悬浮条就在左上角） */
     height: auto;
   }
-  /* 「智能导诊」入口：收起态的快速访问点，排版与顶栏标题同阶 */
-  .p-chat__railtitle {
-    border: none;
-    background: none;
-    padding: 0 0 1px;
-    cursor: pointer;
-    font-family: var(--serif);
-    font-size: 15px;
-    letter-spacing: .04em;
-    color: var(--ink);
-    white-space: nowrap;
-    border-bottom: 1px dashed transparent;
-    transition: color .18s ease, border-color .18s ease;
-  }
-  .p-chat__railtitle:hover { color: var(--teal); border-bottom-color: var(--teal); }
-  /* 折叠图标与 ＋ 图标合成一组：一个描边框里两个相邻按钮，中间一道分隔线 */
-  .p-chat__railgroup {
+  /* 收起态的标识：它本身就是展开入口 */
+  .p-chat__railbrand {
+    flex: none;
     display: flex;
     align-items: center;
-    border: 1px solid var(--line);
-    background: var(--card);
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--teal);
+    transition: opacity .18s ease;
   }
-  .p-chat__railgroup .p-chat__iconbtn + .p-chat__iconbtn {
-    border-left: 1px solid var(--line);
+  .p-chat__railbrand:hover { opacity: .7; }
+  .p-chat__railsep {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    background: rgba(28, 43, 40, .16);
   }
-  /* 标题挪进精简轨后，顶栏标题让位（保留占位，顶栏布局不跳） */
-  .p-chat__stage.is-sideless .p-topbar__title { visibility: hidden; }
 }
 
 /* 流式等待：首字到达前的轻提示，随 delta 填充自动消失 */
@@ -1353,7 +1504,7 @@ onBeforeUnmount(() => {
 }
 
 /* ---------- 桌面 ≥768px：DS 式布局——侧栏贴窗口最左，可整个收起；对话内容在中央收 1000px ----------
-   侧栏与对话区之间不画边线：两块同为 paper 底，边线只会把一张床隔成两间病房 */
+   两栏靠底色差分开（--side vs --paper），中间一条线都不画 */
 @media (min-width: 768px) {
   .p-chat__body {
     max-width: none;
@@ -1367,33 +1518,30 @@ onBeforeUnmount(() => {
     overflow: hidden;
     transition: width .2s ease;
   }
-  /* 侧栏与对话区之间不画任何边线——两个区域都是 paper 底，自然衔接 */
+  /* 侧栏与对话区之间不画任何边线——两块纸靠明度差自然衔接 */
   .p-chat__sidebox { border-right: none; }
-  /* 顶栏不放用户区了——那是侧栏底部的位置 */
-  .p-chat__ops { display: none; }
-  .p-chat .p-topbar,
+  /* 整条顶栏在桌面端移除：标题、用户区都归左侧栏，对话区顶上不再有一条横线 */
+  .p-chat .p-chat__topbar { display: none; }
+  /* 滚动容器是**整幅宽**的：滚动条因此落在窗口最右缘，而不是缩在"对话框"里
+     （2026-09-20 四版改。内容改由内边距收成 1000px 居中——内边距不会带着滚动条一起走） */
   .p-chat__main {
     width: 100%;
-    max-width: 1000px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
   }
-  /* 顶栏开关 + 标题 + 右侧留白：标题吃掉剩余空间，紧跟开关 */
-  .p-chat .p-topbar__title { flex: 1; }
-  /* 注意：topbar 不在此列——它要与 main 同宽居中，放在这里会把它又拉成全宽 */
+  /* .p-chat__main 的**每一个**直接子元素都要在这里列全——容器全宽之后，
+     漏掉一个（比如只读条）它就会自己铺满整幅宽，跟旁边的区块错位 */
   .p-chat .p-thread,
-  .p-chat .p-steps {
+  .p-chat .p-steps,
+  .p-chat .p-composer,
+  .p-chat .p-chat__lock {
     max-width: none;
     margin: 0;
     border-left: none;
     border-right: none;
-  }
-  /* 输入区不写 margin:0——空状态下它要靠 margin-bottom:auto 居中 */
-  .p-chat .p-composer {
-    max-width: none;
-    border-left: none;
-    border-right: none;
-    padding-left: 32px;
-    padding-right: 32px;
+    /* 宽屏收到 1000px 居中，窄屏退化成 32px 内边距 */
+    padding-left: max(32px, calc((100% - 1000px) / 2));
+    padding-right: max(32px, calc((100% - 1000px) / 2));
   }
   /* 空状态下输入区不在纸的底边（下方还有居中留白），别在那儿画一条假纸边 */
   .p-chat__main.is-empty .p-composer { border-bottom: none; }
@@ -1402,6 +1550,10 @@ onBeforeUnmount(() => {
 
 /* ---------- 手机 <768px：会话目录是覆盖层，对话区全宽 ---------- */
 @media (max-width: 767px) {
+  /* 触屏没有 hover，右缘那条得够宽才点得中；面板也收窄一点，别盖掉半屏正文。
+     手机滚动条是悬浮式不占位，把手可以更贴边 */
+  .p-chat__marks { width: 34px; right: 4px; }
+  .p-chat__markspanel { width: 186px; }
   .p-chat__side {
     display: block;
     position: absolute;
