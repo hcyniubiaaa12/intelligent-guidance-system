@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>患者端 ·「就诊记录」第二轮 —— 四个方向</title>
+<style>
+  :root{
+    --paper:#F7F9F8; --ink:#1C2B28; --ink-2:#5A6B67; --line:#DDE5E2;
+    --teal:#0E7C66; --teal-deep:#0A5C4C; --teal-soft:#CDE3DD; --moss:#4A7C59;
+    --card:#FFFFFF; --err:#A94438;
+    --sans:"PingFang SC","Microsoft YaHei",sans-serif;
+    --serif:"Noto Serif SC","Source Han Serif SC","STSong",serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#E8EDEB;font-family:var(--serif);color:var(--ink);padding:26px 22px 70px}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  .sans{font-family:var(--sans)}
+
+  h1{font-size:21px;font-weight:700;letter-spacing:.04em;margin-bottom:7px}
+  .lede{font-size:13px;color:var(--ink-2);line-height:1.9;max-width:1000px;margin-bottom:12px}
+  .lede b{color:var(--ink)}
+  .lede code{font-family:var(--sans);font-size:12px;background:#fff;border:1px solid var(--line);padding:1px 5px}
+  h2{font-size:15px;font-weight:700;letter-spacing:.04em;margin:38px 0 14px}
+  h2 span{font-weight:400;font-size:12px;color:var(--ink-2);margin-left:10px;font-family:var(--sans);letter-spacing:.06em}
+
+  .row{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+
+  /* ---------- 通用：手机框 ---------- */
+  .phone{width:346px;background:var(--paper);border:1px solid var(--line);min-height:600px;
+    display:flex;flex-direction:column;overflow:hidden;box-shadow:0 6px 22px rgba(28,43,40,.10);position:relative}
+  .tb{padding:14px 16px 11px;border-bottom:1px solid var(--line);flex:none}
+  .tb__row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .tb__t{font-size:17px;font-weight:700;letter-spacing:.08em}
+  .tb__t.sm{font-size:15.5px}
+  .tb__ops{display:flex;align-items:center;gap:10px;font-family:var(--sans)}
+  .tb__nick{font-size:11px;color:var(--ink-2);letter-spacing:.1em;border-bottom:1px dashed var(--ink-2);
+    padding-bottom:1px;cursor:pointer}
+  .tb__out{font-size:10.5px;letter-spacing:.14em;color:var(--ink-2);border:1px solid var(--line);
+    padding:3px 9px;background:none;cursor:pointer;font-family:inherit}
+  .tb__back{background:none;border:none;color:var(--ink-2);font-size:11.5px;cursor:pointer;
+    font-family:var(--sans);letter-spacing:.12em;padding:0}
+
+  /* 联次筛选（方案甲） */
+  .links{display:flex;gap:0;border-bottom:1px solid var(--line);flex:none;background:#FBFCFB}
+  .links button{flex:1;padding:9px 4px;border:none;border-right:1px solid var(--line);background:none;
+    font-family:var(--sans);font-size:10.5px;letter-spacing:.14em;color:var(--ink-2);cursor:pointer}
+  .links button:last-child{border-right:none}
+  .links button.on{color:var(--teal);font-weight:700;background:#fff;box-shadow:inset 0 -2px 0 var(--teal)}
+
+  .body{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .scroll{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+
+  .note{width:346px;background:#fff;border:1px solid var(--line);padding:14px 16px;
+    font-family:var(--sans);font-size:12px;line-height:1.9;color:var(--ink-2)}
+  .note h3{font-family:var(--serif);font-size:13px;color:var(--ink);margin-bottom:9px;letter-spacing:.04em}
+  .note dl{display:grid;grid-template-columns:56px 1fr;gap:4px 10px}
+  .note dt{font-size:11.5px}
+  .note dd{color:var(--ink);font-size:11.5px}
+  .note .yes{color:var(--teal)} .note .no{color:var(--err)}
+  .slot__tag{display:flex;align-items:center;gap:9px;margin-bottom:11px;font-family:var(--sans)}
+  .slot__no{width:23px;height:23px;background:var(--teal);color:#fff;font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;flex:none;font-family:var(--sans)}
+  .slot__tag b{font-family:var(--serif);font-size:14px}
+  .slot__tag .dev{font-size:10.5px;color:var(--ink-2);border:1px solid var(--line);padding:1px 8px;background:#fff;letter-spacing:.06em}
+  .slot{width:346px}
+
+  /* ================= 甲 · 三联单 ================= */
+  .slip{background:var(--card);border:1px solid var(--line);position:relative}
+  .slip__band{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);
+    font-family:var(--sans);font-size:10px;letter-spacing:.2em;color:var(--ink-2)}
+  .slip__band .keep{margin-left:auto;font-size:9.5px;letter-spacing:.14em;color:var(--ink-2);opacity:.55}
+  /* 联次指示：■■□ = 有主诉联 / 有结论联 / 无就诊联。收起时也能看出结论与挂号有没有 */
+  .linkdots{display:flex;gap:3px;flex:none;align-items:center}
+  .linkdots i{width:9px;height:9px;border:1px solid var(--line);display:block}
+  .linkdots i.has{background:var(--teal);border-color:var(--teal)}
+  .slip__sec{padding:11px 12px}
+  .slip__sec.dim{background:#FBFCFB}
+  .slip__d{display:flex;align-items:center;gap:9px;padding:0 12px;height:20px}
+  .slip__d i{flex:1;height:1px;border-top:1px dashed var(--line)}
+  .slip__d span{font-family:var(--sans);font-size:8.5px;letter-spacing:.3em;color:var(--ink-2);opacity:.5;white-space:nowrap}
+  .slip__txt{font-size:13.5px;line-height:1.6}
+  .slip__date{font-family:var(--sans);font-size:10px;letter-spacing:.16em;color:var(--ink-2);
+    font-variant-numeric:tabular-nums;margin-bottom:6px}
+  .slip__dept{display:flex;align-items:baseline;gap:9px}
+  .slip__dept b{font-size:19px;font-weight:700;letter-spacing:.04em}
+  .slip__conf{font-family:var(--sans);font-size:10.5px;color:var(--teal);margin-left:auto}
+  .slip__bars{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+  .slip__bar{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:10.5px}
+  .slip__bar .bn{width:70px;color:var(--ink-2);flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slip__bar.top .bn{color:var(--ink);font-weight:700}
+  .slip__bar .tr{flex:1;height:4px;background:#EDF2F0;overflow:hidden}
+  .slip__bar .fl{height:100%;background:var(--teal)}
+  .slip__bar .fl.alt{background:var(--teal-soft)}
+  .slip__bar .bp{width:30px;text-align:right;font-size:9.5px;color:var(--ink-2);flex:none}
+  .slip__bar.top .bp{color:var(--teal);font-weight:700}
+
+  /* ================= 乙 · 摊开的病历本（桌面） ================= */
+  .spread{width:760px;background:var(--card);border:1px solid var(--line);display:flex;
+    box-shadow:0 8px 26px rgba(28,43,40,.12);position:relative}
+  .spread__spine{width:1px;background:var(--line);position:relative;flex:none}
+  .spread__spine::before,.spread__spine::after{content:'';position:absolute;left:-3px;width:7px;height:7px;
+    border-radius:50%;background:var(--paper);border:1px solid var(--line)}
+  .spread__spine::before{top:26px} .spread__spine::after{bottom:26px}
+  .leaf{display:flex;flex-direction:column;min-height:520px}
+  .leaf--idx{width:246px;background:#FBFCFB;border-right:1px dashed var(--line)}
+  .leaf--pg{flex:1;background:var(--card)}
+  .leaf__hd{padding:14px 16px 11px;border-bottom:1px solid var(--line)}
+  .leaf__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2)}
+  .leaf__t{font-size:16px;font-weight:700;letter-spacing:.06em;margin-top:6px}
+  .idx{flex:1;overflow-y:auto}
+  .idx__i{padding:10px 15px 10px 13px;border-bottom:1px solid var(--line);cursor:pointer;
+    display:flex;align-items:baseline;gap:9px;transition:background .18s ease}
+  .idx__i:hover{background:var(--paper)}
+  .idx__i.on{background:#fff;box-shadow:inset 3px 0 0 var(--teal)}
+  .idx__n{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);opacity:.5;letter-spacing:.1em;
+    font-variant-numeric:tabular-nums;flex:none;width:22px}
+  .idx__i.on .idx__n{color:var(--teal)}
+  .idx__x{flex:1;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .idx__d{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);letter-spacing:.08em;flex:none;
+    font-variant-numeric:tabular-nums}
+  .leaf__ft{padding:9px 16px;border-top:1px solid var(--line);font-family:var(--sans);font-size:9.5px;
+    letter-spacing:.22em;color:var(--ink-2);display:flex;justify-content:space-between;background:#FBFCFB}
+  .pg{flex:1;padding:18px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+  .msg{font-size:13.5px;line-height:1.75;max-width:84%}
+  .msg.user{align-self:flex-end;background:var(--teal);color:#fff;padding:9px 13px;
+    border-radius:14px 14px 3px 14px}
+  .msg.ai{align-self:flex-start;padding:0 2px}
+  .msg.ai .who{font-family:var(--sans);font-size:10px;color:var(--moss);letter-spacing:.18em;margin-bottom:5px}
+  .rec{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--teal);padding:13px 14px 11px;
+    align-self:stretch}
+  .rec__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2);margin-bottom:9px}
+  .rec__dept{display:flex;align-items:baseline;justify-content:space-between}
+  .rec__dept b{font-size:22px;font-weight:700;letter-spacing:.04em}
+  .rec__conf{font-family:var(--sans);font-size:10.5px;color:var(--teal)}
+  .rec__foot{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px;font-family:var(--sans);
+    font-size:10px;color:var(--ink-2);line-height:1.7}
+
+  /* ================= 丙 · 书口刻度（翻页） ================= */
+  .gauge{position:absolute;right:5px;top:96px;display:flex;flex-direction:column;gap:7px;z-index:3}
+  .gauge i{width:8px;height:1.5px;background:var(--ink-2);opacity:.32;display:block;transition:all .18s ease}
+  .gauge i.m{width:14px;opacity:.55}
+  .gauge i.on{width:22px;height:2.5px;background:var(--teal)}
+  .pageturn{display:flex;align-items:center;gap:9px;padding:9px 16px;flex:none;
+    font-family:var(--sans);font-size:10px;letter-spacing:.2em;color:var(--ink-2)}
+  .pageturn .hint{color:var(--ink-2);opacity:.55}
+  .steps{display:flex;align-items:center;gap:6px;padding:9px 16px;font-family:var(--sans);font-size:10.5px;
+    color:var(--ink-2);background:#FBFCFB;border-top:1px solid var(--line);letter-spacing:.06em;flex:none}
+  .steps .on{color:var(--teal);font-weight:700} .steps .arr{flex:1;height:1px;background:var(--line)}
+  .inbar{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid var(--line);flex:none}
+  .inbar input{flex:1;border:1px solid var(--line);background:#fff;padding:9px 12px;font-size:13px;
+    font-family:inherit;color:var(--ink)}
+  .inbar input::placeholder{color:#9AA8A4;font-family:var(--sans);font-size:12.5px}
+  .inbar button{border:1px solid var(--teal);background:none;color:var(--teal);padding:0 15px;
+    font-family:var(--sans);font-size:12px;letter-spacing:.1em;cursor:pointer}
+
+  /* ================= 丁 · 门诊流水（密度 + 日期戳） ================= */
+  .stamp{width:52px;height:52px;border:1.5px solid var(--teal);border-radius:50%;flex:none;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(-6deg);
+    color:var(--teal);font-family:var(--sans);line-height:1.15;opacity:.9}
+  .stamp b{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:0}
+  .stamp span{font-size:8px;letter-spacing:.12em}
+  .stamp.void{border-color:var(--ink-2);color:var(--ink-2);opacity:.40}
+  .flow{background:var(--card);border:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:11px 12px}
+  .flow__bd{flex:1;min-width:0}
+  .flow__no{font-family:var(--sans);font-size:9.5px;letter-spacing:.16em;color:var(--ink-2);opacity:.55;
+    font-variant-numeric:tabular-nums;margin-bottom:5px}
+  .flow__txt{font-size:13px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .flow__ft{display:flex;align-items:center;gap:8px;margin-top:7px;font-family:var(--sans);font-size:10px;
+    color:var(--ink-2);letter-spacing:.06em}
+  .flow__go{margin-left:auto;color:var(--teal)}
+  .pip{font-size:9.5px;border:1px solid var(--line);padding:1px 6px;letter-spacing:.08em}
+  .pip.ok{border-color:var(--teal);color:var(--teal)}
+  .pip.low{border-color:var(--err);color:var(--err)}
+  .pip.void{border-color:var(--line);color:var(--ink-2)}
+
+  /* 对比表 */
+  table.cmp{border-collapse:collapse;background:#fff;font-family:var(--sans);font-size:12px;
+    width:100%;max-width:1240px}
+  table.cmp th{background:var(--paper);font-size:11px;color:var(--ink-2);text-align:left;padding:9px 13px;
+    border-bottom:1px solid var(--line);font-weight:600;letter-spacing:.06em;white-space:nowrap}
+  table.cmp td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.75}
+  table.cmp tr:last-child td{border-bottom:none}
+  table.cmp td:first-child{font-weight:700;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<h1>患者端 ·「就诊记录」第二轮 —— 四个方向</h1>
+<p class="lede">
+  <b>先说这轮换了什么思路。</b>上一轮四个方案（整页 / 抽屉 / chip 条 / 底栏）都是在回答「把列表放哪个容器」，一个都没用到这个产品的材料。
+  而患者端的题目本身就叫「分诊台纸质单据」——它的材料是<b>挂号条、门诊病历、化验单、一式多联、装订册、书口刻度</b>。<br><br>
+  <b>还有一个更根本的事</b>：<code>CONTEXT.md</code> 写着「会话 = 一条主诉的完整生命周期，挂号成功即置 closed」。
+  所以<b>一次会话 ≈ 一次就诊</b>——「会话历史」和「挂号历史」在这个系统里<b>本来就不是两件事</b>，
+  是同一条就诊流水的两个字段，只是存进了两张表。你要的「点昵称跳挂号历史」，
+  本质是<b>在同一叠东西上换一个看法</b>，而不是跳去另一个页面。<br><br>
+  四个方向都在利用这一点。配色严格用已定稿的患者端令牌，<b>一个新颜色都没加</b>；变化全在结构与排版上。
+</p>
+
+<div class="row">
+
+  <!-- ============ 甲 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">甲</span><b>一式三联单</b><span class="dev">结构 = 联次</span></div>
+    <div class="phone">
+      <div class="tb">
+        <div class="tb__row">
+          <button class="tb__back">← 返 回 对 话</button>
+          <div class="tb__ops"><span class="tb__nick">张山 ▾</span></div>
+        </div>
+        <div class="tb__t" style="margin-top:9px">就 诊 记 录</div>
+      </div>
+      <div class="links">
+        <button class="on">全 部 联 次 · 13</button>
+        <button>只 看 就 诊 联 · 5</button>
+      </div>
+      <div class="body"><div class="scroll">
+
+        <!-- 一张完整的三联单 -->
+        <div class="slip">
+          <div class="slip__band">第 一 联 · 主 诉<span class="keep">患 者 存</span></div>
+          <div class="slip__sec">
+            <div class="slip__date">09-19 17:43　门 诊 流 水 0919-03</div>
+            <div class="slip__txt">头痛得厉害</div>
+          </div>
+          <div class="slip__d"><i></i><span>沿 虚 线 撕 开</span><i></i></div>
+          <div class="slip__band">第 二 联 · 结 论<span class="keep">分 诊 台 存</span></div>
+          <div class="slip__sec">
+            <div class="slip__dept"><b>神经内科</b><span class="slip__conf">85%</span></div>
+            <div class="slip__bars">
+              <div class="slip__bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+              <div class="slip__bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+              <div class="slip__bar"><span class="bn">心血管内科</span><span class="tr"><span class="fl alt" style="width:6%"></span></span><span class="bp">6%</span></div>
+            </div>
+            <div style="margin-top:9px;font-family:var(--sans);font-size:10px;color:var(--ink-2);line-height:1.7">
+              依 据　注1《头痛的分诊与危险信号》　注2《颈肩腰腿痛的分诊要点》
+            </div>
+          </div>
+          <div class="slip__d"><i></i><span>沿 虚 线 撕 开</span><i></i></div>
+          <div class="slip__band">第 三 联 · 就 诊<span class="keep">科 室 存</span></div>
+          <div class="slip__sec dim">
+            <div class="slip__dept" style="align-items:center">
+              <b style="font-size:15px">已 挂 号 · 神 经 内 科</b>
+              <span class="slip__conf" style="color:var(--ink-2)">门诊楼 4 层 A 区</span>
+            </div>
+            <div style="font-family:var(--sans);font-size:10px;color:var(--ink-2);letter-spacing:.1em;margin-top:7px">
+              挂 号 时 间　09-19 17:45　·　状 态　register_success
+            </div>
+          </div>
+        </div>
+
+        <!-- 收起的单：只露日期 + 主诉 + 联次指示（■■□ = 有主诉联 / 有结论联 / 未挂号） -->
+        <div class="slip">
+          <div class="slip__sec" style="display:flex;align-items:center;gap:11px">
+            <div style="flex:1;min-width:0">
+              <div class="slip__date" style="margin-bottom:5px">09-19 17:35</div>
+              <div class="slip__txt">最近爬楼梯胸口发闷，休息几分钟能缓解</div>
+            </div>
+            <span class="linkdots" title="只有主诉联，还没出结论"><i class="has"></i><i></i><i></i></span>
+          </div>
+        </div>
+        <div class="slip">
+          <div class="slip__sec" style="display:flex;align-items:center;gap:11px">
+            <div style="flex:1;min-width:0">
+              <div class="slip__date" style="margin-bottom:5px">09-19 17:29</div>
+              <div class="slip__txt">你好</div>
+            </div>
+            <span class="linkdots" title="主诉联 · 结论联 · 无就诊联"><i class="has"></i><i class="has"></i><i></i></span>
+          </div>
+        </div>
+        <div class="slip">
+          <div class="slip__sec" style="display:flex;align-items:center;gap:11px">
+            <div style="flex:1;min-width:0">
+              <div class="slip__date" style="margin-bottom:5px">09-19 16:47</div>
+              <div class="slip__txt">嗓子疼三天了，咽口水都疼</div>
+            </div>
+            <span class="linkdots" title="主诉联 · 结论联 · 无就诊联"><i class="has"></i><i class="has"></i><i></i></span>
+          </div>
+        </div>
+
+      </div></div>
+    </div>
+    <div class="note" style="margin-top:13px">
+      <h3>一次就诊 = 一张三联单，可撕</h3>
+      <dl>
+        <dt class="yes">结构</dt><dd>横虚线分联，每联右上角印存根归属（患者存 / 分诊台存 / 科室存），联间有「沿虚线撕开」</dd>
+        <dt class="yes">解决</dt><dd>点昵称 → 落到「只看就诊联」＝挂号历史；不是跳页，是<b>换联次</b></dd>
+        <dt class="no">代价</dt><dd>一张单信息密度高，13 张全展开要滚很久 → 列表态只露第一联，点开才展开三联</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 丙 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">丙</span><b>书口刻度 · 翻页</b><span class="dev">结构 = 位置</span></div>
+    <div class="phone">
+      <div class="gauge">
+        <i></i><i></i><i></i><i class="m"></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="m"></i><i></i><i class="on"></i>
+      </div>
+      <div class="tb"><div class="tb__row">
+        <div class="tb__t sm">智 能 导 诊</div>
+        <div class="tb__ops"><span class="tb__nick">张山 ▾</span><button class="tb__out">退 出</button></div>
+      </div></div>
+      <div class="pageturn">
+        <span>第 7 次 / 共 13 次</span><span class="hint">← 左右滑动翻页</span>
+      </div>
+      <div class="body">
+        <div class="scroll">
+          <div class="slip__date" style="margin:0">09-19 17:43　已 出 结 论</div>
+          <div class="msg user">头痛得厉害</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛，建议先到神经内科。</div></div>
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              <div class="slip__bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+              <div class="slip__bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+            </div>
+            <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》</div>
+          </div>
+        </div>
+        <div class="steps"><span class="on">① 导诊结论</span><span class="arr"></span><span>② 模拟挂号</span><span class="arr"></span><span>③ 确认完成</span></div>
+        <div class="inbar"><input placeholder="这是第 7 次就诊，只读回放"><button>继 续 咨 询</button></div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:13px">
+      <h3>不新增页面，把对话页变成一本册子</h3>
+      <dl>
+        <dt class="yes">结构</dt><dd>右侧书口刻度（切口印刷标记）：13 个刻度，当次那条加长加粗；顶部「第 7 次 / 共 13 次」</dd>
+        <dt class="yes">解决</dt><dd>左右滑动翻就诊，右侧刻度告诉你在册子的哪个位置</dd>
+        <dt class="no">代价</dt><dd>刻度是指示不是控件（不可点，别让一个元素干两件事）；13 次以上刻度会太密，超过约 20 次要退化成「第 20 次 / 共 43 次」纯文字</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 丁 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">丁</span><b>门诊流水 · 日期戳</b><span class="dev">结构 = 密度</span></div>
+    <div class="phone">
+      <div class="tb">
+        <div class="tb__row">
+          <button class="tb__back">← 返 回 对 话</button>
+          <div class="tb__ops"><span class="tb__nick">张山 ▾</span></div>
+        </div>
+        <div class="tb__t" style="margin-top:9px">就 诊 流 水</div>
+        <div style="font-family:var(--sans);font-size:10px;letter-spacing:.14em;color:var(--ink-2);margin-top:7px">
+          共 13 次　·　已 挂 号 5 次　·　最 近 09-20
+        </div>
+      </div>
+      <div class="body"><div class="scroll" style="gap:8px">
+
+        <div class="flow">
+          <div class="stamp"><b>09-20</b><span>12:53</span></div>
+          <div class="flow__bd">
+            <div class="flow__no">门 诊 流 水 0920-01</div>
+            <div class="flow__txt">狗屎</div>
+            <div class="flow__ft">
+              <span>未 出 结 论</span><span class="pip void">被拦截</span>
+              <span class="flow__go">展开 ›</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="stamp"><b>09-19</b><span>17:43</span></div>
+          <div class="flow__bd">
+            <div class="flow__no">门 诊 流 水 0919-03</div>
+            <div class="flow__txt">头痛得厉害</div>
+            <div class="flow__ft">
+              <span>神经内科 85%</span><span class="pip ok">已挂号</span>
+              <span class="flow__go">展开 ›</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="stamp"><b>09-19</b><span>17:29</span></div>
+          <div class="flow__bd">
+            <div class="flow__no">门 诊 流 水 0919-02</div>
+            <div class="flow__txt">你好</div>
+            <div class="flow__ft">
+              <span>消化内科 62%</span><span class="pip low">低置信</span>
+              <span class="flow__go">展开 ›</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="stamp void"><b>09-19</b><span>16:47</span></div>
+          <div class="flow__bd">
+            <div class="flow__no">门 诊 流 水 0919-01</div>
+            <div class="flow__txt">嗓子疼三天了，咽口水都疼</div>
+            <div class="flow__ft">
+              <span>耳鼻喉科 78%</span><span class="pip void">未挂号</span>
+              <span class="flow__go">展开 ›</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center;font-family:var(--sans);font-size:10.5px;color:var(--ink-2);padding:4px 0">
+          向 下 滚 动 看 更 早
+        </div>
+      </div></div>
+    </div>
+    <div class="note" style="margin-top:13px">
+      <h3>一屏扫完 13 次，靠日期戳的节奏扫读</h3>
+      <dl>
+        <dt class="yes">结构</dt><dd>左列一枚微斜 -6° 的空心日期戳（teal 描边，未出结论的转灰），右列流水号 + 主诉 + 结果</dd>
+        <dt class="yes">解决</dt><dd>「我上次看的是什么科」这类问题 3 秒答完；流水号 0919-03 是真实顺序，不是装饰序号</dd>
+        <dt class="no">代价</dt><dd>看不到对话正文，展开还是第二层；戳在 13 次时很好看，上百次时要按月份收</dd>
+      </dl>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ 乙 ============ -->
+<h2>乙 · 摊开的病历本<span>结构 = 版面（桌面 ≥768px）—— 这条把你已有的「720px 居中病历单列」往前推了一步</span></h2>
+<div class="row">
+  <div style="width:760px;flex:none">
+    <div class="spread">
+      <div class="leaf leaf--idx">
+        <div class="leaf__hd">
+          <div class="leaf__eb">张 山 · 就 诊 索 引</div>
+          <div class="leaf__t">13 次</div>
+        </div>
+        <div class="idx">
+          <div class="idx__i on"><span class="idx__n">07</span><span class="idx__x">头痛得厉害</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">06</span><span class="idx__x">你好</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">05</span><span class="idx__x">最近爬楼梯胸口发闷…</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">04</span><span class="idx__x">嗓子疼三天了，咽口水…</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">03</span><span class="idx__x">肚子疼，吃饭后疼的</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">02</span><span class="idx__x">退钱</span><span class="idx__d">09-19</span></div>
+          <div class="idx__i"><span class="idx__n">01</span><span class="idx__x">狗屎</span><span class="idx__d">09-19</span></div>
+        </div>
+        <div class="leaf__ft"><span>索 引</span><span>向 上 滚 动</span></div>
+      </div>
+      <div class="spread__spine"></div>
+      <div class="leaf leaf--pg">
+        <div class="leaf__hd" style="display:flex;align-items:baseline;justify-content:space-between">
+          <div>
+            <div class="leaf__eb">第 七 次 就 诊 · 09-19 17:43</div>
+            <div class="leaf__t">神 经 内 科</div>
+          </div>
+          <span style="font-family:var(--sans);font-size:10px;letter-spacing:.16em;color:var(--teal)">已 挂 号</span>
+        </div>
+        <div class="pg">
+          <div class="msg user">头痛得厉害</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>请补充一下：具体是哪个部位不舒服？是什么样的感觉？大概持续多久了？</div></div>
+          <div class="msg user">整个后脑勺，胀痛，三天了，低头更明显</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛，也需排除血压与颈椎问题。建议先到神经内科。</div></div>
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+              <div class="slip__bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+              <div class="slip__bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+            </div>
+            <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》　注2《颈肩腰腿痛的分诊要点》</div>
+          </div>
+        </div>
+        <div class="leaf__ft"><span>第 7 页 / 共 13 页</span><span>科 室 存 联</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="width:400px">
+    <h3>左页索引，右页正文 —— 手机端退化成一条</h3>
+    <dl>
+      <dt class="yes">结构</dt><dd>中缝一条书脊（带两枚装订孔）；左页是编号目录（真实序号 01–13），右页是那一次的完整正文；页脚「第 7 页 / 共 13 页」</dd>
+      <dt class="yes">解决</dt><dd>桌面端不再只是「手机版式收窄居中」——它真的变成一本摊开的册子，两侧同时可用</dd>
+      <dt class="no">代价</dt><dd>只有 ≥768px 才成立；手机端左页要收成抽屉或顶部横滑索引，等于要做两套版式（你原来的规范是「一套媒体查询、不做桌面专用页面」）</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>四个方向放在一起比</h2>
+<table class="cmp">
+  <thead><tr><th>　</th><th>甲 · 一式三联单</th><th>乙 · 摊开病历本</th><th>丙 · 书口刻度翻页</th><th>丁 · 门诊流水日期戳</th></tr></thead>
+  <tbody>
+    <tr><td>结构装置</td><td>联次（横虚线 + 存根归属）</td><td>版面（中缝 / 左索引右正文）</td><td>位置（书口刻度 + 翻页）</td><td>密度（日期戳节奏 + 流水号）</td></tr>
+    <tr><td>挂号历史怎么进</td><td class="yes">换联次「只看就诊联」——最自然</td><td>右页页脚「科室存联」</td><td>无独立入口，滚到那一次</td><td>按「已挂号」筛</td></tr>
+    <tr><td>新增路由</td><td>1 个（列表页） + 单据展开</td><td>1 个</td><td class="yes">0</td><td>1 个</td></tr>
+    <tr><td>会话能读全文</td><td class="yes">能（展开第二联起到底）</td><td class="yes">能，且是主区</td><td class="yes">能，原位</td><td>要再点一层</td></tr>
+    <tr><td>13 次的扫读速度</td><td>慢（一张单很高）</td><td>快（左页 13 行）</td><td>慢（一次只看一次）</td><td class="yes">最快（一屏全见）</td></tr>
+    <tr><td>与纸感气质</td><td class="yes">最强 —— 联次是真实单据结构</td><td class="yes">强 —— 册子就是病历本</td><td>中 —— 书口刻度很妙，但主体还是普通对话页</td><td>中 —— 日期戳好，但表格味重</td></tr>
+    <tr><td>与既有规范冲突</td><td>无</td><td class="no">与「不做桌面专用页面」冲突</td><td>无</td><td>无</td></tr>
+    <tr><td>先要做什么</td><td>1 个只读接口（我的就诊列表，含联次字段）</td><td>同上</td><td>同上（消息已在会话内）</td><td>同上</td></tr>
+  </tbody>
+</table>
+
+<p class="lede" style="margin-top:20px">
+  <b>我推荐 甲，并把 丙 的那枚书口刻度借过来。</b><br>
+  理由：<b>甲是唯一一个把你那个「会话历史 vs 挂号历史」的二元问题消掉的方案</b>——它没有回答「放哪」，而是指出这两样本来就是一叠单的三联，你要的跳转其实是换联次。
+  这是从「门诊单据是一式多联」这个真实材料里长出来的，不是又一层容器。丙的书口刻度可以原样挪进甲的列表页右侧，用来看「我在第几次就诊」，两处互不打架。<br>
+  乙的桌面摊开很漂亮，但它要求你做两套版式，直接撞上你已定稿的「一套媒体查询、不做桌面专用页面」；丁的密度留作列表态的<b>紧凑模式</b>即可，不必单独成一个方向。
+</p>
+
+</body>
+</html>

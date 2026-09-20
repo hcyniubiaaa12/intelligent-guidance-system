@@ -164,35 +164,46 @@ public class ChatService {
 
             // ① 敏感词入口前置校验（先于信息充足性判定）
             SensitiveGuard.GuardResult guard = sensitiveGuard.check(userId, sessionId, content);
-            if (guard.action() == SensitiveGuard.GuardResult.Action.BLOCKED) {
-                log.info("入口校验：命中禁止词「{}」，拦截并返回固定引导（未调模型）", guard.word());
+            if (guard.action() == SensitiveGuard.GuardResult.Action.BLOCKED
+                    || guard.action() == SensitiveGuard.GuardResult.Action.MUTED) {
+                // 拦截与禁言同构：都返回固定话术、都不调模型不进导诊，差别只在话术由谁给
+                boolean muted = guard.action() == SensitiveGuard.GuardResult.Action.MUTED;
+                log.info("入口校验：{}", muted
+                        ? "用户处于禁言期（至 " + guard.muteUntil() + "），本轮不进入导诊"
+                        : "命中禁止词「" + guard.word() + "」，拦截并返回固定引导（未调模型）");
                 saveMessage(sessionId, MessageRole.AI, guard.reply());
                 emitText(emitter, sessionId, guard.reply());
+                // 跨过警告线时补一条处置提示：拦截话术说"请描述症状"，警告说"注意用语"，两件事都要说到
+                emitNotice(emitter, sessionId, guard.notice());
                 send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, false));
                 return;
             }
             log.info("入口校验：{}", guard.action() == SensitiveGuard.GuardResult.Action.WATCHED
                     ? "命中观察词「" + guard.word() + "」，放行并留痕" : "通过（无禁止词命中）");
+            // 警告不阻断本轮：先提示，再照常走导诊（观察词本就要放行）
+            emitNotice(emitter, sessionId, guard.notice());
 
-            // ② 规则硬门槛：首条主诉过于笼统 → 模板追问，不调模型
-            if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
+            // ② 规则硬门槛：确定性无效输入 / 首条主诉过于笼统 → 模板追问，不调模型
+            int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
+            int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
+            String gateReason = ruleGateReason(session, content, askRound, askMaxRounds);
+            if (gateReason != null) {
                 String question = sufficiencyRule.templateQuestion();
-                log.info("规则门槛：首条主诉过于笼统（未命中术语且过短），模板追问（未调模型/未检索）");
+                log.info("规则门槛：{}｜追问轮次 {}/{}，模板追问（未调模型/未检索）",
+                        gateReason, askRound, askMaxRounds);
                 saveMessage(sessionId, MessageRole.QUESTION, question);
                 ask(emitter, session, question);
                 return;
             }
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
-            int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
-            int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
             boolean forceConclusion = askRound >= askMaxRounds;
             log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个", askRound, askMaxRounds,
                     forceConclusion, deptOptions().size());
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(),
                     askRound, forceConclusion,
-                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, RagRequest.DEFAULT_TOP_K),
-                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, RagRequest.DEFAULT_TOP_N));
+                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
+                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N));
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
@@ -325,6 +336,30 @@ public class ChatService {
         return askRound == 0 && (session.getHasResult() == null || session.getHasResult() == 0);
     }
 
+    /**
+     * 规则硬门槛判定：返回 null 表示放行。命中任意一条即模板追问（不调模型、不检索）。
+     *
+     * <p>① 确定性无效输入（语气词/寒暄/说不出/纯符号）——不区分轮次；
+     * ② 首条主诉过于笼统（过短且未命中术语）——只对自由陈述生效。
+     * 应答轮不叠加内容门槛，理由见 {@link SufficiencyRule} 类注释。
+     *
+     * <p><b>护栏</b>：追问预算（ask_max_rounds）用尽后规则一律让路。规则门槛位于
+     * forceConclusion 判定之前，若继续拦，askRound 只涨而永远走不到检索分支，
+     * forceConclusion 永不触发，会话会卡死在"回答 → 被问同一句 → 再回答"的循环里。
+     */
+    private String ruleGateReason(ChatSession session, String content, int askRound, int askMaxRounds) {
+        if (askRound >= askMaxRounds) {
+            return null;
+        }
+        if (sufficiencyRule.noSignal(content)) {
+            return "确定性无效输入";
+        }
+        if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
+            return "首条主诉过于笼统（未命中术语且过短）";
+        }
+        return null;
+    }
+
     /** 历史消息（不含刚落的当前用户消息），role：question/ai → assistant */
     private List<RagTurn> loadHistory(String sessionId) {
         List<ChatMessage> rows = messageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
@@ -359,6 +394,21 @@ public class ChatService {
 
     private void emitText(SseEmitter emitter, String sessionId, String text) {
         send(emitter, SseEvents.DELTA, new SseEvents.DeltaEvent(sessionId, text));
+    }
+
+    /**
+     * 处置提示（警告）单独一条气泡：与答案分开，患者不会把它读成诊断结论的一部分。
+     * 也落库，好让后续轮次的历史里带着这次提醒（模型不必再重复处理这个问题）。
+     *
+     * <p>用独立的 notice 事件而不是塞进 delta：delta 是「同一个气泡的增量」，
+     * 提示混进去会和紧接着的答案粘成一段话（前端无法再拆分）。
+     */
+    private void emitNotice(SseEmitter emitter, String sessionId, String notice) {
+        if (notice == null || notice.isBlank()) {
+            return;
+        }
+        saveMessage(sessionId, MessageRole.AI, notice);
+        send(emitter, SseEvents.NOTICE, new SseEvents.NoticeEvent(sessionId, notice));
     }
 
     /**

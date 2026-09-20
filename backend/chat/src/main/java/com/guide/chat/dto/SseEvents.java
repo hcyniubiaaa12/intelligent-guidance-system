@@ -2,6 +2,7 @@ package com.guide.chat.dto;
 
 /**
  * SSE 事件协议载荷（链路 A）：session → delta → (question | result) → done，异常走 error。
+ * notice（处置提示）可出现在任意位置，不改变主流程形态。
  * 形态见《总体架构与链路设计.md》链路 A 对齐点；前端按事件名分发渲染。
  */
 public final class SseEvents {
@@ -14,6 +15,7 @@ public final class SseEvents {
     public static final String DELTA = "delta";
     public static final String QUESTION = "question";
     public static final String RESULT = "result";
+    public static final String NOTICE = "notice";
     public static final String DONE = "done";
     public static final String ERROR = "error";
 
@@ -27,6 +29,14 @@ public final class SseEvents {
 
     /** 信息不足的追问（不产生 result） */
     public record QuestionEvent(String sessionId, String content, int askRound) {
+    }
+
+    /**
+     * 处置提示（敏感词累计触发的警告 / 禁言话术）：
+     * 前端**单独成一条气泡**——混进回答的 delta 里会被读成诊断结论的一部分。
+     * 注意它本身不是拦截开关：禁止词命中本就拦下本轮（观察词命中不拦，见 SensitiveGuard）。
+     */
+    public record NoticeEvent(String sessionId, String content) {
     }
 
     /** 收尾（正常结束；error 时也可能收到 done 以便前端收尾） */

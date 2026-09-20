@@ -15,6 +15,16 @@ export function unbanUser(id) {
   return http.post(`/admin/users/${id}/unban`)
 }
 
+// 解除禁言（禁言本会到期自动解除，这里用于需要立即放行的场景）；返回是否本来在禁言中
+export function unmuteUser(id) {
+  return http.post(`/admin/users/${id}/unmute`)
+}
+
+// 用户违规明细：窗口内按词聚合的命中 + 处置记录
+export function getUserViolations(id) {
+  return http.get(`/admin/users/${id}/violations`)
+}
+
 // —— 敏感词库 ——
 export function pageWords(params) {
   return http.get('/admin/sensitive-words', { params })
@@ -39,4 +49,46 @@ export function convertWordToBanned(id) {
 
 export function deleteWord(id) {
   return http.delete(`/admin/sensitive-words/${id}`)
+}
+
+// —— 敏感词处置规则（sys_config，与词库同页）——
+// 窗口、两条禁止词阈值、观察词阈值、禁言时长；禁言阈值必须大于警告阈值，否则后端整批拒绝
+export function getSensitiveRules() {
+  return http.get('/admin/sensitive-words/rules')
+}
+
+export function saveSensitiveRules(items) {
+  return http.put('/admin/sensitive-words/rules', { items })
+}
+
+// —— LLM 配置 ——
+// 模型接入信息：模型名与地址可读，密钥只回是否已配置（不回值）
+export function getLlmModels() {
+  return http.get('/admin/llm/models')
+}
+
+// 运行时参数（sys_config）：{ key, label, value, defaultValue, type, range, remark }
+export function getLlmParams() {
+  return http.get('/admin/llm/params')
+}
+
+// 批量保存参数：items = [{ key, value }]，任一项非法则整批不生效
+export function saveLlmParams(items) {
+  return http.put('/admin/llm/params', { items })
+}
+
+// 连通性测试：三路模型各发一次最小请求，返回逐项结果
+export function probeLlm() {
+  return http.post('/admin/llm/probe')
+}
+
+// —— 数据看板 ——
+// 首屏聚合：KPI + 每日趋势 + 根因分布（准确率口径由后端统一，见 DashboardService 注释）
+export function getDashboardOverview(days = 7) {
+  return http.get('/admin/dashboard/overview', { params: { days } })
+}
+
+// 最近导诊记录分页
+export function pageGuideRecords(params) {
+  return http.get('/admin/dashboard/records', { params })
 }

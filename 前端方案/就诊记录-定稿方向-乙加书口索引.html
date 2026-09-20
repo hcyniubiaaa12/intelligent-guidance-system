@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>患者端 ·「就诊记录」定稿方向 —— 摊开病历本 + 书口索引跳转</title>
+<style>
+  :root{
+    --paper:#F7F9F8; --ink:#1C2B28; --ink-2:#5A6B67; --line:#DDE5E2;
+    --teal:#0E7C66; --teal-deep:#0A5C4C; --teal-soft:#CDE3DD; --moss:#4A7C59;
+    --card:#FFFFFF; --err:#A94438;
+    --sans:"PingFang SC","Microsoft YaHei",sans-serif;
+    --serif:"Noto Serif SC","Source Han Serif SC","STSong",serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#E8EDEB;font-family:var(--serif);color:var(--ink);padding:26px 22px 70px}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+  h1{font-size:21px;font-weight:700;letter-spacing:.04em;margin-bottom:8px}
+  .lede{font-size:13px;color:var(--ink-2);line-height:1.9;max-width:1080px;margin-bottom:10px}
+  .lede b{color:var(--ink)}
+  .lede code{font-family:var(--sans);font-size:12px;background:#fff;border:1px solid var(--line);padding:1px 5px}
+  h2{font-size:15px;font-weight:700;letter-spacing:.04em;margin:36px 0 14px}
+  h2 span{font-weight:400;font-size:12px;color:var(--ink-2);margin-left:10px;font-family:var(--sans)}
+  .sans{font-family:var(--sans)}
+
+  /* ================= 桌面：摊开 + 书口索引 ================= */
+  .book{display:flex;background:var(--card);border:1px solid var(--line);
+    box-shadow:0 10px 30px rgba(28,43,40,.13);width:auto;max-width:860px}
+
+  /* 左页：索引 */
+  .leaf--idx{width:240px;flex:none;background:#FBFCFB;display:flex;flex-direction:column;min-height:540px}
+  .idx-hd{padding:15px 16px 12px;border-bottom:1px solid var(--line)}
+  .idx-hd__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2)}
+  .idx-hd__t{font-size:16px;font-weight:700;letter-spacing:.06em;margin-top:7px}
+  .idx-flt{display:flex;gap:0;border-bottom:1px solid var(--line)}
+  .idx-flt button{flex:1;padding:8px 4px;border:none;border-right:1px solid var(--line);background:none;
+    font-family:var(--sans);font-size:10px;letter-spacing:.12em;color:var(--ink-2);cursor:pointer}
+  .idx-flt button:last-child{border-right:none}
+  .idx-flt button.on{color:var(--teal);font-weight:700;background:#fff;box-shadow:inset 0 -2px 0 var(--teal)}
+  .idx{flex:1;overflow-y:auto}
+  .idx__day{font-family:var(--sans);font-size:9px;letter-spacing:.2em;color:var(--ink-2);opacity:.6;
+    padding:8px 15px 5px;background:var(--paper)}
+  .idx__i{padding:9px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;
+    align-items:baseline;gap:9px;transition:background .18s ease}
+  .idx__i:hover{background:var(--paper)}
+  .idx__i.on{background:#fff;box-shadow:inset 3px 0 0 var(--teal)}
+  .idx__n{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);opacity:.5;letter-spacing:.1em;
+    font-variant-numeric:tabular-nums;flex:none;width:20px}
+  .idx__i.on .idx__n{color:var(--teal);opacity:1}
+  .idx__x{flex:1;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .idx__d{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);letter-spacing:.06em;flex:none;
+    font-variant-numeric:tabular-nums}
+  .idx__i.dim .idx__x{color:var(--ink-2)}
+
+  /* 中缝 */
+  .spine{width:1px;background:var(--line);position:relative;flex:none}
+  .spine::before,.spine::after{content:'';position:absolute;left:-3px;width:7px;height:7px;border-radius:50%;
+    background:var(--paper);border:1px solid var(--line)}
+  .spine::before{top:28px} .spine::after{bottom:28px}
+
+  /* 右页 = 横向：正文列 + 右缘书口索引列 */
+  .leaf--pg{flex:1;min-width:0;display:flex;flex-direction:row;min-height:540px;position:relative}
+  .page{flex:1;min-width:0;display:flex;flex-direction:column}
+  .pg-hd{padding:15px 20px 12px;border-bottom:1px solid var(--line);display:flex;
+    align-items:flex-start;justify-content:space-between;gap:14px}
+  .pg-hd__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.22em;color:var(--ink-2)}
+  .pg-hd__t{font-size:20px;font-weight:700;letter-spacing:.05em;margin-top:7px}
+  .pg-hd__r{font-family:var(--sans);font-size:10px;letter-spacing:.14em;color:var(--teal);white-space:nowrap;
+    border:1px solid var(--teal);padding:3px 8px}
+  .pg-bd{flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:13px}
+  .pg-ft{padding:9px 20px;border-top:1px solid var(--line);font-family:var(--sans);font-size:9.5px;
+    letter-spacing:.2em;color:var(--ink-2);display:flex;justify-content:space-between;background:#FBFCFB}
+
+  .msg{font-size:13.5px;line-height:1.75;max-width:82%}
+  .msg.user{align-self:flex-end;background:var(--teal);color:#fff;padding:9px 13px;border-radius:14px 14px 3px 14px}
+  .msg.ai{align-self:flex-start;padding:0 2px}
+  .msg.ai .who{font-family:var(--sans);font-size:10px;color:var(--moss);letter-spacing:.18em;margin-bottom:5px}
+  .rec{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--teal);
+    padding:13px 14px 11px;align-self:stretch}
+  .rec__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2);margin-bottom:9px}
+  .rec__dept{display:flex;align-items:baseline;justify-content:space-between}
+  .rec__dept b{font-size:22px;font-weight:700;letter-spacing:.04em}
+  .rec__conf{font-family:var(--sans);font-size:10.5px;color:var(--teal)}
+  .bar{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:10.5px;margin-top:6px}
+  .bar .bn{width:76px;color:var(--ink-2);flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar.top .bn{color:var(--ink);font-weight:700}
+  .bar .tr{flex:1;height:4px;background:#EDF2F0;overflow:hidden}
+  .bar .fl{height:100%;background:var(--teal)} .bar .fl.alt{background:var(--teal-soft)}
+  .bar .bp{width:32px;text-align:right;font-size:9.5px;color:var(--ink-2);flex:none}
+  .bar.top .bp{color:var(--teal);font-weight:700}
+  .rec__foot{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px;font-family:var(--sans);
+    font-size:10px;color:var(--ink-2);line-height:1.7}
+
+  /* ===== 书口索引：可点的跳转控件 ===== */
+  .edge{width:34px;flex:none;border-left:1px solid var(--line);background:#FBFCFB;
+    display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:0;position:relative}
+  .edge__day{writing-mode:vertical-rl;font-family:var(--sans);font-size:8.5px;letter-spacing:.18em;
+    color:var(--ink-2);opacity:.55;padding:5px 0}
+  /* 每段按「该天有几次就诊」分配高度，刻度在段内均匀摊开——像真实书口的拇指索引，
+     摊满正文高度，刻度之间也就有了足够的点击间距 */
+  .edge__grp{display:flex;flex-direction:column;align-items:center;gap:6px;padding:3px 0;
+    flex:1 1 0;justify-content:space-evenly;min-height:0}
+  /* 一根刻度 = 一次就诊（一次用户问题）。点它跳过去。 */
+  .tick{width:13px;height:2.5px;background:var(--teal);opacity:.42;cursor:pointer;
+    transition:all .16s ease;border:none;padding:0;display:block}
+  .tick:hover{opacity:1;width:22px;background:var(--teal)}
+  .tick.void{background:var(--ink-2);opacity:.28}
+  .tick.void:hover{opacity:.75}
+  .tick.on{width:26px;height:3.5px;opacity:1;background:var(--teal)}
+  /* hover 时浮出的标签：显示那一次就是哪一个「用户问题」 */
+  .tickwrap{position:relative;display:block;line-height:0}
+  .ticklabel{position:absolute;right:22px;top:50%;transform:translateY(-50%);background:var(--ink);color:#fff;
+    font-family:var(--sans);font-size:10.5px;line-height:1.55;padding:5px 9px;white-space:nowrap;
+    letter-spacing:.04em;z-index:6}
+  .ticklabel b{font-weight:600}
+  .ticklabel::after{content:'';position:absolute;right:-5px;top:50%;margin-top:-5px;border:5px solid transparent;
+    border-left-color:var(--ink)}
+  .edge__note{writing-mode:vertical-rl;font-family:var(--sans);font-size:8px;letter-spacing:.16em;
+    color:var(--ink-2);opacity:.5;margin-top:auto;padding-bottom:4px}
+
+  /* ================= 手机：单页 + 书口索引仍在 ================= */
+  .phone{width:346px;background:var(--paper);border:1px solid var(--line);display:flex;flex-direction:column;
+    overflow:hidden;box-shadow:0 6px 22px rgba(28,43,40,.10);min-height:560px}
+  .tb{padding:14px 16px 11px;border-bottom:1px solid var(--line);flex:none}
+  .tb__row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .tb__t{font-size:16px;font-weight:700;letter-spacing:.08em}
+  .tb__ops{display:flex;align-items:center;gap:9px;font-family:var(--sans)}
+  .tb__nick{font-size:11px;color:var(--ink-2);letter-spacing:.1em;border-bottom:1px dashed var(--ink-2);padding-bottom:1px}
+  .tb__out{font-size:10.5px;letter-spacing:.14em;color:var(--ink-2);border:1px solid var(--line);padding:3px 9px;
+    background:none;cursor:pointer;font-family:inherit}
+  .m-split{flex:1;display:flex;min-height:0}
+  .m-main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .m-hd{padding:12px 14px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .m-hd__t{font-size:15px;font-weight:700;letter-spacing:.05em}
+  .m-hd__n{font-family:var(--sans);font-size:10px;letter-spacing:.12em;color:var(--ink-2);margin-left:auto}
+  .m-bd{flex:1;overflow-y:auto;padding:13px 14px;display:flex;flex-direction:column;gap:12px}
+
+  .note{background:#fff;border:1px solid var(--line);padding:15px 17px;font-family:var(--sans);
+    font-size:12px;line-height:1.9;color:var(--ink-2);max-width:660px}
+  .note h3{font-family:var(--serif);font-size:13.5px;color:var(--ink);margin-bottom:9px;letter-spacing:.04em}
+  .note dl{display:grid;grid-template-columns:74px 1fr;gap:5px 12px}
+  .note dt{font-size:11.5px}
+  .note dd{color:var(--ink);font-size:11.5px}
+  .note .yes{color:var(--teal)} .note .no{color:var(--err)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+</style>
+</head>
+<body>
+
+<h1>「就诊记录」定稿方向 —— 摊开病历本 ＋ 书口索引跳转</h1>
+<p class="lede">
+  <b>你要的：</b>乙的摊开版面（左页索引 / 右页正文 / 中缝书脊），加上丙那排书口刻度，并且刻度<b>可点</b>——点一根就跳到那一次就诊，
+  也就是<b>那一次的用户问题</b>（主诉）与它的结论。<br>
+  <b>我改了一处我自己的判断：</b>上一轮我把刻度写成「只指示、不可点」，理由是别让一个元素干两件事。
+  这对普通装饰成立，但对它不成立——<b>它的本职就是导航</b>，当前页只是它的状态。所以现在：一根刻度 = 一次就诊，可点跳转，
+  当前位置靠「加长加粗」表达（同一控件上的状态，不是第二件事）。<br>
+  <b>分组：</b>刻度按天分段，段首是竖排的日期标签（`09-20` / `09-19`），和真实书口索引一样。
+  刻度<b>实心</b>＝那一次出了结论，<b>褪色</b>＝没出结论（被拦截 / 只追问过）。鼠标停在一根刻度上会浮出那一次的时间与主诉原文。
+</p>
+
+<h2>桌面 ≥768px<span>摊开 · 左目录右正文 · 右缘书口索引可点</span></h2>
+<div class="row">
+  <div class="book">
+    <!-- 左页 -->
+    <div class="leaf--idx">
+      <div class="idx-hd">
+        <div class="idx-hd__eb">张 山 · 就 诊 索 引</div>
+        <div class="idx-hd__t">13 次</div>
+      </div>
+      <div class="idx-flt">
+        <button class="on">全 部 联 次 · 13</button>
+        <button>只 看 就 诊 联 · 5</button>
+      </div>
+      <div class="idx">
+        <div class="idx__day">09-20</div>
+        <div class="idx__i dim"><span class="idx__n">13</span><span class="idx__x">狗屎</span><span class="idx__d">12:53</span></div>
+        <div class="idx__day">09-19</div>
+        <div class="idx__i"><span class="idx__n">12</span><span class="idx__x">退钱</span><span class="idx__d">17:44</span></div>
+        <div class="idx__i"><span class="idx__n">11</span><span class="idx__x">头痛得厉害</span><span class="idx__d">17:43</span></div>
+        <div class="idx__i dim"><span class="idx__n">10</span><span class="idx__x">最近爬楼梯胸口发闷…</span><span class="idx__d">17:35</span></div>
+        <div class="idx__i"><span class="idx__n">09</span><span class="idx__x">你好</span><span class="idx__d">17:29</span></div>
+        <div class="idx__i"><span class="idx__n">08</span><span class="idx__x">肚子疼，吃饭后疼的</span><span class="idx__d">17:25</span></div>
+        <div class="idx__i on"><span class="idx__n">07</span><span class="idx__x">头痛得厉害</span><span class="idx__d">17:23</span></div>
+        <div class="idx__i"><span class="idx__n">06</span><span class="idx__x">头有点晕</span><span class="idx__d">17:21</span></div>
+        <div class="idx__i dim"><span class="idx__n">05</span><span class="idx__x">嗓子疼三天了</span><span class="idx__d">17:16</span></div>
+        <div class="idx__i dim"><span class="idx__n">04</span><span class="idx__x">关节疼</span><span class="idx__d">17:16</span></div>
+        <div class="idx__i"><span class="idx__n">03</span><span class="idx__x">胸闷，喘不上气</span><span class="idx__d">17:04</span></div>
+        <div class="idx__i dim"><span class="idx__n">02</span><span class="idx__x">脖子落枕了</span><span class="idx__d">16:52</span></div>
+        <div class="idx__i"><span class="idx__n">01</span><span class="idx__x">肚子疼</span><span class="idx__d">16:47</span></div>
+      </div>
+    </div>
+
+    <div class="spine"></div>
+
+    <!-- 右页 -->
+    <div class="leaf--pg">
+     <div class="page">
+      <div class="pg-hd">
+        <div>
+          <div class="pg-hd__eb">第 七 次 就 诊 · 09-19 17:23</div>
+          <div class="pg-hd__t">神经内科</div>
+        </div>
+        <span class="pg-hd__r">已 挂 号</span>
+      </div>
+      <div class="pg-bd">
+        <div class="msg user">头痛得厉害</div>
+        <div class="msg ai"><div class="who">分 诊 助 理</div>
+          <div>请补充一下：具体是哪个部位不舒服？是什么样的感觉？大概持续多久了？</div></div>
+        <div class="msg user">整个后脑勺，胀痛，三天了，低头更明显</div>
+        <div class="msg ai"><div class="who">分 诊 助 理</div>
+          <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛，也需排除血压与颈椎问题。建议先到神经内科。</div></div>
+        <div class="rec">
+          <div class="rec__eb">分 诊 结 论</div>
+          <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+          <div class="bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+          <div class="bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+          <div class="bar"><span class="bn">心血管内科</span><span class="tr"><span class="fl alt" style="width:6%"></span></span><span class="bp">6%</span></div>
+          <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》　注2《颈肩腰腿痛的分诊要点》</div>
+        </div>
+      </div>
+      <div class="pg-ft"><span>第 7 页 / 共 13 页</span><span>神 经 内 科 · 门 诊 楼 4 层 A 区</span></div>
+     </div>
+
+      <!-- ===== 书口索引：贴右缘，可点跳转 ===== -->
+      <div class="edge">
+        <div class="edge__day">09-20</div>
+        <div class="edge__grp" style="flex-grow:1">
+          <button class="tick void" title="第 13 次 · 09-20 12:53 · 狗屎（未出结论）"></button>
+        </div>
+        <div class="edge__day">09-19</div>
+        <div class="edge__grp" style="flex-grow:12">
+          <button class="tick" title="第 12 次 · 09-19 17:44 · 退钱"></button>
+          <button class="tick" title="第 11 次 · 09-19 17:43 · 头痛得厉害"></button>
+          <button class="tick void" title="第 10 次 · 09-19 17:35 · 最近爬楼梯胸口发闷"></button>
+          <span class="tickwrap">
+            <button class="tick" title="第 9 次 · 09-19 17:29 · 你好"></button>
+            <!-- hover 态浮标：显示那一次就是哪一个「用户问题」 -->
+            <span class="ticklabel"><b>09-19 17:29　你好</b><br>消化内科 62% · 低置信度</span>
+          </span>
+          <button class="tick" title="第 8 次 · 09-19 17:25 · 肚子疼"></button>
+          <button class="tick on" title="第 7 次 · 09-19 17:23 · 头痛得厉害（当前）"></button>
+          <button class="tick" title="第 6 次 · 09-19 17:21 · 头有点晕"></button>
+          <button class="tick void" title="第 5 次 · 09-19 17:16 · 嗓子疼三天了"></button>
+          <button class="tick void" title="第 4 次 · 09-19 17:16 · 关节疼"></button>
+          <button class="tick" title="第 3 次 · 09-19 17:04 · 胸闷"></button>
+          <button class="tick void" title="第 2 次 · 09-19 16:52 · 脖子落枕了"></button>
+          <button class="tick" title="第 1 次 · 09-19 16:47 · 肚子疼"></button>
+        </div>
+        <div class="edge__note">书 口 索 引 · 点 一 根 跳 到 那 一 次</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>书口索引：一根刻度 = 一次用户问题</h3>
+    <dl>
+      <dt class="yes">点它</dt><dd>左页目录跳到那一行、右页换成那一次的完整记录（主诉 → 追问 → 结论 → 就诊）</dd>
+      <dt class="yes">看它</dt><dd>实心＝出过结论；褪色＝没出结论（被拦截 / 只追问过）；加长加粗＝当前这一页</dd>
+      <dt class="yes">分组</dt><dd>按天分段，段首竖排日期；一天内多次就诊也不会糊成一团</dd>
+      <dt class="no">上限</dt><dd>一屏刻度最多约 30 根。超过后按天折叠：只留天的标签，点标签先展开那一天</dd>
+      <dt class="yes">挂号历史</dt><dd>左页顶部「只看就诊联 · 5」——点顶栏昵称进来时默认停在这个筛选</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>手机 &lt;768px<span>同一套语言，只把左页目录收起来——书口索引在手机上照样用</span></h2>
+<div class="row">
+  <div class="phone">
+    <div class="tb"><div class="tb__row">
+      <div class="tb__t">就 诊 记 录</div>
+      <div class="tb__ops"><span class="tb__nick">张山 ▾</span><button class="tb__out">退 出</button></div>
+    </div></div>
+    <div class="m-split">
+      <div class="m-main">
+        <div class="m-hd">
+          <button class="tb__out" style="letter-spacing:.08em">目 录</button>
+          <div class="m-hd__t">神经内科</div>
+          <span class="m-hd__n">第 7 次 / 共 13 次</span>
+        </div>
+        <div class="m-bd">
+          <div style="font-family:var(--sans);font-size:9.5px;letter-spacing:.2em;color:var(--ink-2)">
+            09-19 17:23　·　已 挂 号
+          </div>
+          <div class="msg user">头痛得厉害</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛。建议先到神经内科。</div></div>
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div class="bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+            <div class="bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+            <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》</div>
+          </div>
+        </div>
+      </div>
+      <!-- 手机上的书口索引：同样可点 -->
+      <div class="edge" style="width:30px;border-left:1px solid var(--line)">
+        <div class="edge__day">09-20</div>
+        <div class="edge__grp"><button class="tick void"></button></div>
+        <div class="edge__day" style="font-size:8px">09-19</div>
+        <div class="edge__grp" style="gap:4px">
+          <button class="tick"></button><button class="tick"></button><button class="tick void"></button>
+          <button class="tick"></button><button class="tick"></button>
+          <button class="tick on"></button>
+          <button class="tick"></button><button class="tick void"></button><button class="tick void"></button>
+          <button class="tick"></button><button class="tick void"></button><button class="tick"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>为什么手机端不用另做一版</h3>
+    <dl>
+      <dt class="yes">保留</dt><dd>书口索引（30px 宽）——它本来就是窄的，手机上一样可点可跳</dd>
+      <dt class="yes">收起</dt><dd>左页目录 → 顶栏一个「目录」按钮，点开是覆盖层的同一份索引</dd>
+      <dt class="yes">结论</dt><dd>与你已定稿的「一套媒体查询、不做桌面专用页面」<b>不冲突</b>：两边的视觉语言是同一套，只是左页在窄屏换了个容器</dd>
+      <dt class="no">触控</dt><dd>刻度 2.5px 高太小，不能直接当触控目标 → 手机上每根刻度的<b>实际热区要撑到 30×22px</b>（视觉仍是细线，热区透明放大）</dd>
+    </dl>
+  </div>
+</div>
+
+<p class="lede" style="margin-top:26px">
+  <b>两处我拿不准、等你定的：</b><br>
+  ① <b>刻度的排序方向</b>：现在是<b>上＝最近</b>（第 13 次在最上）。真实病历本是按时间顺序装订的（第 1 次在最上）——
+  但患者多半想先看最近一次。我按「最近在上」画了，你要是觉得该忠于「本子」的顺序，我翻过来。<br>
+  ② <b>超过 30 次怎么办</b>：我在说明里写的是「按天折叠、点标签先展开那天」，但这会让书口索引多一层交互。
+  另一个更省事的做法是刻度只保留<b>最近 30 次</b>，更早的收进左页「加载更早」，书口只服务最近这一段。你选哪个？
+</p>
+
+</body>
+</html>

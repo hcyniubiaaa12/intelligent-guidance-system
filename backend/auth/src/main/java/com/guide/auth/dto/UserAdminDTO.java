@@ -24,6 +24,31 @@ public final class UserAdminDTO {
         private String role;
         private String status;
         private LocalDateTime createdAt;
+
+        /** 禁言截止；null = 未禁言（已到期的由服务端归零，前端不必再比时间） */
+        private LocalDateTime muteUntil;
+
+        /**
+         * 窗口内触发统计与处置。
+         *
+         * <p>**由 admin 侧编排填充**：计数来自 feedback.filter_log、处置次数来自 user_violation，
+         * auth 不依赖任何一方（依赖方向 feedback → chat → auth）。字段挂在行 VO 上是为了
+         * 让用户列表一次请求拿全，不需要前端再拿用户 id 去逐个查。
+         */
+        private HitStat hits;
+    }
+
+    /** 窗口内触发统计（含窗口长度，前端据此显示「近 N 分钟」而不是写死文案） */
+    @Getter
+    @Setter
+    public static class HitStat {
+        private int windowMinutes;
+        /** 禁止词命中词次 */
+        private int bannedHits;
+        /** 观察词命中词次 */
+        private int watchHits;
+        /** 窗口内警告次数 */
+        private int warnCount;
     }
 
     /** 敏感词行（列表） */

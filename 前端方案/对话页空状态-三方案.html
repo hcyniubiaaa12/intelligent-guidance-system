@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>对话页空状态 · 三个方案</title>
+<style>
+  :root{
+    --paper:#F7F9F8; --card:#FFFFFF; --ink:#1C2B28; --ink-2:#5A6B67; --line:#DDE5E2;
+    --teal:#0E7C66; --teal-deep:#0A5C4C; --moss:#4A7C59; --teal-soft:#CDE3DD; --err:#A94438;
+    --serif:'Noto Serif SC','Songti SC','SimSun',serif;
+    --sans:'PingFang SC','Microsoft YaHei',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--line);font-family:var(--serif);color:var(--ink);padding:34px 30px 46px}
+  .hd{max-width:1290px;margin:0 auto 24px}
+  .hd h1{font-size:20px;letter-spacing:.06em;font-weight:500}
+  .hd p{font-family:var(--sans);font-size:11.5px;letter-spacing:.06em;color:var(--ink-2);margin-top:8px}
+  .row{display:flex;gap:30px;max-width:1290px;margin:0 auto;align-items:flex-start}
+  .col{flex:1;min-width:0}
+
+  .cap{font-family:var(--sans);font-size:11.5px;letter-spacing:.2em;color:var(--ink);margin-bottom:9px}
+  .cap b{color:var(--teal)}
+  .note{font-family:var(--sans);font-size:11px;line-height:1.85;color:var(--ink-2);margin-top:10px;
+        border-top:1px solid var(--ink-2);padding-top:8px}
+  .note i{font-style:normal;color:var(--teal)}
+
+  /* ---------- 手机外框 ---------- */
+  .screen{width:390px;max-width:100%;height:632px;background:var(--paper);border:1px solid var(--ink);
+          display:flex;flex-direction:column;overflow:hidden}
+
+  .topbar{display:flex;align-items:baseline;justify-content:space-between;padding:14px 16px 12px;
+          background:var(--card);border-bottom:1px solid var(--ink);flex:none}
+  .topbar__t{font-size:17px;letter-spacing:.04em}
+  .topbar__ops{display:flex;align-items:center;gap:12px}
+  .nick{font-family:var(--sans);font-size:10.5px;letter-spacing:.18em;color:var(--ink-2);
+        border-bottom:1px dashed var(--ink-2);padding-bottom:1px}
+  .out{font-family:var(--sans);font-size:10.5px;letter-spacing:.18em;color:var(--ink-2);
+       border:1px solid var(--line);padding:4px 10px}
+
+  .thread{flex:1;overflow:hidden;padding:20px 16px}
+
+  .steps{display:flex;align-items:center;justify-content:center;padding:10px 16px;background:var(--paper);
+         border-top:1px solid var(--line);font-family:var(--sans);font-size:11px;letter-spacing:.06em;
+         color:var(--ink-2);flex:none}
+  .steps span{display:inline-flex;align-items:center;gap:4px}
+  .steps i{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+           border:1px solid var(--line);border-radius:50%;font-size:9px;font-style:normal}
+  .steps .l{width:26px;height:1px;background:var(--line);margin:0 6px}
+  .steps .now{color:var(--teal);font-weight:700}
+  .steps .now i{border-color:var(--teal);color:var(--teal)}
+
+  .composer{display:flex;align-items:flex-end;gap:8px;padding:10px 16px 14px;background:var(--card);
+            border-top:1px solid var(--line);flex:none}
+  .composer .in{flex:1;min-height:44px;border:1px solid var(--line);padding:11px 12px;
+                font-size:14px;color:var(--ink-2);display:flex;align-items:center}
+  .composer .send{width:44px;height:44px;background:var(--teal);color:#fff;font-family:var(--sans);
+                  font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
+
+  /* ---------- 空状态公用 ---------- */
+  .eb{font-family:var(--sans);font-size:10.5px;letter-spacing:.22em;color:var(--ink-2)}
+  .h1{font-size:24px;letter-spacing:.03em;line-height:1.35;margin-top:9px}
+  .disc{font-family:var(--sans);font-size:10px;letter-spacing:.1em;color:var(--ink-2);
+        border-top:1px dashed var(--line);padding-top:9px;margin-top:16px}
+
+  /* ---------- 甲：接诊单 ---------- */
+  .three{display:flex;gap:6px;margin-top:14px}
+  .three div{flex:1;border:1px solid var(--line);background:var(--card);padding:8px 4px;text-align:center;
+             font-family:var(--sans);font-size:11px;letter-spacing:.14em;color:var(--ink)}
+  .eg{display:flex;gap:9px;margin-top:11px}
+  .eg::before{content:'';flex:none;width:2px;background:var(--teal-soft)}
+  .eg p{font-size:12.5px;line-height:1.75;color:var(--ink-2)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+  .chips span{border:1px solid var(--line);background:var(--card);padding:7px 12px;font-size:12.5px;
+              color:var(--ink);letter-spacing:.02em}
+  .mt16{margin-top:16px}
+
+  /* ---------- 乙：三步预告 ---------- */
+  .lead{font-size:13px;line-height:1.8;color:var(--ink-2);margin-top:10px}
+  .flow{list-style:none;margin-top:16px}
+  .flow li{display:flex;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
+  .flow li:last-child{border-bottom:1px solid var(--line)}
+  .flow .no{flex:none;width:19px;height:19px;border:1px solid var(--teal);color:var(--teal);
+            border-radius:50%;font-family:var(--sans);font-size:10px;display:flex;align-items:center;
+            justify-content:center;margin-top:2px}
+  .flow b{display:block;font-size:14px;font-weight:500;letter-spacing:.02em}
+  .flow i{display:block;font-style:normal;font-family:var(--sans);font-size:11px;letter-spacing:.06em;
+          color:var(--ink-2);margin-top:3px}
+
+  /* ---------- 丙：复诊回顾 ---------- */
+  .last{border:1px solid var(--line);border-left:2px solid var(--moss);background:var(--card);
+        padding:11px 13px;margin-top:15px}
+  .last__r{display:flex;align-items:baseline;gap:9px;margin-top:7px}
+  .last__d{font-family:var(--sans);font-size:11px;letter-spacing:.14em;color:var(--ink-2)}
+  .last__dept{font-size:17px;letter-spacing:.03em}
+  .last__hint{font-family:var(--sans);font-size:11px;letter-spacing:.06em;color:var(--ink-2);margin-top:7px}
+</style>
+</head>
+<body>
+
+<div class="hd">
+  <h1>对话页空状态 · 三个方案</h1>
+  <p>一句话「说说哪里不舒服，我来帮您分诊」太单薄，整片对话区是空的。三个方向都守住同一套令牌：字号、直角、虚线、teal 只在动作上出现。</p>
+</div>
+
+<div class="row">
+
+  <!-- ============ 甲 ============ -->
+  <div class="col">
+    <div class="cap">甲 · 接诊单 <b>（推荐）</b></div>
+    <div class="screen">
+      <div class="topbar">
+        <div class="topbar__t">智能导诊</div>
+        <div class="topbar__ops"><span class="nick">探 针</span><span class="out">退 出</span></div>
+      </div>
+      <div class="thread">
+        <div class="eb">分 诊 台</div>
+        <div class="h1">说说哪里不舒服</div>
+        <p class="lead">说清三件事，分诊会更准</p>
+        <div class="three"><div>部 位</div><div>多 久 了</div><div>什 么 感 觉</div></div>
+        <div class="eg"><p>例：右下腹隐隐作痛两天，一按就疼，还有点恶心</p></div>
+        <div class="eb mt16">常 见 主 诉</div>
+        <div class="chips">
+          <span>发热咳嗽</span><span>肚子疼</span><span>头疼头晕</span>
+          <span>皮肤起疹</span><span>心慌胸闷</span><span>腰背酸痛</span>
+        </div>
+        <p class="disc">分诊为就诊建议，不能替代医生诊断</p>
+      </div>
+      <div class="steps">
+        <span class="now"><i>1</i>导诊结论</span><span class="l"></span>
+        <span><i>2</i>模拟挂号</span><span class="l"></span>
+        <span><i>3</i>确认完成</span>
+      </div>
+      <div class="composer"><div class="in">说说哪里不舒服，我来帮您分诊</div><div class="send">发送</div></div>
+    </div>
+    <p class="note">
+      <i>为什么推荐它</i>：空状态是行动邀请——把"该说什么"直接摆出来，还给了可点的入口。
+      点击 <i>只填进输入框</i>，不直接发（患者可以补一句"还伴着恶心"，分诊更准，也不会误触烧掉一次模型调用）。
+      不引入第二种视觉语言：虚线、直角、teal 描边，都是本方案已有的部件。
+    </p>
+  </div>
+
+  <!-- ============ 乙 ============ -->
+  <div class="col">
+    <div class="cap">乙 · 三步预告</div>
+    <div class="screen">
+      <div class="topbar">
+        <div class="topbar__t">智能导诊</div>
+        <div class="topbar__ops"><span class="nick">探 针</span><span class="out">退 出</span></div>
+      </div>
+      <div class="thread">
+        <div class="eb">分 诊 助 理</div>
+        <div class="h1">先说说哪里不舒服</div>
+        <p class="lead">您会先拿到建议和依据，确认后才生成就诊记录。</p>
+        <ol class="flow">
+          <li><span class="no">1</span><div><b>描述不适</b><i>部位 · 多久了 · 什么感觉</i></div></li>
+          <li><span class="no">2</span><div><b>给出建议</b><i>可能挂哪个科，附判断依据</i></div></li>
+          <li><span class="no">3</span><div><b>模拟挂号</b><i>选定科室，记进就诊记录</i></div></li>
+        </ol>
+        <div class="eg"><p>例：右下腹隐隐作痛两天，一按就疼，还有点恶心</p></div>
+        <p class="disc">分诊为就诊建议，不能替代医生诊断</p>
+      </div>
+      <div class="steps">
+        <span class="now"><i>1</i>导诊结论</span><span class="l"></span>
+        <span><i>2</i>模拟挂号</span><span class="l"></span>
+        <span><i>3</i>确认完成</span>
+      </div>
+      <div class="composer"><div class="in">说说哪里不舒服，我来帮您分诊</div><div class="send">发送</div></div>
+    </div>
+    <p class="note">
+      <i>取舍</i>：把"接下来会发生什么"讲在前面，对第一次用的人最友好，也顺手解释了底下那条流程条。
+      代价是——<i>和步骤条在说同一件事</i>，等于把同一句话说两遍；而且它只管流程、不管内容，
+      患者还是不知道该从哪句开始说。
+    </p>
+  </div>
+
+  <!-- ============ 丙 ============ -->
+  <div class="col">
+    <div class="cap">丙 · 复诊回顾</div>
+    <div class="screen">
+      <div class="topbar">
+        <div class="topbar__t">智能导诊</div>
+        <div class="topbar__ops"><span class="nick">探 针</span><span class="out">退 出</span></div>
+      </div>
+      <div class="thread">
+        <div class="eb">分 诊 台</div>
+        <div class="h1">说说哪里不舒服</div>
+        <div class="last">
+          <div class="eb">上 次 就 诊</div>
+          <div class="last__r"><span class="last__d">09-19 · 19:23</span><span class="last__dept">消化内科</span></div>
+          <div class="last__hint">是复诊的话，说说这次有什么变化</div>
+        </div>
+        <div class="eb mt16">常 见 主 诉</div>
+        <div class="chips">
+          <span>发热咳嗽</span><span>肚子疼</span><span>头疼头晕</span>
+          <span>皮肤起疹</span><span>心慌胸闷</span>
+        </div>
+        <p class="disc">分诊为就诊建议，不能替代医生诊断</p>
+      </div>
+      <div class="steps">
+        <span class="now"><i>1</i>导诊结论</span><span class="l"></span>
+        <span><i>2</i>模拟挂号</span><span class="l"></span>
+        <span><i>3</i>确认完成</span>
+      </div>
+      <div class="composer"><div class="in">说说哪里不舒服，我来帮您分诊</div><div class="send">发送</div></div>
+    </div>
+    <p class="note">
+      <i>取舍</i>：最"饱满"，因为它用的是这个人自己的数据，右上角的「就诊记录」入口也在这里被解释了一次。
+      代价是——<i>多一次请求</i>（/api/records/sessions），而且首次使用的用户没有上一次，
+      得准备一套降级文案；空状态本身也就更绕。
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

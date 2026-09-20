@@ -6,6 +6,8 @@ const routes = [
   // —— 患者端（Vant，手机）——
   { path: '/', name: 'chat', component: () => import('../views/patient/Chat.vue') },
   { path: '/register', name: 'sim-register', component: () => import('../views/patient/SimRegister.vue') },
+  // 就诊记录已并入首页左侧栏（点会话即只读回放）；老链接重定向回首页，不留 404
+  { path: '/records', redirect: '/' },
   // —— 管理端（Element Plus，PC，校验 ROLE_ADMIN）——
   {
     path: '/admin',

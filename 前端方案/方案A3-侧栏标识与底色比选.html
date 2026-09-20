@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 A3 · 侧栏标识与底色比选</title>
+<style>
+  :root {
+    --paper:#F7F9F8; --card:#FFFFFF; --ink:#1C2B28; --ink-2:#5A6B67;
+    --line:#DDE5E2; --teal:#0E7C66; --teal-deep:#0A5C4C; --moss:#4A7C59;
+    --teal-soft:#CDE3DD; --err:#A94438;
+    --serif:'Noto Serif SC','Songti SC','SimSun',serif;
+    --sans:'PingFang SC','Microsoft YaHei',sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:#EEF1EF; color:var(--ink); font-family:var(--serif);
+    font-size:14px; line-height:1.7; -webkit-font-smoothing:antialiased;
+    padding:40px 32px 80px;
+  }
+  .wrap { max-width:1240px; margin:0 auto; }
+  .eyebrow {
+    font-family:var(--sans); font-size:10.5px; letter-spacing:.22em;
+    color:var(--ink-2); text-transform:uppercase;
+  }
+
+  /* ---------- 页头 ---------- */
+  .hd { border-bottom:1px solid #D3DCD8; padding-bottom:20px; margin-bottom:30px; }
+  .hd h1 { font-size:30px; font-weight:400; letter-spacing:.02em; margin:10px 0 8px; }
+  .hd p { font-size:13.5px; color:var(--ink-2); max-width:820px; }
+  .hd p + p { margin-top:6px; }
+
+  /* ---------- 分区 ---------- */
+  section { margin-bottom:52px; }
+  .sh { display:flex; align-items:baseline; gap:12px; margin-bottom:6px; }
+  .sh h2 { font-size:19px; font-weight:400; letter-spacing:.03em; }
+  .sh .no {
+    font-family:var(--sans); font-size:11px; letter-spacing:.1em;
+    color:#fff; background:var(--ink); padding:2px 7px;
+  }
+  .lead { font-size:13px; color:var(--ink-2); margin-bottom:20px; max-width:900px; }
+  .lead b { color:var(--ink); font-weight:600; }
+
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+
+  /* ---------- 选项卡（① 标识用） ---------- */
+  .opt { background:var(--card); border:1px solid #D8E0DD; display:flex; flex-direction:column; }
+  .opt__hd {
+    padding:16px 18px 14px; border-bottom:1px solid #E4EAE8;
+    display:flex; align-items:flex-start; gap:14px;
+  }
+  .opt__mark { flex:none; color:var(--teal); }
+  .opt__tt { font-size:15px; letter-spacing:.06em; }
+  .opt__sub { font-family:var(--sans); font-size:10.5px; letter-spacing:.14em; color:var(--ink-2); margin-top:3px; }
+  .opt__rec, .row__rec {
+    flex:none; font-family:var(--sans); font-size:9.5px; letter-spacing:.14em;
+    color:var(--teal); border:1px solid var(--teal-soft); padding:2px 6px; background:#F1F7F5;
+  }
+  .opt__rec { margin-left:auto; }
+  .opt__body { padding:16px 18px; }
+  .opt__note { font-size:12.5px; line-height:1.8; color:var(--ink-2); padding:0 18px 16px; }
+  .opt__note b { color:var(--ink); font-weight:600; }
+
+  .rule__box { display:flex; align-items:center; gap:14px; }
+  .rule__cell {
+    display:flex; align-items:center; justify-content:center;
+    border:1px dashed #D8E0DD; color:var(--teal);
+  }
+  .rule__cap { font-family:var(--sans); font-size:9.5px; letter-spacing:.12em; color:var(--ink-2); }
+
+  /* ---------- 底色比选：横行排布 ---------- */
+  .row {
+    display:flex; align-items:stretch; background:var(--card);
+    border:1px solid #D8E0DD; margin-bottom:18px;
+  }
+  .row__mock { flex:none; padding:20px; border-right:1px solid #E4EAE8; }
+  .row__txt { flex:1; min-width:0; padding:24px 26px; display:flex; flex-direction:column; }
+  .row__hd { display:flex; align-items:baseline; gap:12px; }
+  .row__tt { font-size:17px; letter-spacing:.06em; }
+  .row__hex { font-family:var(--sans); font-size:11px; letter-spacing:.1em; color:var(--ink-2); }
+  .row__rec { margin-left:auto; }
+  .row__txt > p { margin-top:14px; font-size:13px; line-height:1.85; color:var(--ink-2); }
+  .row__txt > p b { color:var(--ink); font-weight:600; }
+  .row__foot { margin-top:auto; padding-top:16px; border-top:1px dashed #E4EAE8; font-size:12.5px; color:var(--ink-2); }
+
+  /* ---------- 迷你侧栏（真身比例） ---------- */
+  .mini { display:flex; border:1px solid #D8E0DD; overflow:hidden; }
+  .row__mock .mini { border:none; }
+  .mini__side {
+    width:248px; flex:none; display:flex; flex-direction:column;
+    background:var(--side, #EFF3F1); height:356px;
+  }
+  .mini__stage {
+    width:470px; flex:none; background:var(--paper); padding:16px 20px;
+    display:flex; flex-direction:column; gap:12px; position:relative;
+  }
+  .mini__stageflag {
+    position:absolute; top:10px; right:10px; z-index:2;
+    font-family:var(--sans); font-size:8.5px; letter-spacing:.12em;
+    color:#9DA9A5; border:1px dashed #D8E0DD; background:var(--card);
+    padding:1px 5px;
+  }
+
+  /* 侧栏顶行：logo + 品牌 + 折叠 */
+  .mini__hd { display:flex; align-items:center; gap:8px; padding:13px 12px 10px; }
+  .mini__brand { font-size:15px; letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mini__fold {
+    margin-left:auto; flex:none; width:28px; height:28px; display:flex;
+    align-items:center; justify-content:center; color:var(--ink-2);
+  }
+  .lg { flex:none; display:flex; color:var(--teal); }
+
+  .mini__new {
+    margin:4px 12px 12px; min-height:38px; border:1px solid var(--teal);
+    color:var(--teal); font-family:var(--sans); font-size:10.5px;
+    letter-spacing:.16em; display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .mini__meta {
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding:0 12px 8px; border-bottom:1px solid rgba(28,43,40,.08);
+  }
+  .mini__meta .t { font-size:15px; font-weight:700; }
+  .mini__meta .n { font-family:var(--sans); font-size:9.5px; color:var(--ink-2); }
+  .mini__tabs { display:flex; margin:8px 12px 0; }
+  .mini__tabs span {
+    flex:1; text-align:center; padding:6px 2px; font-family:var(--sans);
+    font-size:9.5px; letter-spacing:.12em; color:var(--ink-2); border-bottom:2px solid transparent;
+  }
+  .mini__tabs span.on { color:var(--teal); font-weight:700; border-bottom-color:var(--teal); }
+  .mini__list {
+    flex:1; min-height:0; overflow:hidden; margin-top:6px;
+    -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - 20px), transparent 100%);
+    mask-image:linear-gradient(to bottom, #000 calc(100% - 20px), transparent 100%);
+  }
+  .mini__day {
+    display:flex; justify-content:space-between; padding:6px 12px 4px;
+    font-family:var(--sans); font-size:8.5px; letter-spacing:.2em; color:var(--ink-2);
+    background:rgba(255,255,255,.55);
+  }
+  .mini__i {
+    display:flex; align-items:baseline; gap:8px; padding:7px 12px;
+    border-bottom:1px solid rgba(28,43,40,.06); font-size:12px;
+  }
+  .mini__i .x { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mini__i .q { font-family:var(--sans); font-size:8.5px; color:var(--ink-2); flex:none; }
+  /* 选中行 = 白卡片压在侧栏底上：底色一暗，这层「压上去」的关系才显出来 */
+  .mini__i.on { background:var(--card); box-shadow:inset 3px 0 0 var(--teal); }
+  .mini__user {
+    flex:none; display:flex; align-items:center; justify-content:space-between;
+    padding:9px 12px; border-top:1px solid rgba(28,43,40,.08);
+    font-family:var(--sans); font-size:10px; letter-spacing:.14em;
+  }
+  .mini__user .nick { border-bottom:1px dashed var(--ink-2); color:var(--ink); }
+  .mini__user .out { border:1px solid rgba(28,43,40,.16); padding:3px 8px; color:var(--ink-2); }
+
+  /* 对话区示意 */
+  .mini__u {
+    align-self:flex-end; max-width:78%; background:var(--teal); color:#fff;
+    padding:7px 11px; border-radius:14px 14px 3px 14px; font-size:12px;
+  }
+  .mini__tag { font-family:var(--sans); font-size:9.5px; letter-spacing:.18em; color:var(--moss); }
+  .mini__t { font-size:12.5px; line-height:1.8; }
+  .mini__steps {
+    margin-top:auto; display:flex; align-items:center; justify-content:center; gap:6px;
+    border-top:1px solid var(--line); padding-top:10px;
+    font-family:var(--sans); font-size:10px; color:var(--ink-2);
+  }
+  .mini__steps b { color:var(--teal); font-weight:700; }
+
+  /* ---------- 收起态 ---------- */
+  .railwrap { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .railcard { background:var(--card); border:1px solid #D8E0DD; }
+  .railcard__hd {
+    padding:13px 16px; border-bottom:1px solid #E4EAE8;
+    display:flex; align-items:center; gap:10px; color:var(--teal);
+  }
+  .railcard__tt { font-size:13.5px; color:var(--ink); letter-spacing:.05em; }
+  .railcard__body { padding:16px; }
+  .rail {
+    border:1px solid #D8E0DD; background:var(--paper); height:104px;
+    display:flex; justify-content:flex-start; align-items:flex-start;
+  }
+  .rail__bar {
+    display:inline-flex; align-items:center; gap:6px; padding:9px 11px;
+    background:var(--side, #E9EFEC);
+  }
+  .rail__btn { width:26px; height:26px; display:flex; align-items:center; justify-content:center; color:var(--ink-2); }
+  .rail__sep { width:1px; height:16px; background:rgba(28,43,40,.14); }
+  .railcard__note { padding:0 16px 15px; font-size:12px; line-height:1.75; color:var(--ink-2); }
+  .railcard__note b { color:var(--ink); font-weight:600; }
+
+  /* ---------- 整页终稿 ---------- */
+  .final { border:1px solid #D8E0DD; background:var(--card); }
+  .final__hd { padding:13px 18px; border-bottom:1px solid #E4EAE8; display:flex; align-items:baseline; gap:12px; }
+  .final__hd .tt { font-size:14px; letter-spacing:.05em; }
+  .final__hd .sb { font-family:var(--sans); font-size:10px; letter-spacing:.14em; color:var(--ink-2); }
+  .final__row { display:flex; height:430px; }
+  .final__side { width:248px; flex:none; background:var(--side, #E9EFEC); display:flex; flex-direction:column; }
+  .final__stage { flex:1; background:var(--paper); display:flex; flex-direction:column; }
+  .final__thread {
+    flex:1; padding:22px 32px; display:flex; flex-direction:column; gap:16px;
+    overflow:hidden; width:100%; max-width:1000px; margin:0 auto;
+  }
+  .final__composer { width:100%; max-width:1000px; margin:0 auto; padding:12px 32px 18px; }
+  .final__box {
+    border:1px solid var(--line); background:var(--card); padding:10px 12px 8px;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .final__ph { font-size:13px; color:#9DA9A5; }
+  .final__bar { display:flex; align-items:center; justify-content:space-between; }
+  .final__hint { font-family:var(--sans); font-size:9.5px; letter-spacing:.08em; color:var(--ink-2); opacity:.85; }
+  .final__send {
+    width:30px; height:30px; background:var(--teal); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  /* 色卡 */
+  .swatches { display:flex; flex-wrap:wrap; gap:16px; margin-top:14px; }
+  .sw { display:flex; align-items:center; gap:8px; font-family:var(--sans); font-size:10px; letter-spacing:.08em; color:var(--ink-2); }
+  .sw i { width:26px; height:26px; border:1px solid rgba(28,43,40,.14); display:block; }
+
+  .hintbar {
+    background:#F1F7F5; border:1px solid var(--teal-soft); border-left:3px solid var(--teal);
+    padding:12px 16px; font-size:13px; line-height:1.8; margin-bottom:28px;
+  }
+  .hintbar b { font-weight:600; }
+
+  @media (max-width:1180px) {
+    .row { flex-direction:column; }
+    .row__mock { border-right:none; border-bottom:1px solid #E4EAE8; }
+    .mini__stage { width:auto; flex:1; }
+  }
+  @media (max-width:900px) {
+    .grid3, .railwrap { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hd">
+    <div class="eyebrow">方 案 A 3 · 待 选</div>
+    <h1>侧栏标识与底色</h1>
+    <p>三件事一起定：<b>①</b> 标识（logo）长什么样；<b>②</b> 侧栏底色比对话区暗多少；<b>③</b> 收起后只剩 logo 的精简轨。</p>
+    <p>另有一条已定的改动写在最下面：<b>对话区顶栏整条移除</b>——「智能导诊」挪进侧栏，那一条横线也不再要了。</p>
+  </header>
+
+  <div class="hintbar">
+    选法：回我「标识 <b>甲/乙/丙</b>」「底色 <b>1/2/3</b>」两个词就行，两个选择互不影响。
+  </div>
+
+  <!-- ============================================================ ① 标识 -->
+  <section>
+    <div class="sh"><span class="no">01</span><h2>标识 · 三选一</h2></div>
+    <p class="lead">
+      三个方向都守住「直角、细线、teal 单色」——不做渐变、不做圆角、不加第二个颜色。
+      区别只在<b>它讲的是哪件事</b>。
+    </p>
+
+    <div class="grid3">
+      <!-- 甲 -->
+      <article class="opt">
+        <div class="opt__hd">
+          <span class="opt__mark">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2" />
+              <path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8" />
+              <path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48" />
+              <path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26" />
+            </svg>
+          </span>
+          <div>
+            <div class="opt__tt">甲 · 分 流</div>
+            <div class="opt__sub">一 条 主 诉 → 三 个 方 向</div>
+          </div>
+          <span class="opt__rec">推荐</span>
+        </div>
+        <div class="opt__body">
+          <div class="rule__box">
+            <span class="rule__cell" style="width:52px;height:52px">
+              <span class="lg"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:36px;height:36px">
+              <span class="lg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:26px;height:26px">
+              <span class="lg"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            </span>
+            <span class="rule__cap">34 / 22 / 15</span>
+          </div>
+        </div>
+        <p class="opt__note">
+          左边的竖线是进来的主诉，三条横线由粗到细、由长到短，就是<b>分出来的方向</b>——
+          它画的正巧是推荐卡上那组「Top1 实心 ＋ 备选浅青」的置信度条。
+          标识与本产品最强的记忆点是同一个图形，缩到 15px 还认得出，且<b>不是又一个十字</b>。
+        </p>
+      </article>
+
+      <!-- 乙 -->
+      <article class="opt">
+        <div class="opt__hd">
+          <span class="opt__mark">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7" />
+              <path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7" />
+              <path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3" />
+            </svg>
+          </span>
+          <div>
+            <div class="opt__tt">乙 · 病 历 单</div>
+            <div class="opt__sub">折 角 纸 ＋ 十 字</div>
+          </div>
+        </div>
+        <div class="opt__body">
+          <div class="rule__box">
+            <span class="rule__cell" style="width:52px;height:52px">
+              <span class="lg"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7"/><path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:36px;height:36px">
+              <span class="lg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7"/><path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:26px;height:26px">
+              <span class="lg"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7"/><path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3"/></svg></span>
+            </span>
+            <span class="rule__cap">34 / 22 / 15</span>
+          </div>
+        </div>
+        <p class="opt__note">
+          折角纸就是这套方案里反复出现的「单据」，十字说清是医疗。最稳、最好懂，
+          谁看一眼都知道这是医院的东西。代价是<b>它没讲「分诊」这层意思</b>——
+          换成任何一个医疗产品都成立。
+        </p>
+      </article>
+
+      <!-- 丙 -->
+      <article class="opt">
+        <div class="opt__hd">
+          <span class="opt__mark">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22" />
+              <rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor" />
+              <rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22" />
+            </svg>
+          </span>
+          <div>
+            <div class="opt__tt">丙 · 引 路</div>
+            <div class="opt__sub">三 个 科 室 ， 选 出 一 个</div>
+          </div>
+        </div>
+        <div class="opt__body">
+          <div class="rule__box">
+            <span class="rule__cell" style="width:52px;height:52px">
+              <span class="lg"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/><rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor"/><rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:36px;height:36px">
+              <span class="lg"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/><rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor"/><rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/></svg></span>
+            </span>
+            <span class="rule__cell" style="width:26px;height:26px">
+              <span class="lg"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/><rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor"/><rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/></svg></span>
+            </span>
+            <span class="rule__cap">34 / 22 / 15</span>
+          </div>
+        </div>
+        <p class="opt__note">
+          一排科室里，中间那个是实心的——「从若干候选中定一个」。三块实心色最不糊，
+          最小尺寸最稳。但跟甲一样是「条」，<b>含义不如甲具体</b>，且颜色面积比甲大，
+          在侧栏顶部会比甲重一点。
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================================================ ② 底色 -->
+  <section>
+    <div class="sh"><span class="no">02</span><h2>侧栏底色 · 三选一</h2></div>
+    <p class="lead">
+      现在侧栏与对话区<b>同为 paper</b>（#F7F9F8），中间又没画线，两块糊成一片，看不出哪边是「我的」、哪边是「对话」。
+      下面三档是<b>同一色相（冷绿灰）的逐级压暗</b>，选一个「分得开、又不脏」的落点。
+      三张 mock 都是真实比例（侧栏 248px），都开着同一行选中态——你可以看白卡片压在上面是什么关系。
+    </p>
+
+    <!-- 1 -->
+    <article class="row">
+      <div class="row__mock">
+        <div class="mini">
+          <div class="mini__side" style="--side:#EFF3F1">
+            <div class="mini__hd">
+              <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+              <span class="mini__brand">智能导诊</span>
+              <span class="mini__fold"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+            </div>
+            <div class="mini__new">＋ 新 的 咨 询</div>
+            <div class="mini__meta"><span class="t">我 的 就 诊</span><span class="n">22 次</span></div>
+            <div class="mini__tabs"><span class="on">全 部 对 话</span><span>挂 号 历 史</span></div>
+            <div class="mini__list">
+              <div class="mini__day"><span>09-20</span><span>6 次</span></div>
+              <div class="mini__i on"><span class="x">头疼头晕</span><span class="q">1 问</span></div>
+              <div class="mini__i"><span class="x">右下腹隐隐作痛两天</span><span class="q">3 问</span></div>
+              <div class="mini__i"><span class="x">身上起红疹</span><span class="q">2 问</span></div>
+            </div>
+            <div class="mini__user"><span class="nick">陈 增</span><span class="out">退 出</span></div>
+          </div>
+          <div class="mini__stage">
+            <div class="mini__stageflag">对 话 区</div>
+            <div class="mini__u">爬楼梯胸口发闷伴左肩酸</div>
+            <div>
+              <div class="mini__tag">分 诊 助 理</div>
+              <div class="mini__t">活动后发作、休息能缓解的胸闷，伴左肩放射，更接近心血管内科。</div>
+            </div>
+            <div class="mini__steps"><b>① 导诊结论</b><span>—</span><span>② 模拟挂号</span><span>—</span><span>③ 确认完成</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="row__txt">
+        <div class="row__hd">
+          <span class="row__tt">1 · 一 档</span>
+          <span class="row__hex">#EFF3F1</span>
+        </div>
+        <p>
+          最轻的一档。<b>分开是分开了，但幅度小</b>——屏幕一亮、或者在亮度高的显示器上，
+          两块仍然容易看成一块。好处是几乎不冒犯纸感，侧栏像同一张纸折过来的一面。
+        </p>
+        <p class="row__foot">与 paper 的明度差约 <b>3%</b>。</p>
+      </div>
+    </article>
+
+    <!-- 2 -->
+    <article class="row">
+      <div class="row__mock">
+        <div class="mini">
+          <div class="mini__side" style="--side:#E9EFEC">
+            <div class="mini__hd">
+              <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+              <span class="mini__brand">智能导诊</span>
+              <span class="mini__fold"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+            </div>
+            <div class="mini__new">＋ 新 的 咨 询</div>
+            <div class="mini__meta"><span class="t">我 的 就 诊</span><span class="n">22 次</span></div>
+            <div class="mini__tabs"><span class="on">全 部 对 话</span><span>挂 号 历 史</span></div>
+            <div class="mini__list">
+              <div class="mini__day"><span>09-20</span><span>6 次</span></div>
+              <div class="mini__i on"><span class="x">头疼头晕</span><span class="q">1 问</span></div>
+              <div class="mini__i"><span class="x">右下腹隐隐作痛两天</span><span class="q">3 问</span></div>
+              <div class="mini__i"><span class="x">身上起红疹</span><span class="q">2 问</span></div>
+            </div>
+            <div class="mini__user"><span class="nick">陈 增</span><span class="out">退 出</span></div>
+          </div>
+          <div class="mini__stage">
+            <div class="mini__stageflag">对 话 区</div>
+            <div class="mini__u">爬楼梯胸口发闷伴左肩酸</div>
+            <div>
+              <div class="mini__tag">分 诊 助 理</div>
+              <div class="mini__t">活动后发作、休息能缓解的胸闷，伴左肩放射，更接近心血管内科。</div>
+            </div>
+            <div class="mini__steps"><b>① 导诊结论</b><span>—</span><span>② 模拟挂号</span><span>—</span><span>③ 确认完成</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="row__txt">
+        <div class="row__hd">
+          <span class="row__tt">2 · 两 档</span>
+          <span class="row__hex">#E9EFEC</span>
+          <span class="row__rec">推荐</span>
+        </div>
+        <p>
+          一眼分得开，白色选中行压在灰绿底上有明确的层次，teal 描边的「新的咨询」在灰绿上比在纸白上更立得住。
+          <b>仍然不用画分界线</b>——靠明度差本身收口，比加一条线干净。
+        </p>
+        <p class="row__foot">与 paper 的明度差约 <b>6%</b>；仍与 teal-soft #CDE3DD 拉得开，不会互相混。</p>
+      </div>
+    </article>
+
+    <!-- 3 -->
+    <article class="row">
+      <div class="row__mock">
+        <div class="mini">
+          <div class="mini__side" style="--side:#E3EBE7">
+            <div class="mini__hd">
+              <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+              <span class="mini__brand">智能导诊</span>
+              <span class="mini__fold"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+            </div>
+            <div class="mini__new">＋ 新 的 咨 询</div>
+            <div class="mini__meta"><span class="t">我 的 就 诊</span><span class="n">22 次</span></div>
+            <div class="mini__tabs"><span class="on">全 部 对 话</span><span>挂 号 历 史</span></div>
+            <div class="mini__list">
+              <div class="mini__day"><span>09-20</span><span>6 次</span></div>
+              <div class="mini__i on"><span class="x">头疼头晕</span><span class="q">1 问</span></div>
+              <div class="mini__i"><span class="x">右下腹隐隐作痛两天</span><span class="q">3 问</span></div>
+              <div class="mini__i"><span class="x">身上起红疹</span><span class="q">2 问</span></div>
+            </div>
+            <div class="mini__user"><span class="nick">陈 增</span><span class="out">退 出</span></div>
+          </div>
+          <div class="mini__stage">
+            <div class="mini__stageflag">对 话 区</div>
+            <div class="mini__u">爬楼梯胸口发闷伴左肩酸</div>
+            <div>
+              <div class="mini__tag">分 诊 助 理</div>
+              <div class="mini__t">活动后发作、休息能缓解的胸闷，伴左肩放射，更接近心血管内科。</div>
+            </div>
+            <div class="mini__steps"><b>① 导诊结论</b><span>—</span><span>② 模拟挂号</span><span>—</span><span>③ 确认完成</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="row__txt">
+        <div class="row__hd">
+          <span class="row__tt">3 · 三 档</span>
+          <span class="row__hex">#E3EBE7</span>
+        </div>
+        <p>
+          分得最开，像一张灰纸垫在白色病历单下面。
+          <b>代价是开始有「侧栏比正文低一等」的观感</b>——它不再像纸的另一面，而像另一块板；
+          且 teal 在更暗的底上会显得沉一点（对比较弱）。
+        </p>
+        <p class="row__foot">与 paper 的明度差约 <b>9%</b>；再往下就该考虑画分界线了，那就不是「稍微暗一点」了。</p>
+      </div>
+    </article>
+
+    <div class="swatches">
+      <span class="sw"><i style="background:#F7F9F8"></i>paper（对话区）</span>
+      <span class="sw"><i style="background:#EFF3F1"></i>1 · #EFF3F1</span>
+      <span class="sw"><i style="background:#E9EFEC"></i>2 · #E9EFEC</span>
+      <span class="sw"><i style="background:#E3EBE7"></i>3 · #E3EBE7</span>
+      <span class="sw"><i style="background:#CDE3DD"></i>teal-soft（已有，勿混）</span>
+      <span class="sw"><i style="background:#1C2B28"></i>ink（已有）</span>
+    </div>
+  </section>
+
+  <!-- ============================================================ ③ 收起态 -->
+  <section>
+    <div class="sh"><span class="no">03</span><h2>收起态 · 只剩 logo</h2></div>
+    <p class="lead">
+      点折叠按钮 → 侧栏整条收起，左上角只剩一小条：<b>logo</b> ＋ 一个展开图标。
+      原来那串「智能导诊」文字不再占位——收起后要的就是安静。
+      （logo 本身也是展开入口，点它或点右边那个图标都行。）
+    </p>
+
+    <div class="railwrap">
+      <article class="railcard">
+        <div class="railcard__hd">
+          <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+          <span class="railcard__tt">甲 · 分 流</span>
+        </div>
+        <div class="railcard__body">
+          <div class="rail"><div class="rail__bar">
+            <span class="lg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            <span class="rail__sep"></span>
+            <span class="rail__btn"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+          </div></div>
+        </div>
+        <p class="railcard__note">18px 下三条横线的层次还在，<b>收起来仍认得出是「分诊」</b>。</p>
+      </article>
+
+      <article class="railcard">
+        <div class="railcard__hd">
+          <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7"/><path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3"/></svg></span>
+          <span class="railcard__tt">乙 · 病 历 单</span>
+        </div>
+        <div class="railcard__body">
+          <div class="rail"><div class="rail__bar">
+            <span class="lg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.6 2.8h10.2l6.6 6.6v11.8H3.6z" stroke="currentColor" stroke-width="1.7"/><path d="M13.8 2.8v6.6h6.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 12.4v6.2M8.9 15.5h6.2" stroke="currentColor" stroke-width="2.3"/></svg></span>
+            <span class="rail__sep"></span>
+            <span class="rail__btn"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+          </div></div>
+        </div>
+        <p class="railcard__note">折角还看得见，但<b>纸框那圈细线开始发灰</b>，十字也变小了。</p>
+      </article>
+
+      <article class="railcard">
+        <div class="railcard__hd">
+          <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/><rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor"/><rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/></svg></span>
+          <span class="railcard__tt">丙 · 引 路</span>
+        </div>
+        <div class="railcard__body">
+          <div class="rail"><div class="rail__bar">
+            <span class="lg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.6" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/><rect x="9.7" y="3.4" width="4.6" height="15" fill="currentColor"/><rect x="16.8" y="7" width="4.6" height="11.4" fill="currentColor" opacity=".22"/></svg></span>
+            <span class="rail__sep"></span>
+            <span class="rail__btn"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+          </div></div>
+        </div>
+        <p class="railcard__note">三块实心最"实"，最小尺寸最不糊，但也最抢眼。</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================================================ ④ 整页 -->
+  <section>
+    <div class="sh"><span class="no">04</span><h2>整页终稿 · 按推荐组合（甲 ＋ 底色 2）</h2></div>
+    <p class="lead">
+      两处要点：<b>对话区顶上一条横线也没有了</b>——顶栏整条移除，「智能导诊」只活在侧栏里；
+      手机端另说，它没有侧栏可挂，仍保留一条窄顶栏（左「会话」、右昵称与退出）。
+    </p>
+
+    <div class="final">
+      <div class="final__hd">
+        <span class="tt">展开态</span>
+        <span class="sb">侧 栏 248 ｜ 对 话 区 1000 居 中 ｜ 顶 栏 已 移 除</span>
+      </div>
+      <div class="final__row">
+        <div class="final__side" style="--side:#E9EFEC">
+          <div class="mini__hd" style="padding:14px 14px 10px">
+            <span class="lg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            <span class="mini__brand" style="font-size:16px">智能导诊</span>
+            <span class="mini__fold"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+          </div>
+          <div class="mini__new" style="margin:6px 14px 14px;min-height:40px">＋ 新 的 咨 询</div>
+          <div class="mini__meta" style="padding:0 14px 10px"><span class="t">我 的 就 诊</span><span class="n">22 次</span></div>
+          <div class="mini__tabs" style="margin:10px 14px 0"><span class="on">全 部 对 话</span><span>挂 号 历 史</span></div>
+          <div class="mini__list" style="margin-top:8px">
+            <div class="mini__day" style="padding:8px 14px 6px"><span>09-20</span><span>6 次</span></div>
+            <div class="mini__i on" style="padding:9px 14px"><span class="x">头疼头晕</span><span class="q">1 问</span><span class="q">14:36</span></div>
+            <div class="mini__i" style="padding:9px 14px"><span class="x">右下腹隐隐作痛两天</span><span class="q">3 问</span><span class="q">11:02</span></div>
+            <div class="mini__i" style="padding:9px 14px"><span class="x">身上起红疹</span><span class="q">2 问</span><span class="q">09:48</span></div>
+            <div class="mini__day" style="padding:8px 14px 6px"><span>09-19</span><span>4 次</span></div>
+            <div class="mini__i" style="padding:9px 14px"><span class="x">爬楼梯胸口发闷</span><span class="q">5 问</span><span class="q">20:15</span></div>
+          </div>
+          <div class="mini__user" style="padding:10px 14px"><span class="nick">陈 增</span><span class="out">退 出</span></div>
+        </div>
+        <div class="final__stage">
+          <div class="final__thread">
+            <div class="mini__u" style="font-size:13.5px;padding:9px 13px">爬楼梯胸口发闷伴左肩酸</div>
+            <div>
+              <div class="mini__tag">分 诊 助 理</div>
+              <div class="mini__t" style="font-size:14.5px">这类「活动后发作、休息能缓解」的胸闷，伴左肩放射，更接近心血管内科。建议尽快就诊，别拖到夜间。</div>
+            </div>
+          </div>
+          <div class="final__composer">
+            <div class="final__box">
+              <div class="final__ph">说说哪里不舒服，我来帮您分诊</div>
+              <div class="final__bar">
+                <span class="final__hint">分诊建议，不能替代医生诊断</span>
+                <span class="final__send"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5V3M3.2 7.8 8 3l4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="final" style="margin-top:20px">
+      <div class="final__hd">
+        <span class="tt">收起态</span>
+        <span class="sb">只 剩 logo ｜ 对 话 区 铺 满</span>
+      </div>
+      <div class="final__row" style="height:230px">
+        <div class="final__side" style="width:90px;--side:#E9EFEC">
+          <div class="rail__bar" style="background:transparent;padding:12px 0 0 12px">
+            <span class="lg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.4 4.6v14.8" stroke="currentColor" stroke-width="2"/><path d="M6.5 6.8h14.3" stroke="currentColor" stroke-width="2.8"/><path d="M6.5 12h9.2" stroke="currentColor" stroke-width="2.4" opacity=".48"/><path d="M6.5 17.2h4.6" stroke="currentColor" stroke-width="2" opacity=".26"/></svg></span>
+            <span class="rail__sep"></span>
+            <span class="rail__btn"><svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg></span>
+          </div>
+        </div>
+        <div class="final__stage">
+          <div class="final__thread">
+            <div class="mini__u" style="font-size:13.5px;padding:9px 13px">身上起红疹，越挠越多</div>
+            <div>
+              <div class="mini__tag">分 诊 助 理</div>
+              <div class="mini__t" style="font-size:14.5px">先别抓，抓破容易感染。这类成片出现的红疹更接近皮肤科。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

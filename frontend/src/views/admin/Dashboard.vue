@@ -1,137 +1,202 @@
 <template>
-  <!-- KPI 指标卡：环形 + 标签/数值/同比 -->
-  <section class="a-kpis">
-    <div v-for="k in kpis" :key="k.label" class="a-kpi">
-      <div class="a-kpi__ring" :class="{ 'a-kpi__ring--warn': k.warn }">
-        <svg width="56" height="56" viewBox="0 0 56 56">
-          <circle cx="28" cy="28" r="24" fill="none" stroke="#EDF1F9" stroke-width="5" />
-          <circle
-            cx="28"
-            cy="28"
-            r="24"
-            fill="none"
-            :stroke="k.warn ? '#E06B4D' : '#4468B8'"
-            stroke-width="5"
-            stroke-linecap="round"
-            :stroke-dasharray="`${(k.pct * 150.8).toFixed(1)} 150.8`"
-          />
-        </svg>
-        <span class="a-kpi__ring-num">{{ k.ring }}</span>
-      </div>
-      <div>
-        <div class="a-kpi__label">{{ k.label }}</div>
-        <div class="a-kpi__value">{{ k.value }}</div>
-        <div class="a-kpi__yoy" :class="k.trend">{{ k.yoy }}</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 双列图表面板 -->
-  <section class="a-grid">
-    <!-- 柱状趋势：蓝=命中 / coral=未命中 堆叠 -->
-    <div class="a-panel">
-      <div class="a-panel__head">
-        <span class="a-panel__title">每日导诊量 · 命中构成</span>
-        <span class="a-legend">
-          <span><i class="a-legend__dot" style="background: #4468B8" />命中</span>
-          <span><i class="a-legend__dot" style="background: #E06B4D" />未命中</span>
-        </span>
-      </div>
-      <div class="a-chart">
-        <div v-for="d in trend" :key="d.day" class="a-chart__col">
-          <div class="a-chart__stack">
-            <div class="a-chart__miss" :style="{ height: d.miss + '%' }" />
-            <div class="a-chart__hit" :style="{ height: d.hit + '%' }" />
-          </div>
-          <div class="a-chart__label">{{ d.day }}</div>
+  <div v-if="loading" class="a-empty">加载中…</div>
+  <div v-else-if="loadError" class="a-empty">{{ loadError }}</div>
+  <template v-else>
+    <!-- KPI 指标卡：环形 + 标签/数值/附注 -->
+    <section class="a-kpis">
+      <div v-for="k in kpis" :key="k.label" class="a-kpi">
+        <div class="a-kpi__ring" :class="{ 'a-kpi__ring--warn': k.warn }">
+          <svg width="56" height="56" viewBox="0 0 56 56">
+            <circle cx="28" cy="28" r="24" fill="none" stroke="#EDF1F9" stroke-width="5" />
+            <circle
+              cx="28"
+              cy="28"
+              r="24"
+              fill="none"
+              :stroke="k.warn ? '#E06B4D' : '#4468B8'"
+              stroke-width="5"
+              stroke-linecap="round"
+              :stroke-dasharray="`${((k.pct || 0) * 150.8).toFixed(1)} 150.8`"
+            />
+          </svg>
+          <span class="a-kpi__ring-num">{{ k.ring }}</span>
+        </div>
+        <div>
+          <div class="a-kpi__label">{{ k.label }}</div>
+          <div class="a-kpi__value">{{ k.value }}</div>
+          <div class="a-kpi__yoy" :class="toneClass(k.tone)">{{ k.note }}</div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 分布条：错误根因分布 -->
-    <div class="a-panel">
-      <div class="a-panel__head">
-        <span class="a-panel__title">错误根因分布</span>
-        <span class="a-panel__hint">按最新归因</span>
-      </div>
-      <div class="a-dist">
-        <div v-for="r in rootCauses" :key="r.name" class="a-dist__row">
-          <span class="a-dist__name">{{ r.name }}</span>
-          <span class="a-dist__track">
-            <span class="a-dist__fill" :style="{ width: r.pct + '%' }" />
+    <!-- 双列图表面板 -->
+    <section class="a-grid">
+      <!-- 柱状趋势：蓝=命中 / coral=未命中 堆叠 -->
+      <div class="a-panel">
+        <div class="a-panel__head">
+          <span class="a-panel__title">每日导诊量 · 命中构成</span>
+          <span class="a-legend">
+            <span><i class="a-legend__dot" style="background: #4468B8" />命中</span>
+            <span><i class="a-legend__dot" style="background: #E06B4D" />未命中</span>
           </span>
-          <span class="a-dist__pct">{{ r.pct }}%</span>
+        </div>
+        <div v-if="trendTotal === 0" class="a-empty">近 {{ days }} 天还没有已确认挂号的记录</div>
+        <div v-else class="a-chart">
+          <div v-for="d in trendBars" :key="d.date" class="a-chart__col">
+            <div class="a-chart__stack">
+              <div class="a-chart__miss" :style="{ height: d.missPct + '%' }" />
+              <div class="a-chart__hit" :style="{ height: d.hitPct + '%' }" />
+            </div>
+            <div class="a-chart__label">{{ d.label }}</div>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
 
-  <!-- 全宽表格：最近导诊记录 -->
-  <section class="a-panel">
-    <div class="a-panel__head">
-      <span class="a-panel__title">最近导诊记录</span>
-      <span class="a-panel__hint">共 {{ records.length }} 条</span>
-    </div>
-    <table class="a-table">
-      <thead>
-        <tr>
-          <th>时间</th>
-          <th>主诉摘要</th>
-          <th>推荐科室</th>
-          <th>置信度</th>
-          <th>实际科室</th>
-          <th>结果</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="r in records" :key="r.time">
-          <td>{{ r.time }}</td>
-          <td>{{ r.symptom }}</td>
-          <td>{{ r.rec }}</td>
-          <td>{{ r.conf }}</td>
-          <td>{{ r.actual || '—' }}</td>
-          <td>
-            <span class="a-tag" :class="r.tagClass">{{ r.result }}</span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </section>
+      <!-- 分布条：错误根因分布 -->
+      <div class="a-panel">
+        <div class="a-panel__head">
+          <span class="a-panel__title">错误根因分布</span>
+          <span class="a-panel__hint">按最新归因</span>
+        </div>
+        <div v-if="!rootCauses.length" class="a-empty">暂无归因数据（审核页标注根因后自动汇总）</div>
+        <div v-else class="a-dist">
+          <div v-for="r in rootCauses" :key="r.name" class="a-dist__row">
+            <span class="a-dist__name">{{ r.name }}</span>
+            <span class="a-dist__track">
+              <span class="a-dist__fill" :style="{ width: r.pct + '%' }" />
+            </span>
+            <span class="a-dist__pct">{{ r.pct }}%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 全宽表格：最近导诊记录 -->
+    <section class="a-panel">
+      <div class="a-panel__head">
+        <span class="a-panel__title">最近导诊记录</span>
+        <span class="a-panel__hint">共 {{ page.total }} 条</span>
+      </div>
+      <div v-if="!records.length" class="a-empty">还没有导诊记录</div>
+      <template v-else>
+        <table class="a-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>主诉摘要</th>
+              <th>推荐科室</th>
+              <th>置信度</th>
+              <th>实际科室</th>
+              <th>结果</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in records" :key="r.id">
+              <td>{{ fmtTime(r.time) }}</td>
+              <td>{{ r.complaint }}</td>
+              <td>{{ r.recDept }}</td>
+              <td>{{ r.confidence === null ? '—' : r.confidence + '%' }}</td>
+              <td>{{ r.actualDept || '—' }}</td>
+              <td>
+                <span class="a-tag" :class="tagClass(r.tone)">{{ r.result }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <el-pagination
+          layout="prev, pager, next"
+          :current-page="page.current"
+          :page-size="page.size"
+          :total="page.total"
+          @current-change="loadRecords"
+        />
+      </template>
+    </section>
+  </template>
 </template>
 
 <script setup>
-// —— 假数据：看板指标与趋势 ——
-const kpis = [
-  { label: 'Top-1 命中率', value: '78.4%', ring: '78%', pct: 0.784, yoy: '↑ 2.1% 环比', trend: 'a-kpi__yoy--up' },
-  { label: 'Top-3 命中率', value: '91.2%', ring: '91%', pct: 0.912, yoy: '↑ 1.4% 环比', trend: 'a-kpi__yoy--up' },
-  { label: '待审核', value: '3 条', ring: '3', pct: 0.3, warn: true, yoy: '↑ 新增 2 条', trend: 'a-kpi__yoy--down' },
-  { label: '知识盲区', value: '7 条', ring: '7', pct: 0.42, warn: true, yoy: '— 持平', trend: '' }
-]
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getDashboardOverview, pageGuideRecords } from '../../api/admin'
 
-const trend = [
-  { day: '周一', hit: 62, miss: 8 },
-  { day: '周二', hit: 71, miss: 6 },
-  { day: '周三', hit: 58, miss: 11 },
-  { day: '周四', hit: 76, miss: 5 },
-  { day: '周五', hit: 68, miss: 9 },
-  { day: '周六', hit: 44, miss: 6 },
-  { day: '周日', hit: 38, miss: 4 }
-]
+// 看板口径固定近 7 天（页面 meta 已声明），后端上限 90
+const days = 7
 
-const rootCauses = [
-  { name: '检索失败', pct: 38 },
-  { name: '切分破碎', pct: 21 },
-  { name: '模型未依据检索', pct: 17 },
-  { name: '局部映射缺失', pct: 13 },
-  { name: '解析遗漏', pct: 8 },
-  { name: '结构化失败', pct: 3 }
-]
+const kpis = ref([])
+const trend = ref([])
+const rootCauses = ref([])
+const records = ref([])
+const page = reactive({ current: 1, size: 10, total: 0 })
+const loading = ref(true)
+const loadError = ref('')
 
-const records = [
-  { time: '09-18 14:22', symptom: '胸口闷，爬楼加重', rec: '心血管内科', conf: '82%', actual: '心血管内科', result: 'top-1 命中', tagClass: 'a-tag--ok' },
-  { time: '09-18 13:40', symptom: '右膝蹲起疼痛', rec: '骨科', conf: '76%', actual: '骨科', result: 'top-1 命中', tagClass: 'a-tag--ok' },
-  { time: '09-18 11:05', symptom: '半夜反酸烧心', rec: '消化内科', conf: '64%', actual: '呼吸内科', result: 'top-3 命中', tagClass: '' },
-  { time: '09-18 10:31', symptom: '太阳穴跳痛', rec: '神经内科', conf: '58%', actual: '心血管内科', result: '未命中', tagClass: 'a-tag--warn' },
-  { time: '09-17 17:12', symptom: '手臂红疹发痒', rec: '皮肤科', conf: '88%', actual: '皮肤科', result: 'top-1 命中', tagClass: 'a-tag--ok' }
-]
+function errText(e) {
+  return e?.message || '操作失败，请稍后重试'
+}
+
+function toneClass(tone) {
+  if (tone === 'up') return 'a-kpi__yoy--up'
+  if (tone === 'down') return 'a-kpi__yoy--down'
+  return ''
+}
+
+function tagClass(tone) {
+  if (tone === 'ok') return 'a-tag--ok'
+  if (tone === 'warn') return 'a-tag--warn'
+  return 'a-tag--plain'
+}
+
+// 后端返 ISO 串（与 UserManage 的 fmtDate 同源约定），截成 MM-DD HH:mm
+function fmtTime(value) {
+  if (!value) return '—'
+  const text = String(value)
+  return text.length >= 16 ? text.slice(5, 16).replace('T', ' ') : text
+}
+
+const trendTotal = computed(() =>
+  trend.value.reduce((sum, d) => sum + (d.hit || 0) + (d.miss || 0), 0)
+)
+
+// 柱高按当日总量归一化：真实数据可能远超 100 条，直接当百分比会溢出容器。
+// 留 20% 余量给下方的星期标签（原设计稿的最大值也在 80% 附近）。
+const trendBars = computed(() => {
+  const max = Math.max(...trend.value.map((d) => (d.hit || 0) + (d.miss || 0)), 1)
+  return trend.value.map((d) => ({
+    ...d,
+    hitPct: (((d.hit || 0) / max) * 80).toFixed(1),
+    missPct: (((d.miss || 0) / max) * 80).toFixed(1)
+  }))
+})
+
+async function loadOverview() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const data = await getDashboardOverview(days)
+    kpis.value = data.kpis || []
+    trend.value = data.trend || []
+    rootCauses.value = data.rootCauses || []
+  } catch (e) {
+    loadError.value = errText(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadRecords(pageNo = page.current) {
+  try {
+    const data = await pageGuideRecords({ current: pageNo, size: page.size })
+    records.value = data.records
+    page.current = data.current
+    page.total = data.total
+  } catch (e) {
+    ElMessage.error(errText(e))
+  }
+}
+
+onMounted(() => {
+  loadOverview()
+  loadRecords(1)
+})
 </script>

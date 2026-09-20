@@ -5,6 +5,7 @@ import { ref } from 'vue'
 // entries 为对话条目数组（一个聊天页可先后承载多个会话与多张结论卡），形态：
 //   { type: 'user' | 'ai' | 'question', content }
 //   { type: 'card', recordId, card }   结论卡（挂号与埋点都要 recordId）
+//   { type: 'notice', content }        处置提示（敏感词累计触发的警告），独立一泡
 //   { type: 'error', message, text }   error 态（text = 待重发的输入）
 export const useChatStore = defineStore('chat', () => {
   // 当前会话 id：续聊时随每次请求回传（后端据此判定新主诉 / 追问）

@@ -6,6 +6,7 @@ import com.guide.async.enums.IngestStatus;
 import com.guide.auth.enums.SensitiveWordType;
 import com.guide.auth.enums.UserRole;
 import com.guide.auth.enums.UserStatus;
+import com.guide.auth.enums.ViolationLevel;
 import com.guide.chat.enums.MessageRole;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.feedback.enums.BucketStatus;
@@ -34,7 +35,7 @@ class EnumConventionTest {
 
     /** 全部需要入库装载的枚举（新增枚举时同步登记） */
     private static final List<Class<? extends Enum<?>>> ENUM_TYPES = List.of(
-            UserRole.class, UserStatus.class, SensitiveWordType.class,
+            UserRole.class, UserStatus.class, SensitiveWordType.class, ViolationLevel.class,
             SessionStatus.class, MessageRole.class,
             DocStatus.class, DocFailType.class, MappingSource.class, TermType.class, TermSource.class,
             TrackStage.class, FilterAction.class, BucketStatus.class, ReviewStatus.class,

@@ -23,7 +23,7 @@
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>
-        <!-- 聚合来源：guide_record（chat）+ cluster_bucket / root_cause（feedback） -->
+        <!-- 聚合来源：guide_record / chat_message（chat）+ cluster_bucket / root_cause（feedback） -->
         <dependency>
             <groupId>com.guide</groupId>
             <artifactId>chat</artifactId>
@@ -31,6 +31,11 @@
         <dependency>
             <groupId>com.guide</groupId>
             <artifactId>feedback</artifactId>
+        </dependency>
+        <!-- 只读：dept 名称回填（记录列表要显示推荐/实际科室名，且停用科室的历史记录也要能显示） -->
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>kb</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

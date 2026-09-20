@@ -24,6 +24,28 @@ public class SysConfigService {
     public static final String KEY_ASK_MAX_ROUNDS = "chat.ask.max.rounds";
     public static final String KEY_LOW_CONFIDENCE = "guide.low.confidence";
     public static final String KEY_TERM_MANUAL_REVIEW = "term.manual.review";
+    /** 聚合归桶相似度阈值（链路 C 后半用，键位先占，管理端已可调） */
+    public static final String KEY_CLUSTER_BUCKET_THRESHOLD = "cluster.bucket.threshold";
+    /** 追问升级阈值（轮次） */
+    public static final String KEY_UPGRADE_ROUNDS = "guide.upgrade.rounds";
+
+    /** 敏感词违规的统计窗口（分钟，滑动窗口） */
+    public static final String KEY_SENSITIVE_WINDOW_MINUTES = "sensitive.window.minutes";
+    /** 窗口内禁止词命中词次达此值 → 警告 */
+    public static final String KEY_SENSITIVE_BANNED_WARN = "sensitive.banned.warn.count";
+    /** 窗口内禁止词命中词次达此值 → 禁言 */
+    public static final String KEY_SENSITIVE_BANNED_MUTE = "sensitive.banned.mute.count";
+    /** 窗口内观察词命中词次达此值 → 警告（观察词不禁言） */
+    public static final String KEY_SENSITIVE_WATCH_WARN = "sensitive.watch.warn.count";
+    /** 禁言时长（分钟，到期自动解除） */
+    public static final String KEY_SENSITIVE_MUTE_MINUTES = "sensitive.mute.minutes";
+
+    /**
+     * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
+     * 与 SysConfigAdminService 白名单里的 ParamSpec 同源——改这里就够，别再散落第二份字面量。
+     */
+    public static final int DEFAULT_RETRIEVE_TOP_K = 10;
+    public static final int DEFAULT_RETRIEVE_TOP_N = 5;
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
