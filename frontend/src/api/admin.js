@@ -61,3 +61,14 @@ export function saveLlmParams(items) {
 export function probeLlm() {
   return http.post('/admin/llm/probe')
 }
+
+// —— 数据看板 ——
+// 首屏聚合：KPI + 每日趋势 + 根因分布（准确率口径由后端统一，见 DashboardService 注释）
+export function getDashboardOverview(days = 7) {
+  return http.get('/admin/dashboard/overview', { params: { days } })
+}
+
+// 最近导诊记录分页
+export function pageGuideRecords(params) {
+  return http.get('/admin/dashboard/records', { params })
+}
