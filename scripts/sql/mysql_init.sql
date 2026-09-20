@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS `user_violation` (
     `updated_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_uv_user_time` (`user_id`, `occurred_at`)
-) ENGINE=InnoDB COMMENT='用户违规处置留痕（记忆敏感词/观察词按窗口累计后的警告与禁言）；只记录处置事实，不回写对话或导诊记录';
+) ENGINE=InnoDB COMMENT='用户违规处置留痕（敏感词/观察词按窗口累计后的警告与禁言）；只记录处置事实，不回写对话或导诊记录';
 
 CREATE TABLE IF NOT EXISTS `sys_config` (
     `id`           VARCHAR(32)  NOT NULL,
@@ -259,7 +259,7 @@ CREATE TABLE IF NOT EXISTS `review_task` (
 CREATE TABLE IF NOT EXISTS `root_cause` (
     `id`         VARCHAR(32) NOT NULL,
     `record_id`  VARCHAR(32) NOT NULL COMMENT '导诊记录 id',
-    `causes`     JSON        NULL COMMENT '根因选项 key 数组（小写；清单由前端硬编码定义，后端原样存取不校验）',
+    `causes`     JSON        NULL COMMENT '根因选项 key 数组（小写；字典唯一定义源 = 后端 feedback/enums/RootCauseKey，后端不校验存量值，字典外 key 原样显示并记 WARN）',
     `updated_by` VARCHAR(32) NULL COMMENT '修改人',
     `deleted`    TINYINT     NOT NULL DEFAULT 0,
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -32,8 +32,9 @@ public final class SseEvents {
     }
 
     /**
-     * 处置提示（敏感词累计触发警告）：
-     * 不阻断本轮导诊，前端**单独成一条气泡**——混进回答的 delta 里会被读成诊断结论的一部分。
+     * 处置提示（敏感词累计触发的警告 / 禁言话术）：
+     * 前端**单独成一条气泡**——混进回答的 delta 里会被读成诊断结论的一部分。
+     * 注意它本身不是拦截开关：禁止词命中本就拦下本轮（观察词命中不拦，见 SensitiveGuard）。
      */
     public record NoticeEvent(String sessionId, String content) {
     }

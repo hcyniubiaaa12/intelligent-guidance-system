@@ -40,6 +40,13 @@ public class SysConfigService {
     /** 禁言时长（分钟，到期自动解除） */
     public static final String KEY_SENSITIVE_MUTE_MINUTES = "sensitive.mute.minutes";
 
+    /**
+     * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
+     * 与 SysConfigAdminService 白名单里的 ParamSpec 同源——改这里就够，别再散落第二份字面量。
+     */
+    public static final int DEFAULT_RETRIEVE_TOP_K = 10;
+    public static final int DEFAULT_RETRIEVE_TOP_N = 5;
+
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
 

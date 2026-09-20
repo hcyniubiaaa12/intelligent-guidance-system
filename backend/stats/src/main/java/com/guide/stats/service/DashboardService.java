@@ -133,7 +133,7 @@ public class DashboardService {
         long blind = guideRecordMapper.selectCount(Wrappers.<GuideRecord>lambdaQuery()
                 .eq(GuideRecord::getLowConfidence, 1));
         long allRecords = guideRecordMapper.selectCount(Wrappers.<GuideRecord>lambdaQuery());
-        kpis.add(countKpi("知识盲区", blind, allRecords, "低置信度分流，不参与准确率统计"));
+        kpis.add(countKpi("盲区榜", blind, allRecords, "低置信度分流，不参与准确率统计"));
         return kpis;
     }
 

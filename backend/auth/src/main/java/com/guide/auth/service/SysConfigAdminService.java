@@ -61,9 +61,11 @@ public class SysConfigAdminService {
     }
 
     private static final List<ParamSpec> SPECS = List.of(
-            new ParamSpec(SysConfigService.KEY_RETRIEVE_TOP_K, "向量召回 Top-K", ParamType.INT, 1, 50, "10",
+            new ParamSpec(SysConfigService.KEY_RETRIEVE_TOP_K, "向量召回 Top-K", ParamType.INT, 1, 50,
+                    String.valueOf(SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     "1–50", "pgvector 与 ES 各召回条数", ParamGroup.LINK),
-            new ParamSpec(SysConfigService.KEY_RETRIEVE_TOP_N, "重排后 Top-N", ParamType.INT, 1, 20, "5",
+            new ParamSpec(SysConfigService.KEY_RETRIEVE_TOP_N, "重排后 Top-N", ParamType.INT, 1, 20,
+                    String.valueOf(SysConfigService.DEFAULT_RETRIEVE_TOP_N),
                     "1–20", "送入 Prompt 的切片数", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_ASK_MAX_ROUNDS, "追问轮数上限", ParamType.INT, 1, 10, "3",
                     "1–10", "超限后强制出低置信度结论", ParamGroup.LINK),
@@ -72,7 +74,7 @@ public class SysConfigAdminService {
             new ParamSpec(SysConfigService.KEY_CLUSTER_BUCKET_THRESHOLD, "聚合归桶相似度阈值", ParamType.DECIMAL, 0, 1, "0.85",
                     "0–1", "语义归桶余弦相似度下限", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_LOW_CONFIDENCE, "低置信度分流阈值", ParamType.DECIMAL, 0, 1, "0.5",
-                    "0–1", "低于此值不进聚合，进知识盲区榜", ParamGroup.LINK),
+                    "0–1", "低于此值不进聚合，进盲区榜", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_TERM_MANUAL_REVIEW, "术语人工审核开关", ParamType.BOOL, 0, 0, "true",
                     "", "开启后术语白名单变更需人工确认", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_SENSITIVE_WINDOW_MINUTES, "统计窗口（分钟）", ParamType.INT, 1, 1440, "60",

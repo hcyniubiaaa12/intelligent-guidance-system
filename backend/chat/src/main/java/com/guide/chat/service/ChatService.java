@@ -202,8 +202,8 @@ public class ChatService {
                     forceConclusion, deptOptions().size());
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(),
                     askRound, forceConclusion,
-                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, RagRequest.DEFAULT_TOP_K),
-                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, RagRequest.DEFAULT_TOP_N));
+                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
+                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N));
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
