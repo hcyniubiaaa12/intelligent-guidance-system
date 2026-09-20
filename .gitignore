@@ -16,6 +16,10 @@ logs/
 /package.json
 /package-lock.json
 
+# 本地 e2e 测试脚本：含测试账号、断言与截图路径，不入库
+frontend/e2e_*.cjs
+frontend/shot_mockup.cjs
+
 # IDE
 .idea/
 *.iml
