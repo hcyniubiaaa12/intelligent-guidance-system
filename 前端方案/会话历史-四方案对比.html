@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>患者端 · 「会话历史」放哪 —— 四方案对比</title>
+<style>
+  :root{
+    --paper:#F7F9F8; --ink:#1C2B28; --ink-2:#5A6B67; --line:#DDE5E2;
+    --teal:#0E7C66; --teal-deep:#0A5C4C; --teal-soft:#CDE3DD; --moss:#4A7C59;
+    --card:#FFFFFF; --err:#A94438; --err-soft:#F6EBE9;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#E8EDEB;font-family:"Noto Serif SC","Source Han Serif SC","STSong",serif;
+    color:var(--ink);padding:26px 20px 60px}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+  h1{font-size:21px;font-weight:700;letter-spacing:.04em;margin-bottom:6px}
+  .lede{font-size:13px;color:var(--ink-2);line-height:1.8;margin-bottom:24px;max-width:900px}
+  .lede b{color:var(--ink)}
+  .sans{font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+
+  .row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start;margin-bottom:34px}
+
+  .slot{width:344px}
+  .slot__tag{display:flex;align-items:center;gap:8px;margin-bottom:10px;
+    font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+  .slot__no{width:22px;height:22px;background:var(--teal);color:#fff;font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;flex:none}
+  .slot__tag b{font-size:14px}
+  .slot__tag .badge{font-size:10.5px;letter-spacing:.1em;color:var(--ink-2);border:1px solid var(--line);
+    padding:1px 7px;background:#fff}
+  .slot.fixed .slot__no{background:var(--ink-2)}
+
+  .phone{width:344px;background:var(--paper);border:1px solid var(--line);min-height:560px;
+    display:flex;flex-direction:column;overflow:hidden;box-shadow:0 6px 22px rgba(28,43,40,.10)}
+  .phone.dim{opacity:.55}
+
+  /* 病历抬头式顶栏 */
+  .tb{padding:14px 16px 11px;border-bottom:1px solid var(--line);background:var(--paper);flex:none}
+  .tb__row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .tb__t{font-size:17px;font-weight:700;letter-spacing:.06em}
+  .tb__ops{display:flex;align-items:center;gap:9px;font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+  .tb__nick{font-size:11px;color:var(--ink-2);letter-spacing:.1em;border-bottom:1px dashed var(--ink-2);
+    padding-bottom:1px;cursor:pointer}
+  .tb__out{font-size:10.5px;letter-spacing:.14em;color:var(--ink-2);border:1px solid var(--line);
+    padding:3px 9px;background:none;cursor:pointer;font-family:inherit}
+  .tb__out:hover{border-color:var(--err);color:var(--err)}
+  .tb__back{background:none;border:none;color:var(--ink-2);font-size:12px;cursor:pointer;
+    font-family:"PingFang SC",sans-serif;letter-spacing:.08em;padding:0}
+
+  /* tab */
+  .tabs{display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--line);flex:none;background:var(--paper)}
+  .tab{padding:10px 1px;border-bottom:2px solid transparent;font-size:12.5px;color:var(--ink-2);
+    background:none;border-radius:0;cursor:pointer;letter-spacing:.14em;
+    font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+  .tab.on{color:var(--teal);font-weight:700;border-bottom-color:var(--teal)}
+
+  .body{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .scroll{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+
+  /* 会话条目：单据感 */
+  .sess{background:var(--card);border:1px solid var(--line);padding:11px 12px;transition:border-color .18s ease}
+  .sess:hover{border-color:var(--teal)}
+  .sess__top{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--ink-2);
+    letter-spacing:.1em;font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin-bottom:7px}
+  .sess__t{font-variant-numeric:tabular-nums}
+  .sess__txt{font-size:13.5px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:1;
+    -webkit-box-orient:vertical;overflow:hidden}
+  .sess__foot{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;
+    border-top:1px dashed var(--line);font-size:11px;color:var(--ink-2);
+    font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+  .sess__go{margin-left:auto;color:var(--teal);font-size:11px}
+  .st{font-size:10px;padding:1px 7px;border:1px solid var(--line);color:var(--ink-2);letter-spacing:.08em}
+  .st.ok{border-color:var(--teal);color:var(--teal)}
+  .st.low{border-color:var(--err);color:var(--err)}
+  .st.mute{background:#F1F4F3}
+
+  /* 对话气泡（复用 A2 语言） */
+  .msg{font-size:13.5px;line-height:1.7;max-width:84%}
+  .msg.user{align-self:flex-end;background:var(--teal);color:#fff;padding:9px 13px;
+    border-radius:14px 14px 3px 14px}
+  .msg.ai{align-self:flex-start;padding:0 2px}
+  .msg.ai .who{font-size:10px;color:var(--moss);letter-spacing:.18em;margin-bottom:5px;
+    font-family:"PingFang SC",sans-serif}
+  .msg.notice{align-self:stretch;background:var(--err-soft);border-left:3px solid var(--err);
+    padding:9px 11px;font-size:12px;color:var(--err);max-width:none}
+
+  /* 迷你推荐卡 */
+  .rec{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--teal);
+    padding:11px 12px 9px;align-self:stretch}
+  .rec__eb{font-size:9.5px;color:var(--ink-2);letter-spacing:.22em;margin-bottom:7px;
+    font-family:"PingFang SC",sans-serif}
+  .rec__dept{display:flex;align-items:baseline;justify-content:space-between}
+  .rec__dept b{font-size:19px;font-weight:700;letter-spacing:.04em}
+  .rec__conf{font-size:10.5px;color:var(--teal);font-family:"PingFang SC",sans-serif}
+  .bars{margin-top:9px;display:flex;flex-direction:column;gap:6px}
+  .bar{display:flex;align-items:center;gap:8px;font-size:11px;font-family:"PingFang SC",sans-serif}
+  .bar .bn{width:76px;color:var(--ink-2);flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar.top .bn{color:var(--ink);font-weight:700}
+  .bar .tr{flex:1;height:5px;background:#EDF2F0;overflow:hidden}
+  .bar .fl{height:100%;background:var(--teal)}
+  .bar .fl.alt{background:var(--teal-soft)}
+  .bar .bp{width:32px;text-align:right;font-size:10px;color:var(--ink-2);flex:none}
+  .bar.top .bp{color:var(--teal);font-weight:700}
+  .rec__foot{border-top:1px dashed var(--line);margin-top:9px;padding-top:7px;font-size:10.5px;
+    color:var(--ink-2);font-family:"PingFang SC",sans-serif;line-height:1.6}
+
+  /* 步进条 + 输入区 */
+  .steps{display:flex;align-items:center;gap:6px;padding:9px 16px;font-size:10.5px;color:var(--ink-2);
+    background:#FBFCFB;border-top:1px solid var(--line);flex:none;
+    font-family:"PingFang SC",sans-serif;letter-spacing:.06em}
+  .steps .on{color:var(--teal);font-weight:700}
+  .steps .arr{flex:1;height:1px;background:var(--line)}
+  .inbar{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid var(--line);flex:none;background:var(--paper)}
+  .inbar input{flex:1;border:1px solid var(--line);background:#fff;padding:9px 12px;font-size:13px;
+    font-family:inherit;color:var(--ink)}
+  .inbar input::placeholder{color:#9AA8A4;font-family:"PingFang SC",sans-serif;font-size:12.5px}
+  .inbar button{border:1px solid var(--teal);background:none;color:var(--teal);padding:0 15px;
+    font-size:12px;letter-spacing:.1em;cursor:pointer;font-family:"PingFang SC",sans-serif}
+
+  /* 会话切换 chip 条 */
+  .chipbar{display:flex;gap:7px;padding:9px 14px;border-bottom:1px solid var(--line);overflow-x:auto;
+    background:#FBFCFB;flex:none;font-family:"PingFang SC",sans-serif}
+  .chip{flex:none;font-size:11px;padding:4px 11px;border:1px solid var(--line);background:#fff;
+    color:var(--ink-2);cursor:pointer;letter-spacing:.06em}
+  .chip.on{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700}
+
+  /* 抽屉 */
+  .withdrawer{position:relative;flex:1;display:flex;min-height:0;overflow:hidden}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:262px;background:var(--paper);
+    box-shadow:-8px 0 20px rgba(28,43,40,.16);display:flex;flex-direction:column;border-left:1px solid var(--line)}
+  .drawer__hd{padding:13px 13px 11px;border-bottom:1px solid var(--line);flex:none}
+  .drawer__t{font-size:14px;font-weight:700;letter-spacing:.08em}
+  .drawer__sub{font-size:10px;color:var(--ink-2);letter-spacing:.14em;margin-top:4px;
+    font-family:"PingFang SC",sans-serif}
+  .scrim{position:absolute;inset:0;background:rgba(28,43,40,.28)}
+
+  /* 底部 tabbar */
+  .tabbar{display:flex;border-top:1px solid var(--line);background:#FBFCFB;flex:none}
+  .tabbar span{flex:1;text-align:center;padding:9px 0 11px;font-size:11px;color:var(--ink-2);
+    letter-spacing:.16em;font-family:"PingFang SC",sans-serif;cursor:pointer}
+  .tabbar span.on{color:var(--teal);font-weight:700;box-shadow:inset 0 2px 0 var(--teal)}
+
+  /* 说明卡 */
+  .note{width:344px;background:#fff;border:1px solid var(--line);padding:13px 15px;
+    font-family:"PingFang SC","Microsoft YaHei",sans-serif;font-size:12px;line-height:1.85;color:var(--ink-2)}
+  .note h3{font-size:12.5px;color:var(--ink);margin-bottom:8px;letter-spacing:.06em}
+  .note dl{display:grid;grid-template-columns:52px 1fr;gap:3px 9px}
+  .note dt{color:var(--ink-2);font-size:11.5px}
+  .note dd{color:var(--ink);font-size:11.5px}
+  .note .no{color:var(--err)}
+  .note .yes{color:var(--teal)}
+
+  table.cmp{border-collapse:collapse;background:#fff;font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:12px;width:100%;max-width:1180px}
+  table.cmp th{background:#F1F4F3;font-size:11px;color:var(--ink-2);text-align:left;padding:9px 13px;
+    border-bottom:1px solid var(--line);font-weight:600;letter-spacing:.06em;white-space:nowrap}
+  table.cmp td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.7}
+  table.cmp tr:last-child td{border-bottom:none}
+  table.cmp td:first-child{font-weight:700;white-space:nowrap}
+  h2{font-size:15px;font-weight:700;letter-spacing:.04em;margin:34px 0 12px}
+</style>
+</head>
+<body>
+
+<h1>患者端 ·「会话历史」放在哪 —— 四个方案</h1>
+<p class="lede">
+  背景：患者的一个聊天页会先后承载<b>多个会话</b>（一个主诉一个会话），现在它们全堆在同一条对话流里，患者看不出边界、也翻不回去。<br>
+  你已定：<b>点顶栏昵称 → 跳转挂号历史</b>。所以 「会话历史」只剩一个问题 —— <b>它放哪</b>。<br>
+  四张稿都按患者端「临床纸感」画：衬线正文、直角卡片、teal 主色、1px 虚线脚注、顶栏病历抬头式。宽度 344px（真机 375–430px 的可见区）。
+</p>
+
+<div class="row">
+
+  <!-- ============ 方案甲 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">甲</span><b>独立页「我的就诊」</b><span class="badge">两个 tab</span></div>
+    <div class="phone">
+      <div class="tb"><div class="tb__row">
+        <button class="tb__back">← 返 回</button>
+        <div class="tb__ops"><span class="tb__nick">张山 ▾</span></div>
+      </div>
+        <div class="tb__t" style="margin-top:8px">我 的 就 诊</div>
+      </div>
+      <div class="tabs">
+        <button class="tab on">会 话 历 史 · 13</button>
+        <button class="tab">挂 号 历 史 · 5</button>
+      </div>
+      <div class="body"><div class="scroll">
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:43</span><span class="st ok">已出结论</span><span>1 轮追问</span></div>
+          <div class="sess__txt">头痛得厉害</div>
+          <div class="sess__foot"><span>推荐 神经内科 85%</span><span class="sess__go">查看 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:29</span><span class="st low">低置信度</span><span>3 轮追问</span></div>
+          <div class="sess__txt">你好</div>
+          <div class="sess__foot"><span>推荐 消化内科 62%</span><span class="sess__go">查看 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:49</span><span class="st mute">追问中</span></div>
+          <div class="sess__txt">最近爬楼梯胸口发闷，休息几分钟能缓解，左肩也有点酸</div>
+          <div class="sess__foot"><span>还没出结论</span><span class="sess__go">继续 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:16</span><span class="st ok">已挂号</span></div>
+          <div class="sess__txt">嗓子疼三天了，咽口水都疼</div>
+          <div class="sess__foot"><span>耳鼻喉科 · 门诊楼 3 层 C 区</span></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--ink-2);padding:5px 0;
+          font-family:'PingFang SC',sans-serif">下拉加载更早的会话</div>
+      </div></div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <h3>点一条 → 只读回放这个会话</h3>
+      <dl>
+        <dt>入口</dt><dd>对话页顶栏昵称旁加「就诊记录」（昵称本身留给挂号历史）</dd>
+        <dt class="yes">优点</dt><dd>整页宽，会话条能一眼扫完；回放页可复用现有气泡与推荐卡；深链可分享</dd>
+        <dt class="no">代价</dt><dd>新增 2 个路由（列表页 + 回放页）</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 方案乙 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">乙</span><b>右侧滑出抽屉</b><span class="badge">不离开对话</span></div>
+    <div class="phone">
+      <div class="tb"><div class="tb__row">
+        <div class="tb__t" style="font-size:16px">智 能 导 诊</div>
+        <div class="tb__ops"><span class="tb__nick">张山 ▾</span><button class="tb__out">退 出</button></div>
+      </div></div>
+      <div class="withdrawer">
+        <div class="body" style="flex:1">
+          <div class="scroll">
+            <div class="msg user">头痛得厉害</div>
+            <div class="msg ai"><div class="who">分 诊 助 理</div><div>后脑勺胀痛、低头加重，建议先到神经内科就诊。</div></div>
+            <div class="rec">
+              <div class="rec__eb">分 诊 结 论</div>
+              <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            </div>
+          </div>
+          <div class="steps"><span class="on">① 导诊结论</span><span class="arr"></span><span>② 模拟挂号</span><span class="arr"></span><span>③ 确认完成</span></div>
+          <div class="inbar"><input placeholder="说说哪里不舒服，我来帮您分诊" disabled><button>发 送</button></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="drawer">
+          <div class="drawer__hd">
+            <div class="drawer__t">我 的 就 诊</div>
+            <div class="drawer__sub">会 话 历 史 · 13 条</div>
+          </div>
+          <div class="body"><div class="scroll" style="padding:10px 11px;gap:8px">
+            <div class="sess" style="padding:9px 10px">
+              <div class="sess__top" style="margin-bottom:5px"><span class="sess__t">09-19 17:43</span><span class="st ok">已出结论</span></div>
+              <div class="sess__txt" style="font-size:12.5px">头痛得厉害</div>
+            </div>
+            <div class="sess" style="padding:9px 10px">
+              <div class="sess__top" style="margin-bottom:5px"><span class="sess__t">09-19 17:29</span><span class="st low">低置信度</span></div>
+              <div class="sess__txt" style="font-size:12.5px">你好</div>
+            </div>
+            <div class="sess" style="padding:9px 10px">
+              <div class="sess__top" style="margin-bottom:5px"><span class="sess__t">09-19 17:49</span><span class="st mute">追问中</span></div>
+              <div class="sess__txt" style="font-size:12.5px">最近爬楼梯胸口发闷…</div>
+            </div>
+            <div class="sess" style="padding:9px 10px">
+              <div class="sess__top" style="margin-bottom:5px"><span class="sess__t">09-19 17:16</span><span class="st ok">已挂号</span></div>
+              <div class="sess__txt" style="font-size:12.5px">嗓子疼三天了</div>
+            </div>
+            <div style="text-align:center;font-size:10.5px;color:var(--ink-2);padding:4px 0;
+              font-family:'PingFang SC',sans-serif">下拉加载更早</div>
+          </div></div>
+          <div class="steps" style="border-top:1px solid var(--line)"><span class="on">会 话 历 史</span><span class="arr"></span><span>挂 号 历 史</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <h3>抽屉里也是两个 tab（底部切换）</h3>
+      <dl>
+        <dt>入口</dt><dd>顶栏昵称旁一个「记录」文本按钮，点开从右滑出</dd>
+        <dt class="yes">优点</dt><dd>不离开对话，随时收起；新增 0 个路由</dd>
+        <dt class="no">代价</dt><dd>抽屉只有 262px，会话内容一多就要再点一层；患者端现在没有抽屉这个部件，要新立一条规范</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 方案丙 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">丙</span><b>对话页内会话切换条</b><span class="badge">不新增页</span></div>
+    <div class="phone">
+      <div class="tb"><div class="tb__row">
+        <div class="tb__t" style="font-size:16px">智 能 导 诊</div>
+        <div class="tb__ops"><span class="tb__nick">张山 ▾</span><button class="tb__out">退 出</button></div>
+      </div></div>
+      <div class="chipbar">
+        <span class="chip on">本次</span>
+        <span class="chip">09-19 头痛</span>
+        <span class="chip">09-19 嗓子疼</span>
+        <span class="chip">09-19 胸闷 ›</span>
+      </div>
+      <div class="body">
+        <div class="scroll">
+          <div class="msg user">头痛得厉害</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div><div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛，建议先到神经内科。</div></div>
+          <div class="msg notice">请注意用语。您近期多次发送不当内容，若继续触发将限制发言。</div>
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div class="bars">
+              <div class="bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+              <div class="bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+            </div>
+            <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》</div>
+          </div>
+        </div>
+        <div class="steps"><span class="on">① 导诊结论</span><span class="arr"></span><span>② 模拟挂号</span><span class="arr"></span><span>③ 确认完成</span></div>
+        <div class="inbar"><input placeholder="接着说说还有什么不舒服"><button>发 送</button></div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <h3>切到历史会话 = 只读，输入框换成「继续咨询」</h3>
+      <dl>
+        <dt>入口</dt><dd>顶栏下方一条横向 chip（会话多了可横滑）</dd>
+        <dt class="yes">优点</dt><dd>直接解决「多会话堆一条流」；0 新增页面；切换只改渲染，不动数据</dd>
+        <dt class="no">代价</dt><dd>chip 只放得下时间+关键词，会话超过 8 条就得给「全部 ›」；仍需要一个地方看长列表</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 方案丁 ============ -->
+  <div class="slot">
+    <div class="slot__tag"><span class="slot__no">丁</span><b>底部三 tab</b><span class="badge">移动端惯例</span></div>
+    <div class="phone">
+      <div class="tb"><div class="tb__row">
+        <div class="tb__t" style="font-size:16px">智 能 导 诊</div>
+        <div class="tb__ops"><span class="tb__nick">张山 ▾</span></div>
+      </div></div>
+      <div class="tabs">
+        <button class="tab on">会 话 历 史</button>
+        <button class="tab">挂 号 历 史</button>
+      </div>
+      <div class="body"><div class="scroll">
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:43</span><span class="st ok">已出结论</span></div>
+          <div class="sess__txt">头痛得厉害</div>
+          <div class="sess__foot"><span>神经内科 85%</span><span class="sess__go">查看 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:29</span><span class="st low">低置信度</span></div>
+          <div class="sess__txt">你好</div>
+          <div class="sess__foot"><span>消化内科 62%</span><span class="sess__go">查看 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:16</span><span class="st ok">已挂号</span></div>
+          <div class="sess__txt">嗓子疼三天了，咽口水都疼</div>
+          <div class="sess__foot"><span>耳鼻喉科 · 门诊楼 3 层 C 区</span></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--ink-2);padding:5px 0;
+          font-family:'PingFang SC',sans-serif">下拉加载更早</div>
+      </div></div>
+      <div class="tabbar">
+        <span>导 诊</span><span class="on">记 录</span><span>我 的</span>
+      </div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <h3>底部常驻三格：导诊 / 记录 / 我的</h3>
+      <dl>
+        <dt>入口</dt><dd>底部 tab 栏常驻，一眼可见</dd>
+        <dt class="yes">优点</dt><dd>移动端最标准；挂号历史、退出登录都可收进「我的」；三个区互不干扰</dd>
+        <dt class="no">代价</dt><dd><b>与气质冲突</b>：「分诊台纸质单据」突然多了一条应用式底栏，是本方案最不像「纸」的一处</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- ============ 已定：挂号历史 ============ -->
+  <div class="slot fixed">
+    <div class="slot__tag"><span class="slot__no">已定</span><b>挂号历史（点昵称进入）</b><span class="badge">你说要的</span></div>
+    <div class="phone">
+      <div class="tb"><div class="tb__row">
+        <button class="tb__back">← 返 回 对 话</button>
+      </div>
+        <div class="tb__t" style="margin-top:8px">挂 号 记 录</div>
+      </div>
+      <div class="body"><div class="scroll">
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:23</span><span class="st ok">已就诊</span></div>
+          <div class="sess__txt">神经内科 · 门诊楼 4 层 A 区</div>
+          <div class="sess__foot"><span>主诉　头痛得厉害</span><span class="sess__go">再挂一次 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:21</span><span class="st ok">已就诊</span></div>
+          <div class="sess__txt">消化内科 · 门诊楼 3 层 A 区</div>
+          <div class="sess__foot"><span>主诉　肚子疼</span><span class="sess__go">再挂一次 ›</span></div>
+        </div>
+        <div class="sess">
+          <div class="sess__top"><span class="sess__t">09-19 17:16</span><span class="st mute">已取消</span></div>
+          <div class="sess__txt">耳鼻喉科 · 门诊楼 3 层 C 区</div>
+          <div class="sess__foot"><span>主诉　嗓子疼三天了</span></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--ink-2);padding:5px 0;
+          font-family:'PingFang SC',sans-serif">下拉加载更早</div>
+      </div></div>
+      <div class="steps"><span class="on">① 导诊结论</span><span class="arr"></span><span class="on">② 模拟挂号</span><span class="arr"></span><span class="on">③ 确认完成</span></div>
+    </div>
+    <div class="note" style="margin-top:12px">
+      <h3>一屏一个问题，不重复导诊结论</h3>
+      <dl>
+        <dt>数据</dt><dd>取 <code>guide_record.actual_dept_id</code> 非空的记录 + <code>register_success</code> 埋点时间；别人不挂号的那次不进这张表</dd>
+        <dt class="yes">优点</dt><dd>「我挂过什么科」是一句话能答完的事，用卡片比表格更贴纸感</dd>
+      </dl>
+    </div>
+  </div>
+
+</div>
+
+<h2>放在一起比</h2>
+<table class="cmp">
+  <thead>
+    <tr><th>　</th><th>甲 · 独立页</th><th>乙 · 右侧抽屉</th><th>丙 · 会话切换条</th><th>丁 · 底部三 tab</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>入口</td>
+      <td>顶栏「就诊记录」按钮</td><td>顶栏「记录」按钮 → 滑出</td><td>顶栏下方常驻 chip 条</td><td>底部 tab「记录」</td>
+    </tr>
+    <tr>
+      <td>新增路由</td>
+      <td>2 个（列表 + 回放）</td><td>0</td><td>1 个（挂号历史）</td><td>2 个</td>
+    </tr>
+    <tr>
+      <td>会话能读全文吗</td>
+      <td class="yes">能，整页回放</td><td>要再点一层，窄</td><td class="yes">能，直接切到那个会话</td><td class="yes">能</td>
+    </tr>
+    <tr>
+      <td>解决「多会话堆一条流」</td>
+      <td>部分（历史去别处看，当前流仍混）</td><td>部分（同左）</td><td class="yes">彻底（按会话切开）</td><td>部分（同甲）</td>
+    </tr>
+    <tr>
+      <td>与纸感气质</td>
+      <td class="yes">最贴（整页 = 病历夹）</td><td>尚可（抽屉是浮层）</td><td class="yes">贴（chip 是单据上的一行）</td><td class="no">最不贴（应用式底栏）</td>
+    </tr>
+    <tr>
+      <td>桌面 720px 居中列</td>
+      <td class="yes">天然适配</td><td>抽屉会贴到列边，要另定</td><td class="yes">chip 条自然加宽</td><td>底栏会拉到全宽，要另定</td>
+    </tr>
+    <tr>
+      <td>先要做什么</td>
+      <td>2 个只读接口（我的会话列表 / 某会话全量消息）</td>
+      <td>同甲</td><td>1 个（我的会话列表，消息已在前端）</td><td>同甲</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="lede" style="margin-top:18px">
+  <b>我的建议</b>：<b>丙 + 甲</b> 组合 —— 会话切换条（丙）解决「当前这页多个会话分不清」，同一页顶栏给一个「全部 ›」进「我的就诊」（甲）看长列表与挂号历史。
+  这两个不是二选一：丙管<b>眼前这一页</b>，甲管<b>翻旧账</b>。丁的底栏与纸感冲突，乙的抽屉在多会话时太窄，都不推荐。
+</p>
+
+</body>
+</html>

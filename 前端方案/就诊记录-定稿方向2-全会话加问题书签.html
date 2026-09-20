@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>患者端 ·「就诊记录」定稿方向 2 —— 按天折叠的会话列表 ＋ 问题书签</title>
+<style>
+  :root{
+    --paper:#F7F9F8; --ink:#1C2B28; --ink-2:#5A6B67; --line:#DDE5E2;
+    --teal:#0E7C66; --teal-deep:#0A5C4C; --teal-soft:#CDE3DD; --moss:#4A7C59;
+    --card:#FFFFFF; --err:#A94438;
+    --sans:"PingFang SC","Microsoft YaHei",sans-serif;
+    --serif:"Noto Serif SC","Source Han Serif SC","STSong",serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#E8EDEB;font-family:var(--serif);color:var(--ink);padding:26px 22px 70px}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+  h1{font-size:21px;font-weight:700;letter-spacing:.04em;margin-bottom:9px}
+  h2{font-size:15px;font-weight:700;letter-spacing:.04em;margin:36px 0 14px}
+  h2 span{font-weight:400;font-size:12px;color:var(--ink-2);margin-left:10px;font-family:var(--sans)}
+  .lede{font-size:13px;color:var(--ink-2);line-height:1.9;max-width:1080px;margin-bottom:10px}
+  .lede b{color:var(--ink)}
+  .lede code{font-family:var(--sans);font-size:12px;background:#fff;border:1px solid var(--line);padding:1px 5px}
+  .sans{font-family:var(--sans)}
+
+  /* ============ 摊开的册子 ============ */
+  .book{display:flex;background:var(--card);border:1px solid var(--line);
+    box-shadow:0 10px 30px rgba(28,43,40,.13);max-width:880px}
+  .leaf--idx{width:252px;flex:none;background:#FBFCFB;display:flex;flex-direction:column;min-height:560px}
+  .spine{width:1px;background:var(--line);position:relative;flex:none}
+  .spine::before,.spine::after{content:'';position:absolute;left:-3px;width:7px;height:7px;border-radius:50%;
+    background:var(--paper);border:1px solid var(--line)}
+  .spine::before{top:28px} .spine::after{bottom:28px}
+  .leaf--pg{flex:1;min-width:0;display:flex;min-height:560px;position:relative}
+  .page{flex:1;min-width:0;display:flex;flex-direction:column}
+
+  /* 左页头 + 两个 tab */
+  .idx-hd{padding:15px 16px 0;border-bottom:1px solid var(--line)}
+  .idx-hd__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2)}
+  .idx-hd__t{font-size:16px;font-weight:700;letter-spacing:.06em;margin-top:7px}
+  .tabs{display:flex;gap:0;margin-top:12px}
+  .tabs button{flex:1;padding:9px 2px;border:none;background:none;cursor:pointer;
+    font-family:var(--sans);font-size:11px;letter-spacing:.12em;color:var(--ink-2);
+    border-bottom:2px solid transparent}
+  .tabs button:hover{color:var(--teal)}
+  .tabs button.on{color:var(--teal);font-weight:700;border-bottom-color:var(--teal)}
+
+  .idx{flex:1;overflow-y:auto}
+  /* 天分组：天头一行，天内 >10 条时折叠成最新 2 条 */
+  .day{display:flex;align-items:baseline;gap:8px;padding:9px 15px 6px;background:var(--paper)}
+  .day__d{font-family:var(--sans);font-size:9.5px;letter-spacing:.2em;color:var(--ink-2)}
+  .day__n{margin-left:auto;font-family:var(--sans);font-size:9px;color:var(--ink-2);opacity:.6;letter-spacing:.08em}
+  .i{padding:9px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;
+    align-items:baseline;gap:9px;transition:background .18s ease}
+  .i:hover{background:var(--paper)}
+  .i.on{background:#fff;box-shadow:inset 3px 0 0 var(--teal)}
+  .i__n{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);opacity:.5;letter-spacing:.1em;
+    font-variant-numeric:tabular-nums;flex:none;width:20px}
+  .i.on .i__n{color:var(--teal);opacity:1}
+  .i__x{flex:1;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .i__d{font-family:var(--sans);font-size:9.5px;color:var(--ink-2);letter-spacing:.06em;flex:none;
+    font-variant-numeric:tabular-nums}
+  .i.dim .i__x{color:var(--ink-2)}
+  .i__q{font-family:var(--sans);font-size:8.5px;color:var(--ink-2);opacity:.55;flex:none}
+  /* 折叠条 */
+  .fold{padding:8px 15px;border-bottom:1px dashed var(--line);text-align:center;cursor:pointer}
+  .fold span{font-family:var(--sans);font-size:10px;letter-spacing:.12em;color:var(--teal)}
+  .fold:hover span{text-decoration:underline}
+  /* 右页 */
+  .pg-hd{padding:15px 20px 12px;border-bottom:1px solid var(--line);display:flex;
+    align-items:flex-start;justify-content:space-between;gap:14px}
+  .pg-hd__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.22em;color:var(--ink-2)}
+  .pg-hd__t{font-size:20px;font-weight:700;letter-spacing:.05em;margin-top:7px}
+  .pg-hd__r{font-family:var(--sans);font-size:10px;letter-spacing:.14em;color:var(--teal);
+    white-space:nowrap;border:1px solid var(--teal);padding:3px 8px}
+  .pg-bd{flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:13px}
+  .pg-ft{padding:9px 20px;border-top:1px solid var(--line);font-family:var(--sans);font-size:9.5px;
+    letter-spacing:.2em;color:var(--ink-2);display:flex;justify-content:space-between;background:#FBFCFB}
+  /* 问题锚点：被书签跳转到时，问题行左侧一条短竖线 */
+  .q{position:relative}
+  .q.anchor::before{content:'';position:absolute;left:-11px;top:3px;bottom:3px;width:2px;background:var(--teal)}
+
+  .msg{font-size:13.5px;line-height:1.75;max-width:82%}
+  .msg.user{align-self:flex-end;background:var(--teal);color:#fff;padding:9px 13px;border-radius:14px 14px 3px 14px}
+  .msg.ai{align-self:flex-start;padding:0 2px}
+  .msg.ai .who{font-family:var(--sans);font-size:10px;color:var(--moss);letter-spacing:.18em;margin-bottom:5px}
+  .rec{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--teal);
+    padding:13px 14px 11px;align-self:stretch}
+  .rec__eb{font-family:var(--sans);font-size:9.5px;letter-spacing:.24em;color:var(--ink-2);margin-bottom:9px}
+  .rec__dept{display:flex;align-items:baseline;justify-content:space-between}
+  .rec__dept b{font-size:22px;font-weight:700;letter-spacing:.04em}
+  .rec__conf{font-family:var(--sans);font-size:10.5px;color:var(--teal)}
+  .bar{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:10.5px;margin-top:6px}
+  .bar .bn{width:76px;color:var(--ink-2);flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar.top .bn{color:var(--ink);font-weight:700}
+  .bar .tr{flex:1;height:4px;background:#EDF2F0;overflow:hidden}
+  .bar .fl{height:100%;background:var(--teal)} .bar .fl.alt{background:var(--teal-soft)}
+  .bar .bp{width:32px;text-align:right;font-size:9.5px;color:var(--ink-2);flex:none}
+  .bar.top .bp{color:var(--teal);font-weight:700}
+  .rec__foot{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px;font-family:var(--sans);
+    font-size:10px;color:var(--ink-2);line-height:1.7}
+
+  /* ===== 书签：一条会话内部的「用户问题」索引，可点跳转 ===== */
+  .marks{width:36px;flex:none;border-left:1px solid var(--line);background:#FBFCFB;
+    display:flex;flex-direction:column;padding:14px 0;position:relative}
+  .marks__hd{writing-mode:vertical-rl;font-family:var(--sans);font-size:8.5px;letter-spacing:.2em;
+    color:var(--ink-2);opacity:.6;align-self:center;margin-bottom:12px}
+  .marks__set{display:flex;flex-direction:column;align-items:center;gap:14px}
+  /* 一根书签 = 这条会话里患者的一个问题 */
+  .mark{width:16px;height:4px;background:var(--teal);opacity:.38;border:none;padding:0;
+    cursor:pointer;display:block;transition:all .16s ease}
+  .mark:hover{opacity:1;width:26px}
+  .mark.on{width:28px;height:6px;opacity:1}
+  .markwrap{position:relative;display:block;line-height:0}
+  .marklabel{position:absolute;right:30px;top:50%;transform:translateY(-50%);background:var(--ink);color:#fff;
+    font-family:var(--sans);font-size:10.5px;line-height:1.55;padding:5px 9px;white-space:nowrap;z-index:6}
+  .marklabel b{font-weight:600}
+  .marklabel::after{content:'';position:absolute;right:-5px;top:50%;margin-top:-5px;border:5px solid transparent;
+    border-left-color:var(--ink)}
+  .marks__ft{writing-mode:vertical-rl;font-family:var(--sans);font-size:8px;letter-spacing:.14em;
+    color:var(--ink-2);opacity:.5;align-self:center;margin-top:auto;padding-bottom:4px}
+
+  /* 说明卡 */
+  .note{background:#fff;border:1px solid var(--line);padding:15px 17px;font-family:var(--sans);
+    font-size:12px;line-height:1.9;color:var(--ink-2);max-width:640px}
+  .note h3{font-family:var(--serif);font-size:13.5px;color:var(--ink);margin-bottom:9px;letter-spacing:.04em}
+  .note dl{display:grid;grid-template-columns:76px 1fr;gap:5px 12px}
+  .note dt{font-size:11.5px}
+  .note dd{color:var(--ink);font-size:11.5px}
+  .note .yes{color:var(--teal)} .note .no{color:var(--err)}
+  .row{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+</style>
+</head>
+<body>
+
+<h1>「就诊记录」定稿方向 2 —— 按天折叠的会话列表 ＋ 问题书签</h1>
+<p class="lede">
+  <b>这一版改了两件事。</b><br>
+  ① 我上一版把书签做成了「会话之间」的索引，错了。按你说的改成 —— <b>书签是「一条会话内部」的索引</b>：
+  它标的是这条会话里患者的<b>每一个问题</b>，点一根就跳到那个问题。会话之间的切换是左页列表的事，两者不是一件事，也不共用一个控件。<br>
+  ② 左页列表<b>按天分组</b>；<b>某天超过 10 条会话，就折叠成只显示最新 2 条</b>，其余收进一行「展开该天全部 N 次」。
+  顶部 tab 文案按你给的：<b>全部对话 / 挂号历史</b>。刻度与列表都是<b>最新的在上</b>。<br><br>
+  <b>折叠态与展开态这次都画了</b>（上一版只画了折叠态，等于只画了一半）。折叠时<b>当前打开的那条也一样折进去</b>——
+  你确认过折叠本来就能展开，所以不再给它做特殊处理；想知道"我在看哪一条"，右页页脚的「第 7 次 / 共 13 次」就是答案。
+</p>
+
+<h2>桌面 ≥768px<span>「全部对话」tab · 左页按天折叠 · 右缘是当前这条会话的问题书签</span></h2>
+<div class="row">
+  <div class="book">
+    <!-- ================= 左页：会话列表 ================= -->
+    <div class="leaf--idx">
+      <div class="idx-hd">
+        <div class="idx-hd__eb">张 山 · 就 诊 记 录</div>
+        <div class="idx-hd__t">13 次</div>
+        <div class="tabs">
+          <button class="on">全 部 对 话</button>
+          <button>挂 号 历 史</button>
+        </div>
+      </div>
+      <div class="idx">
+        <div class="day"><span class="day__d">09-20</span><span class="day__n">1 次</span></div>
+        <div class="i dim"><span class="i__n">13</span><span class="i__x">狗屎</span><span class="i__q">1 问</span><span class="i__d">12:53</span></div>
+
+        <div class="day"><span class="day__d">09-19</span><span class="day__n">12 次 · 已折叠</span></div>
+        <div class="i"><span class="i__n">12</span><span class="i__x">退钱</span><span class="i__q">2 问</span><span class="i__d">17:44</span></div>
+        <div class="i"><span class="i__n">11</span><span class="i__x">头痛得厉害</span><span class="i__q">3 问</span><span class="i__d">17:43</span></div>
+        <div class="fold"><span>展 开 该 天 全 部 12 次</span></div>
+      </div>
+    </div>
+
+    <div class="spine"></div>
+
+    <!-- ================= 右页：正文 + 书签 ================= -->
+    <div class="leaf--pg">
+      <div class="page">
+        <div class="pg-hd">
+          <div>
+            <div class="pg-hd__eb">第 七 次 就 诊 · 09-19 17:23</div>
+            <div class="pg-hd__t">神经内科</div>
+          </div>
+          <span class="pg-hd__r">已 挂 号</span>
+        </div>
+        <div class="pg-bd">
+          <div class="msg user q" id="q1">头痛得厉害</div>
+
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>请补充一下：具体是哪个部位不舒服？是什么样的感觉？大概持续多久了？</div></div>
+
+          <div class="msg user q on-anchor" id="q2">整个后脑勺，胀痛，三天了，低头更明显</div>
+
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛，也需排除血压与颈椎问题。建议先到神经内科。</div></div>
+
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div class="bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+            <div class="bar"><span class="bn">骨科</span><span class="tr"><span class="fl alt" style="width:9%"></span></span><span class="bp">9%</span></div>
+            <div class="rec__foot">依 据　注1《头痛的分诊与危险信号》　注2《颈肩腰腿痛的分诊要点》</div>
+          </div>
+
+          <div class="msg user q" id="q3">那我今天去医院还需要空腹吗</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>神经内科首诊一般不需要空腹；若医生安排抽血（血脂、血糖）则需空腹 8 小时。建议早上空腹去，带好既往检查单。</div></div>
+        </div>
+        <div class="pg-ft"><span>第 7 次 / 共 13 次</span><span>3 个问题 · 神 经 内 科 · 门 诊 楼 4 层 A 区</span></div>
+      </div>
+
+      <!-- ===== 书签：这条会话里的 3 个用户问题，最新在上，点一根跳到那个问题 ===== -->
+      <div class="marks">
+        <div class="marks__hd">用 户 问 题</div>
+        <div class="marks__set">
+          <span class="markwrap">
+            <button class="mark" title="问题 3 · 17:26 · 那我今天去医院还需要空腹吗"></button>
+          </span>
+          <span class="markwrap">
+            <button class="mark on" title="问题 2 · 17:24 · 整个后脑勺，胀痛，三天了，低头更明显（当前）"></button>
+            <span class="marklabel"><b>问题 2　17:24</b><br>整个后脑勺，胀痛，三天了，低头更明显</span>
+          </span>
+          <span class="markwrap">
+            <button class="mark" title="问题 1 · 17:23 · 头痛得厉害"></button>
+          </span>
+        </div>
+        <div class="marks__ft">点 一 根 跳 到 那 个 问 题</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>书签：一根 = 患者的一个问题</h3>
+    <dl>
+      <dt class="yes">点它</dt><dd>右页正文滚到那个问题，问题行左侧亮一条 teal 短竖线（锚点）</dd>
+      <dt class="yes">看它</dt><dd>加长加粗＝你正在看的那一问；细而淡＝还没滚到；hover 浮出问题原文与时间</dd>
+      <dt class="yes">排序</dt><dd>最新在上（问题 3 在最上，问题 1 在最下）</dd>
+      <dt class="no">代价</dt><dd><b>和阅读方向相反</b>：正文从上往下读是「问题 1 → 2 → 3」，书签从上往下却是「3 → 2 → 1」。点最上面那根，正文要往下滚到底</dd>
+      <dt class="yes">左页</dt><dd>每条会话后面加一个「N 问」——扫一眼就知道这条对话聊了几轮，也是书签数量的预告</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>同一天「展开后」的样子<span>点「展开该天全部 12 次」之后 —— 12 条按时间倒序全部铺开，当前那条仍高亮</span></h2>
+<div class="row">
+  <div class="leaf--idx" style="border:1px solid var(--line);box-shadow:0 6px 22px rgba(28,43,40,.10)">
+    <div class="idx-hd">
+      <div class="idx-hd__eb">张 山 · 就 诊 记 录</div>
+      <div class="idx-hd__t">13 次</div>
+      <div class="tabs">
+        <button class="on">全 部 对 话</button>
+        <button>挂 号 历 史</button>
+      </div>
+    </div>
+    <div class="idx">
+      <div class="day"><span class="day__d">09-20</span><span class="day__n">1 次</span></div>
+      <div class="i dim"><span class="i__n">13</span><span class="i__x">狗屎</span><span class="i__q">1 问</span><span class="i__d">12:53</span></div>
+
+      <div class="day"><span class="day__d">09-19</span><span class="day__n">12 次 · 已展开</span></div>
+      <div class="i"><span class="i__n">12</span><span class="i__x">退钱</span><span class="i__q">2 问</span><span class="i__d">17:44</span></div>
+      <div class="i"><span class="i__n">11</span><span class="i__x">头痛得厉害</span><span class="i__q">3 问</span><span class="i__d">17:43</span></div>
+      <div class="i dim"><span class="i__n">10</span><span class="i__x">最近爬楼梯胸口发闷…</span><span class="i__q">2 问</span><span class="i__d">17:35</span></div>
+      <div class="i"><span class="i__n">09</span><span class="i__x">你好</span><span class="i__q">1 问</span><span class="i__d">17:29</span></div>
+      <div class="i"><span class="i__n">08</span><span class="i__x">肚子疼，吃饭后疼的</span><span class="i__q">2 问</span><span class="i__d">17:25</span></div>
+      <div class="i on"><span class="i__n">07</span><span class="i__x">头痛得厉害</span><span class="i__q">3 问</span><span class="i__d">17:23</span></div>
+      <div class="i"><span class="i__n">06</span><span class="i__x">头有点晕</span><span class="i__q">1 问</span><span class="i__d">17:21</span></div>
+      <div class="i dim"><span class="i__n">05</span><span class="i__x">嗓子疼三天了</span><span class="i__q">1 问</span><span class="i__d">17:16</span></div>
+      <div class="i dim"><span class="i__n">04</span><span class="i__x">关节疼</span><span class="i__q">2 问</span><span class="i__d">17:16</span></div>
+      <div class="i"><span class="i__n">03</span><span class="i__x">胸闷，喘不上气</span><span class="i__q">2 问</span><span class="i__d">17:04</span></div>
+      <div class="i dim"><span class="i__n">02</span><span class="i__x">脖子落枕了</span><span class="i__q">1 问</span><span class="i__d">16:52</span></div>
+      <div class="i"><span class="i__n">01</span><span class="i__x">肚子疼</span><span class="i__q">1 问</span><span class="i__d">16:47</span></div>
+      <div class="fold"><span>收 起 该 天</span></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>展开后要面对的事</h3>
+    <dl>
+      <dt class="yes">高亮还在</dt><dd>当前那条（第 7 次）展开后仍带左侧 teal 竖线，一眼能找到</dd>
+      <dt class="no">长度</dt><dd>12 条铺开约 480px，左页要滚；如果一天上百条，"展开全部"就没意义了 → 需要定一个<b>展开上限</b>（比如展开也只到 40 条，再往上分页）</dd>
+      <dt class="yes">折叠门槛</dt><dd>现在是"&gt;10 条折叠、显示最新 2 条"。10 和 2 都是我按经验填的数，你要是有明确想法我改</dd>
+      <dt class="no">翻页</dt><dd>展开后左页到底要不要分页？还是靠滚动？滚动更简单，但"第 7 次 / 共 13 次"这套页感就没那么强了</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>切到「挂号历史」tab<span>同一本册子，列表换成"只留挂过号的"，正文与书签不变</span></h2>
+<div class="row">
+  <div class="book" style="max-width:880px">
+    <div class="leaf--idx">
+      <div class="idx-hd">
+        <div class="idx-hd__eb">张 山 · 就 诊 记 录</div>
+        <div class="idx-hd__t">5 次挂号</div>
+        <div class="tabs">
+          <button>全 部 对 话</button>
+          <button class="on">挂 号 历 史</button>
+        </div>
+      </div>
+      <div class="idx">
+        <div class="day"><span class="day__d">09-19</span><span class="day__n">5 次</span></div>
+        <div class="i"><span class="i__n">07</span><span class="i__x">神经内科 · 门诊楼 4 层 A 区</span><span class="i__d">17:23</span></div>
+        <div class="i"><span class="i__n">06</span><span class="i__x">消化内科 · 门诊楼 3 层 A 区</span><span class="i__d">17:21</span></div>
+        <div class="i"><span class="i__n">04</span><span class="i__x">骨科 · 门诊楼 1 层 C 区</span><span class="i__d">17:17</span></div>
+        <div class="i"><span class="i__n">03</span><span class="i__x">心血管内科 · 门诊楼 2 层 A 区</span><span class="i__d">17:16</span></div>
+        <div class="i"><span class="i__n">01</span><span class="i__x">皮肤科 · 门诊楼 4 层 C 区</span><span class="i__d">16:47</span></div>
+      </div>
+    </div>
+    <div class="spine"></div>
+    <div class="leaf--pg">
+      <div class="page">
+        <div class="pg-hd">
+          <div>
+            <div class="pg-hd__eb">第 七 次 就 诊 · 09-19 17:23</div>
+            <div class="pg-hd__t">神经内科</div>
+          </div>
+          <span class="pg-hd__r">已 挂 号</span>
+        </div>
+        <div class="pg-bd">
+          <div class="msg user q">头痛得厉害</div>
+          <div class="msg ai"><div class="who">分 诊 助 理</div>
+            <div>后脑勺胀痛、低头加重，常见于颈源性或紧张性头痛。建议先到神经内科。</div></div>
+          <div class="rec">
+            <div class="rec__eb">分 诊 结 论</div>
+            <div class="rec__dept"><b>神经内科</b><span class="rec__conf">85%</span></div>
+            <div class="bar top"><span class="bn">神经内科</span><span class="tr"><span class="fl" style="width:85%"></span></span><span class="bp">85%</span></div>
+            <div class="rec__foot">就 诊　神 经 内 科 · 门 诊 楼 4 层 A 区　·　科 室 存 联</div>
+          </div>
+        </div>
+        <div class="pg-ft"><span>第 7 次 / 共 13 次</span><span>神 经 内 科 · 门 诊 楼 4 层 A 区</span></div>
+      </div>
+      <div class="marks">
+        <div class="marks__hd">用 户 问 题</div>
+        <div class="marks__set">
+          <span class="markwrap"><button class="mark"></button></span>
+          <span class="markwrap"><button class="mark on"></button></span>
+          <span class="markwrap"><button class="mark"></button></span>
+        </div>
+        <div class="marks__ft">点 一 根 跳 到 那 个 问 题</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>两个 tab 的关系</h3>
+    <dl>
+      <dt class="yes">同一本</dt><dd>只换左页列表的口径：全部对话 = 13 条会话；挂号历史 = 其中挂过号的 5 条</dd>
+      <dt class="yes">右页不变</dt><dd>还是那一次的完整对话与结论；书签还是那条会话的问题</dd>
+      <dt class="yes">点昵称进来</dt><dd>默认停在「挂号历史」（你要的"点用户名跳挂号历史"）</dd>
+      <dt class="no">待定</dt><dd>「挂号历史」里右页要不要只留结论与就诊信息、把问答折叠起来？现在两边长得一样</dd>
+    </dl>
+  </div>
+</div>
+
+<p class="lede" style="margin-top:28px">
+  <b>这一版已定的（不再问）：</b><br>
+  · 历史一律<b>由新到旧</b>：天的顺序、天内的会话、会话内的书签，三处同一方向。<br>
+  · <b>书签只做一件事：跳到这条会话里的某一个用户问题</b>。它不是会话索引——会话之间的切换是左页列表的事。<br>
+  · <b>折叠按天，某天 &gt;10 条折成最新 2 条，展开就能看全部</b>；当前打开的那条也一起折进去，不特殊对待。<br><br>
+  <b>还剩两个小口子，等你哪天定：</b><br>
+  ① <b>阈值</b>：10 条折叠、显示 2 条——这两个数是我按经验填的。<br>
+  ② <b>展开后到顶没有</b>：一天几百条时，"展开全部"要有个上限（或改分页），否则左页会拉成一条长卷。
+</p>
+
+</body>
+</html>
