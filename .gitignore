@@ -11,6 +11,11 @@ target/
 *.class
 logs/
 
+# 本地测试工具：根目录的 playwright-core（跑 e2e 脚本用），不是项目依赖。
+# 开头的 / 限定只忽略根目录，不影响 frontend/package.json
+/package.json
+/package-lock.json
+
 # IDE
 .idea/
 *.iml
