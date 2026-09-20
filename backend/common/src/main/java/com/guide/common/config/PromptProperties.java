@@ -29,6 +29,8 @@ public class PromptProperties {
     public static final String PLACEHOLDER_DEPTS = "{depts}";
     public static final String PLACEHOLDER_EXTRA = "{extra}";
     public static final String PLACEHOLDER_DIALOGUE = "{dialogue}";
+    /** 禁言话术里的剩余分钟数 */
+    public static final String PLACEHOLDER_MINUTES = "{minutes}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -58,6 +60,10 @@ public class PromptProperties {
         private String templateQuestion;
         /** 敏感词拦截话术：固定引导，不道歉不模糊 */
         private String blockedReply;
+        /** 敏感词累计触发的警告（不阻断本轮，另起一条气泡） */
+        private String warnReply;
+        /** 禁言提示：必含 {minutes} */
+        private String muteReply;
     }
 
     @PostConstruct
@@ -68,6 +74,8 @@ public class PromptProperties {
         require(rewrite.getUserTemplate(), "prompts.rewrite.user-template", List.of(PLACEHOLDER_DIALOGUE));
         require(chat.getTemplateQuestion(), "prompts.chat.template-question", List.of());
         require(chat.getBlockedReply(), "prompts.chat.blocked-reply", List.of());
+        require(chat.getWarnReply(), "prompts.chat.warn-reply", List.of());
+        require(chat.getMuteReply(), "prompts.chat.mute-reply", List.of(PLACEHOLDER_MINUTES));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

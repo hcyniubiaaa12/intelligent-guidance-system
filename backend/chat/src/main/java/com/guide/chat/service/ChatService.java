@@ -164,15 +164,24 @@ public class ChatService {
 
             // ① 敏感词入口前置校验（先于信息充足性判定）
             SensitiveGuard.GuardResult guard = sensitiveGuard.check(userId, sessionId, content);
-            if (guard.action() == SensitiveGuard.GuardResult.Action.BLOCKED) {
-                log.info("入口校验：命中禁止词「{}」，拦截并返回固定引导（未调模型）", guard.word());
+            if (guard.action() == SensitiveGuard.GuardResult.Action.BLOCKED
+                    || guard.action() == SensitiveGuard.GuardResult.Action.MUTED) {
+                // 拦截与禁言同构：都返回固定话术、都不调模型不进导诊，差别只在话术由谁给
+                boolean muted = guard.action() == SensitiveGuard.GuardResult.Action.MUTED;
+                log.info("入口校验：{}", muted
+                        ? "用户处于禁言期（至 " + guard.muteUntil() + "），本轮不进入导诊"
+                        : "命中禁止词「" + guard.word() + "」，拦截并返回固定引导（未调模型）");
                 saveMessage(sessionId, MessageRole.AI, guard.reply());
                 emitText(emitter, sessionId, guard.reply());
+                // 跨过警告线时补一条处置提示：拦截话术说"请描述症状"，警告说"注意用语"，两件事都要说到
+                emitNotice(emitter, sessionId, guard.notice());
                 send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, false));
                 return;
             }
             log.info("入口校验：{}", guard.action() == SensitiveGuard.GuardResult.Action.WATCHED
                     ? "命中观察词「" + guard.word() + "」，放行并留痕" : "通过（无禁止词命中）");
+            // 警告不阻断本轮：先提示，再照常走导诊（观察词本就要放行）
+            emitNotice(emitter, sessionId, guard.notice());
 
             // ② 规则硬门槛：确定性无效输入 / 首条主诉过于笼统 → 模板追问，不调模型
             int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
@@ -385,6 +394,21 @@ public class ChatService {
 
     private void emitText(SseEmitter emitter, String sessionId, String text) {
         send(emitter, SseEvents.DELTA, new SseEvents.DeltaEvent(sessionId, text));
+    }
+
+    /**
+     * 处置提示（警告）单独一条气泡：与答案分开，患者不会把它读成诊断结论的一部分。
+     * 也落库，好让后续轮次的历史里带着这次提醒（模型不必再重复处理这个问题）。
+     *
+     * <p>用独立的 notice 事件而不是塞进 delta：delta 是「同一个气泡的增量」，
+     * 提示混进去会和紧接着的答案粘成一段话（前端无法再拆分）。
+     */
+    private void emitNotice(SseEmitter emitter, String sessionId, String notice) {
+        if (notice == null || notice.isBlank()) {
+            return;
+        }
+        saveMessage(sessionId, MessageRole.AI, notice);
+        send(emitter, SseEvents.NOTICE, new SseEvents.NoticeEvent(sessionId, notice));
     }
 
     /**

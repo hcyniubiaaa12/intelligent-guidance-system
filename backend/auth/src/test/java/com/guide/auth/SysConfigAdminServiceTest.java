@@ -12,10 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -42,22 +46,30 @@ class SysConfigAdminServiceTest {
         // 模拟「库里没值」：get 回落到调用方给的默认值
         when(sysConfigService.get(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        // getInt 同样要桩：跨项校验读的是「另一个阈值的当前生效值」，
+        // 不桩的话 mock 返回 0，校验会静默放行（等于没校验）
+        when(sysConfigService.getInt(anyString(), anyInt()))
+                .thenAnswer(invocation -> Integer.parseInt(invocation.getArgument(1).toString()));
         service = new SysConfigAdminService(configMapper, sysConfigService);
     }
 
     private SysConfigAdminDTO.ParamUpdate update(String key, String value) {
+        SysConfigAdminDTO.ParamUpdate dto = new SysConfigAdminDTO.ParamUpdate();
+        dto.setItems(List.of(item(key, value)));
+        return dto;
+    }
+
+    private SysConfigAdminDTO.ParamItem item(String key, String value) {
         SysConfigAdminDTO.ParamItem item = new SysConfigAdminDTO.ParamItem();
         item.setKey(key);
         item.setValue(value);
-        SysConfigAdminDTO.ParamUpdate dto = new SysConfigAdminDTO.ParamUpdate();
-        dto.setItems(List.of(item));
-        return dto;
+        return item;
     }
 
     @Test
     @DisplayName("列表回落到代码侧默认值，并带上类型与范围供前端校验")
     void listParamsFallsBackToDefaults() {
-        List<SysConfigAdminDTO.ParamVO> params = service.listParams();
+        List<SysConfigAdminDTO.ParamVO> params = service.listParams(SysConfigAdminService.ParamGroup.LINK);
 
         SysConfigAdminDTO.ParamVO topK = params.stream()
                 .filter(p -> SysConfigService.KEY_RETRIEVE_TOP_K.equals(p.getKey())).findFirst().orElseThrow();
@@ -69,6 +81,66 @@ class SysConfigAdminServiceTest {
         SysConfigAdminDTO.ParamVO termReview = params.stream()
                 .filter(p -> SysConfigService.KEY_TERM_MANUAL_REVIEW.equals(p.getKey())).findFirst().orElseThrow();
         assertEquals("bool", termReview.getType());
+    }
+
+    @Test
+    @DisplayName("敏感词处置参数单独成组：不在链路参数里，且默认值就是约定的 60/10/30/25/60")
+    void sensitiveParamsAreOwnGroup() {
+        List<SysConfigAdminDTO.ParamVO> link = service.listParams(SysConfigAdminService.ParamGroup.LINK);
+        assertTrue(link.stream().noneMatch(p -> p.getKey().startsWith("sensitive.")),
+                "链路参数面板不该出现敏感词处置参数");
+
+        List<SysConfigAdminDTO.ParamVO> sensitive =
+                service.listParams(SysConfigAdminService.ParamGroup.SENSITIVE);
+        assertEquals(5, sensitive.size());
+        Map<String, String> defaults = sensitive.stream()
+                .collect(Collectors.toMap(SysConfigAdminDTO.ParamVO::getKey,
+                        SysConfigAdminDTO.ParamVO::getDefaultValue));
+        assertEquals("60", defaults.get(SysConfigService.KEY_SENSITIVE_WINDOW_MINUTES));
+        assertEquals("10", defaults.get(SysConfigService.KEY_SENSITIVE_BANNED_WARN));
+        assertEquals("30", defaults.get(SysConfigService.KEY_SENSITIVE_BANNED_MUTE));
+        assertEquals("25", defaults.get(SysConfigService.KEY_SENSITIVE_WATCH_WARN));
+        assertEquals("60", defaults.get(SysConfigService.KEY_SENSITIVE_MUTE_MINUTES));
+    }
+
+    @Test
+    @DisplayName("禁言阈值必须大于警告阈值：配反了警告永远不会触发，整批拒绝且不落库")
+    void muteThresholdMustExceedWarnThreshold() {
+        SysConfigAdminDTO.ParamItem warn = item(SysConfigService.KEY_SENSITIVE_BANNED_WARN, "30");
+        SysConfigAdminDTO.ParamItem mute = item(SysConfigService.KEY_SENSITIVE_BANNED_MUTE, "10");
+        SysConfigAdminDTO.ParamUpdate dto = new SysConfigAdminDTO.ParamUpdate();
+        dto.setItems(List.of(warn, mute));
+
+        BizException e = assertThrows(BizException.class, () -> service.updateParams(dto.getItems()));
+
+        assertEquals(1001, e.getCode());
+        assertTrue(e.getMessage().contains("必须大于警告阈值"));
+        verify(configMapper, never()).insert(any(SysConfig.class));
+        verify(sysConfigService, never()).refresh();
+    }
+
+    @Test
+    @DisplayName("只改其中一个阈值时，拿另一个的当前生效值比较（60 分钟禁言线对不上 30 次警告线）")
+    void crossCheckUsesCurrentValueForUntouchedKey() {
+        // 当前生效：警告 10（默认），本次把禁言线改成 5 → 应拒
+        SysConfigAdminDTO.ParamUpdate dto = update(SysConfigService.KEY_SENSITIVE_BANNED_MUTE, "5");
+        assertThrows(BizException.class, () -> service.updateParams(dto.getItems()));
+
+        // 一次改到合法组合则通过
+        SysConfigAdminDTO.ParamUpdate ok = update(SysConfigService.KEY_SENSITIVE_BANNED_MUTE, "12");
+        when(configMapper.selectOne(any())).thenReturn(null);
+        service.updateParams(ok.getItems());
+        verify(configMapper).insert(any(SysConfig.class));
+    }
+
+    @Test
+    @DisplayName("提交里不涉及这两个阈值时不做跨项校验（否则改个无关参数也会被历史配置拦住）")
+    void crossCheckSkippedWhenUntouched() {
+        SysConfigAdminDTO.ParamUpdate dto = update(SysConfigService.KEY_SENSITIVE_WATCH_WARN, "25");
+
+        service.updateParams(dto.getItems());
+
+        verify(configMapper).insert(any(SysConfig.class));
     }
 
     @Test

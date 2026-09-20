@@ -15,6 +15,16 @@ export function unbanUser(id) {
   return http.post(`/admin/users/${id}/unban`)
 }
 
+// 解除禁言（禁言本会到期自动解除，这里用于需要立即放行的场景）；返回是否本来在禁言中
+export function unmuteUser(id) {
+  return http.post(`/admin/users/${id}/unmute`)
+}
+
+// 用户违规明细：窗口内按词聚合的命中 + 处置记录
+export function getUserViolations(id) {
+  return http.get(`/admin/users/${id}/violations`)
+}
+
 // —— 敏感词库 ——
 export function pageWords(params) {
   return http.get('/admin/sensitive-words', { params })
@@ -39,6 +49,16 @@ export function convertWordToBanned(id) {
 
 export function deleteWord(id) {
   return http.delete(`/admin/sensitive-words/${id}`)
+}
+
+// —— 敏感词处置规则（sys_config，与词库同页）——
+// 窗口、两条禁止词阈值、观察词阈值、禁言时长；禁言阈值必须大于警告阈值，否则后端整批拒绝
+export function getSensitiveRules() {
+  return http.get('/admin/sensitive-words/rules')
+}
+
+export function saveSensitiveRules(items) {
+  return http.put('/admin/sensitive-words/rules', { items })
 }
 
 // —— LLM 配置 ——

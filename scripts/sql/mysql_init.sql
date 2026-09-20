@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `role`       VARCHAR(32)  NOT NULL COMMENT '枚举：patient/admin',
     `nickname`   VARCHAR(64)  NULL COMMENT '昵称',
     `status`     VARCHAR(32)  NOT NULL DEFAULT 'normal' COMMENT '枚举：normal/banned，登录时校验（封禁即拒绝）',
+    `mute_until` DATETIME     NULL COMMENT '禁言截止时间：NULL 或已过期 = 未禁言。与 status 分离——禁言只禁发言、仍可登录，到期自动解除',
     `deleted`    TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除 0/1',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -39,6 +40,23 @@ CREATE TABLE IF NOT EXISTS `sensitive_word` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_sw_word` (`word`)
 ) ENGINE=InnoDB COMMENT='敏感词库（链路 A 入口前置校验）；管理端可维护、批量导入；白名单复用知识库部位词不建表';
+
+CREATE TABLE IF NOT EXISTS `user_violation` (
+    `id`             VARCHAR(32) NOT NULL,
+    `user_id`        VARCHAR(32) NOT NULL COMMENT '触发用户',
+    `level`          VARCHAR(32) NOT NULL COMMENT '枚举：warn 警告/mute 禁言',
+    `hit_type`       VARCHAR(32) NOT NULL COMMENT '触发词类型（枚举同 sensitive_word.type：banned/watch）',
+    `hit_count`      INT         NOT NULL COMMENT '判定时窗口内命中词次（含本轮）',
+    `window_minutes` INT         NOT NULL COMMENT '统计窗口（分钟），便于事后复现当时口径',
+    `threshold`      INT         NOT NULL COMMENT '触发阈值（当时生效值）',
+    `mute_until`     DATETIME    NULL COMMENT '禁言截止（level=mute 时与 user.mute_until 同值写入）',
+    `occurred_at`    DATETIME    NOT NULL COMMENT '处置时间（滑动窗口计时的锚点）',
+    `deleted`        TINYINT     NOT NULL DEFAULT 0,
+    `created_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_uv_user_time` (`user_id`, `occurred_at`)
+) ENGINE=InnoDB COMMENT='用户违规处置留痕（记忆敏感词/观察词按窗口累计后的警告与禁言）；只记录处置事实，不回写对话或导诊记录';
 
 CREATE TABLE IF NOT EXISTS `sys_config` (
     `id`           VARCHAR(32)  NOT NULL,
@@ -204,8 +222,9 @@ CREATE TABLE IF NOT EXISTS `filter_log` (
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_fl_session` (`session_id`)
-) ENGINE=InnoDB COMMENT='敏感词过滤日志，旁路落库不阻塞主流程';
+    KEY `idx_fl_session` (`session_id`),
+    KEY `idx_fl_user_time` (`user_id`, `matched_at`)
+) ENGINE=InnoDB COMMENT='敏感词过滤日志，旁路落库不阻塞主流程；窗口计数与按词明细都按 (user_id, matched_at) 查';
 
 CREATE TABLE IF NOT EXISTS `cluster_bucket` (
     `id`             VARCHAR(32)  NOT NULL,
@@ -299,5 +318,10 @@ INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c04', 'term.manual.review',        'true', '术语人工审核开关'),
 ('c05', 'retrieve.top.k',            '10',   '单路召回 Top-K（向量 / ES 各取）'),
 ('c06', 'retrieve.top.n',            '5',    '重排后 Top-N（进 Prompt）'),
-('c07', 'chat.ask.max.rounds',       '3',    '追问轮数上限（超限强制出低置信度结论）')
+('c07', 'chat.ask.max.rounds',       '3',    '追问轮数上限（超限强制出低置信度结论）'),
+('c08', 'sensitive.window.minutes',      '60', '敏感词违规统计窗口（分钟，滑动窗口）'),
+('c09', 'sensitive.banned.warn.count',   '10', '窗口内禁止词命中词次达此值 → 警告'),
+('c10', 'sensitive.banned.mute.count',   '30', '窗口内禁止词命中词次达此值 → 禁言'),
+('c11', 'sensitive.watch.warn.count',    '25', '窗口内观察词命中词次达此值 → 警告（不禁言）'),
+('c12', 'sensitive.mute.minutes',        '60', '禁言时长（分钟，到期自动解除）')
 ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;

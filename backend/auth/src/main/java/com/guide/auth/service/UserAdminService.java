@@ -13,17 +13,21 @@ import com.guide.common.util.PageUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 /**
- * 管理端用户管理（链路 D 配套）：用户分页查询、封禁/解封。
+ * 管理端用户管理（链路 D 配套）：用户分页查询、封禁/解封、解除禁言。
  * 封禁按总体架构 6.4 仅改账号状态——登录时校验拦截；在线 token 留 Redis 至登出/过期，与设计一致。
+ * 禁言与封禁是两回事：禁言只禁发言（{@code user.mute_until}）、仍可登录，到期自动解除。
  */
 @Service
 @RequiredArgsConstructor
 public class UserAdminService {
 
     private final UserMapper userMapper;
+    private final UserViolationService userViolationService;
 
-    public PageUtil pageUsers(long current, long size, String keyword) {
+    public PageUtil<UserAdminDTO.UserVO> pageUsers(long current, long size, String keyword) {
         Page<User> page = userMapper.selectPage(PageUtil.page(current, size),
                 Wrappers.<User>lambdaQuery()
                         .and(keyword != null && !keyword.isBlank(), w -> w
@@ -41,6 +45,11 @@ public class UserAdminService {
 
     public void unban(String userId) {
         changeStatus(userId, UserStatus.NORMAL);
+    }
+
+    /** 解除禁言（禁言本会到期自动解除，这里给需要立即放行的场景用）；返回是否本来处于禁言中 */
+    public boolean unmute(String userId) {
+        return userViolationService.unmute(userId);
     }
 
     private void changeStatus(String userId, UserStatus target) {
@@ -67,6 +76,10 @@ public class UserAdminService {
         vo.setRole(user.getRole().getCode());
         vo.setStatus(user.getStatus().getCode());
         vo.setCreatedAt(user.getCreatedAt());
+        // 已到期的禁言当没禁言下发：前端只负责显示，不参与时间判断（少一处可能算错的地方）
+        if (user.getMuteUntil() != null && user.getMuteUntil().isAfter(LocalDateTime.now())) {
+            vo.setMuteUntil(user.getMuteUntil());
+        }
         return vo;
     }
 }

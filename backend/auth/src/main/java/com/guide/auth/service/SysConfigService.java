@@ -29,6 +29,17 @@ public class SysConfigService {
     /** 追问升级阈值（轮次） */
     public static final String KEY_UPGRADE_ROUNDS = "guide.upgrade.rounds";
 
+    /** 敏感词违规的统计窗口（分钟，滑动窗口） */
+    public static final String KEY_SENSITIVE_WINDOW_MINUTES = "sensitive.window.minutes";
+    /** 窗口内禁止词命中词次达此值 → 警告 */
+    public static final String KEY_SENSITIVE_BANNED_WARN = "sensitive.banned.warn.count";
+    /** 窗口内禁止词命中词次达此值 → 禁言 */
+    public static final String KEY_SENSITIVE_BANNED_MUTE = "sensitive.banned.mute.count";
+    /** 窗口内观察词命中词次达此值 → 警告（观察词不禁言） */
+    public static final String KEY_SENSITIVE_WATCH_WARN = "sensitive.watch.warn.count";
+    /** 禁言时长（分钟，到期自动解除） */
+    public static final String KEY_SENSITIVE_MUTE_MINUTES = "sensitive.mute.minutes";
+
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
 

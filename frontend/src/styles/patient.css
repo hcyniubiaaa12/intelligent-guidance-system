@@ -109,6 +109,20 @@
   white-space: pre-wrap;
 }
 
+/* 处置提示（敏感词累计触发的警告）：独立一泡 + err 色左侧粗描边，
+   与「分诊助手」的直排正文区分开——别让它看起来像诊断结论 */
+.p-notice {
+  align-self: flex-start;
+  max-width: 88%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--err);
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--err);
+}
+
 /* 用户消息：实心 teal 气泡（圆角只用于气泡） */
 .p-user {
   align-self: flex-end;

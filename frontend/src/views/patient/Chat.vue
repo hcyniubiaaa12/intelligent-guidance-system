@@ -30,6 +30,9 @@
           <div class="p-ai__text">{{ m.content }}<span v-if="chat.streaming && i === chat.entries.length - 1 && !m.content" class="p-ai__wait">正在整理…</span></div>
         </div>
 
+        <!-- 处置提示（敏感词累计触发的警告）：单独成泡，视觉上与诊断结论区分开 -->
+        <div v-else-if="m.type === 'notice'" class="p-notice">{{ m.content }}</div>
+
         <!-- 推荐卡（签名元素 · 链路 A 结论单）：只有最新一张能继续挂号 -->
         <section v-else-if="m.type === 'card'" class="p-card">
           <div class="p-card__head">
@@ -179,8 +182,9 @@ async function runTurn(content) {
   if (chat.streaming) return
   const seq = ++turnSeq
   chat.streaming = true
-  // 占位气泡的响应式引用：delta 直接追加到它，逐字填充同一个文本节点
-  const bubble = chat.pushEntry({ type: 'ai', content: '' })
+  // 占位气泡的响应式引用：delta 直接追加到它，逐字填充同一个文本节点。
+  // 用 let 是因为处置提示（notice）会另起一泡，之后答案的 delta 要落到新气泡里
+  let bubble = chat.pushEntry({ type: 'ai', content: '' })
   scrollToBottom()
 
   const endTurn = () => {
@@ -198,6 +202,17 @@ async function runTurn(content) {
 
         onDelta: ({ text }) => {
           bubble.content += text
+          scrollToBottom()
+        },
+
+        // 处置提示（敏感词累计触发的警告）：
+        // ① 当前气泡还空着就把它收掉，免得留下一个空气泡；
+        // ② 另起一泡显示提示，并把占位气泡换成新的——否则提示后面的答案仍写进同一个气泡，
+        //    提示与结论就粘成一段话了（这正是后端用独立 notice 事件而不是 delta 的原因）
+        onNotice: ({ content: text }) => {
+          if (!bubble.content) chat.removeEntry(bubble)
+          chat.pushEntry({ type: 'notice', content: text })
+          bubble = chat.pushEntry({ type: 'ai', content: '' })
           scrollToBottom()
         },
 
