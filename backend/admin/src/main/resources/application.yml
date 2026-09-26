@@ -6,6 +6,13 @@ spring:
     name: guide-system
   profiles:
     active: local
+  # 上传上限必须显式配：Spring Boot 默认 max-file-size=1MB / max-request-size=10MB，
+  # 一份带插图的科室文档（2–5MB 很常见）会被直接拒掉，而且这个拒绝发生在 controller **之前**。
+  # 超限由 GlobalExceptionHandler 接成统一返回体（不接的话管理员看到一个跟本系统无关的错误页）
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
   # 提示词外置（导诊/改写/话术），改提示词不用改代码；缺文件或占位符丢失会启动失败
   config:
     import: classpath:prompts.yml
@@ -61,6 +68,9 @@ logging:
 guide:
   seed:
     enabled: ${GUIDE_SEED_ENABLED:true}
+  # 离线入库（链路 B）：扫描节拍固定，轮询间隔与解析总超时走 sys_config（运行时可调）
+  ingest:
+    scan-interval-ms: ${GUIDE_INGEST_SCAN_MS:5000}
 
 mybatis-plus:
   # 枚举包：@EnumValue 标注的编码字段自动装载（见《数据库设计.md》§0）
@@ -90,3 +100,10 @@ llm:
     base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
     embedding-model: ${EMBEDDING_MODEL:text-embedding-v3}
     rerank-model: ${RERANK_MODEL:qwen3-rerank}
+  # 阿里云 DocumentMind：pdf/docx/png 的唯一解析路径（不降级）。
+  # 密钥与环境变量同名，也可直接填进 application-local.yml（不提交）
+  docmind:
+    access-key-id: ${ALIBABA_CLOUD_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIBABA_CLOUD_ACCESS_KEY_SECRET:}
+    region-id: ${DOCMIND_REGION:cn-hangzhou}
+    endpoint: ${DOCMIND_ENDPOINT:docmind-api.cn-hangzhou.aliyuncs.com}
