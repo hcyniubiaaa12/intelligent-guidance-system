@@ -3,12 +3,15 @@ package com.guide.admin.controller;
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.admin.service.KbAdminService;
 import com.guide.common.api.Result;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,11 +48,11 @@ public class KbAdminController {
 
     /** 文档分页列表（含最近一次运行的阶段与真实进度量） */
     @GetMapping("/docs")
-    public Result<KbAdminDTO.DocPageVO> docs(@RequestParam(defaultValue = "1") long page,
-                                             @RequestParam(defaultValue = "10") long size,
-                                             @RequestParam(required = false) String deptId,
-                                             @RequestParam(required = false) String status,
-                                             @RequestParam(required = false) String keyword) {
+    public Result<KbAdminDTO.PageVO<KbAdminDTO.DocVO>> docs(@RequestParam(defaultValue = "1") long page,
+                                                            @RequestParam(defaultValue = "10") long size,
+                                                            @RequestParam(required = false) String deptId,
+                                                            @RequestParam(required = false) String status,
+                                                            @RequestParam(required = false) String keyword) {
         return Result.ok(kbAdminService.page(deptId, status, keyword, page, size));
     }
 
@@ -78,9 +81,40 @@ public class KbAdminController {
         return Result.ok();
     }
 
-    /** 科室选项（上传表单用；含停用科室，停用只在导诊入口生效） */
+    /** 科室蓝本（科室 tab 与上传表单共用；含停用科室，停用只在导诊入口生效） */
     @GetMapping("/depts")
-    public Result<List<KbAdminDTO.DeptOptionVO>> depts() {
+    public Result<List<KbAdminDTO.DeptVO>> depts() {
         return Result.ok(kbAdminService.depts());
+    }
+
+    /** 编辑科室蓝本：改名 / 位置 / 简介 / 启停（科室名全库唯一，模型按名字回填科室实体） */
+    @PutMapping("/depts/{deptId}")
+    public Result<Void> updateDept(@PathVariable String deptId,
+                                   @Valid @RequestBody KbAdminDTO.DeptUpdateReq request) {
+        kbAdminService.updateDept(deptId, request);
+        return Result.ok();
+    }
+
+    /** 症状交叉映射台账（只读：台账是审核事实的留痕，不做增删改） */
+    @GetMapping("/mappings")
+    public Result<KbAdminDTO.PageVO<KbAdminDTO.MappingVO>> mappings(@RequestParam(defaultValue = "1") long page,
+                                                                    @RequestParam(defaultValue = "10") long size,
+                                                                    @RequestParam(required = false) String keyword) {
+        return Result.ok(kbAdminService.mappings(keyword, page, size));
+    }
+
+    /** 术语白名单（含停用；enabled 不传即全部） */
+    @GetMapping("/terms")
+    public Result<KbAdminDTO.PageVO<KbAdminDTO.TermVO>> terms(@RequestParam(defaultValue = "1") long page,
+                                                              @RequestParam(defaultValue = "10") long size,
+                                                              @RequestParam(required = false) String keyword,
+                                                              @RequestParam(required = false) Boolean enabled) {
+        return Result.ok(kbAdminService.terms(keyword, enabled, page, size));
+    }
+
+    /** 启用/停用术语：立即刷新内存白名单（chat 入口的防误杀闸门） */
+    @PostMapping("/terms/{termId}/toggle")
+    public Result<KbAdminDTO.TermVO> toggleTerm(@PathVariable String termId) {
+        return Result.ok(kbAdminService.toggleTerm(termId));
     }
 }

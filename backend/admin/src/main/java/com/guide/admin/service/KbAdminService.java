@@ -1,6 +1,8 @@
 package com.guide.admin.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.async.entity.IngestTask;
 import com.guide.async.service.IngestPipeline;
@@ -8,11 +10,15 @@ import com.guide.async.service.IngestTaskService;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
+import com.guide.kb.entity.DeptMapping;
 import com.guide.kb.entity.KbChunk;
 import com.guide.kb.entity.KbDoc;
+import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.DocStatus;
+import com.guide.kb.service.DeptMappingService;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.KbDocService;
+import com.guide.kb.service.MedicalTermService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -42,8 +48,11 @@ public class KbAdminService {
 
     private final KbDocService kbDocService;
     private final DeptService deptService;
+    private final DeptMappingService deptMappingService;
+    private final MedicalTermService medicalTermService;
     private final IngestPipeline ingestPipeline;
     private final IngestTaskService ingestTaskService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 上传并开始入库。**同步落 MinIO 与建文档，异步入库**——上传接口不能等解析完才返回。
@@ -109,9 +118,10 @@ public class KbAdminService {
     }
 
     /** 文档分页（含最近一次运行的阶段与真实进度量） */
-    public KbAdminDTO.DocPageVO page(String deptId, String status, String keyword, long pageNum, long pageSize) {
+    public KbAdminDTO.PageVO<KbAdminDTO.DocVO> page(String deptId, String status, String keyword,
+                                                    long pageNum, long pageSize) {
         IPage<KbDoc> page = kbDocService.page(deptId, parseStatus(status), keyword,
-                Math.max(1, pageNum), Math.min(MAX_PAGE_SIZE, Math.max(1, pageSize)));
+                Math.max(1, pageNum), clamp(pageSize));
         List<KbDoc> docs = page.getRecords();
         Map<String, String> deptNames = deptNames();
         Map<String, IngestTask> tasks = latestTasks(docs);
@@ -120,10 +130,7 @@ public class KbAdminService {
         for (KbDoc doc : docs) {
             records.add(toVO(doc, deptNames.get(doc.getDeptId()), tasks.get(doc.getId())));
         }
-        KbAdminDTO.DocPageVO vo = new KbAdminDTO.DocPageVO();
-        vo.setTotal(page.getTotal());
-        vo.setRecords(records);
-        return vo;
+        return pageVO(page.getTotal(), records);
     }
 
     /** 单次运行的状态（前端上传后按 taskId 轮询进度） */
@@ -146,22 +153,104 @@ public class KbAdminService {
         return result;
     }
 
-    /** 上传表单的科室选项（含停用科室——停用只在导诊入口生效，不影响知识维护） */
-    public List<KbAdminDTO.DeptOptionVO> depts() {
-        Map<String, Long> counts = kbDocService.countByDept();
-        List<KbAdminDTO.DeptOptionVO> options = new ArrayList<>();
+    /** 科室蓝本（科室 tab 与上传表单共用一份数据；含停用科室——停用只在导诊入口生效） */
+    public List<KbAdminDTO.DeptVO> depts() {
+        Map<String, Long> docCounts = kbDocService.countByDept();
+        Map<String, Long> chunkCounts = kbDocService.countChunksByDept();
+        List<KbAdminDTO.DeptVO> options = new ArrayList<>();
         for (Dept dept : deptService.listAll()) {
-            KbAdminDTO.DeptOptionVO vo = new KbAdminDTO.DeptOptionVO();
+            KbAdminDTO.DeptVO vo = new KbAdminDTO.DeptVO();
             vo.setId(dept.getId());
             vo.setName(dept.getName());
+            vo.setLocation(dept.getLocation());
+            vo.setIntro(dept.getIntro());
             vo.setEnabled(dept.getEnabled());
-            vo.setDocCount(counts.getOrDefault(dept.getId(), 0L));
+            vo.setDocCount(docCounts.getOrDefault(dept.getId(), 0L));
+            vo.setChunkCount(chunkCounts.getOrDefault(dept.getId(), 0L));
             options.add(vo);
         }
         return options;
     }
 
+    /** 编辑科室蓝本（改名 / 位置 / 简介 / 启停）：规则归 kb（含科室名唯一性），这里只做入参兜底 */
+    public void updateDept(String deptId, KbAdminDTO.DeptUpdateReq req) {
+        deptService.update(deptId, req.getName(), req.getLocation(), req.getIntro(),
+                !Boolean.FALSE.equals(req.getEnabled()));
+    }
+
+    /** 映射台账分页（只读展示：科室 id 换成名字） */
+    public KbAdminDTO.PageVO<KbAdminDTO.MappingVO> mappings(String keyword, long pageNum, long pageSize) {
+        IPage<DeptMapping> page = deptMappingService.page(keyword, Math.max(1, pageNum), clamp(pageSize));
+        Map<String, String> deptNames = deptNames();
+        List<KbAdminDTO.MappingVO> records = new ArrayList<>(page.getRecords().size());
+        for (DeptMapping mapping : page.getRecords()) {
+            KbAdminDTO.MappingVO vo = new KbAdminDTO.MappingVO();
+            vo.setId(mapping.getId());
+            vo.setSymptom(mapping.getSymptom());
+            vo.setMainDeptName(deptNames.getOrDefault(mapping.getMainDeptId(), "（科室已删除）"));
+            vo.setCrossDeptNames(crossNames(mapping.getCrossDeptIds(), deptNames));
+            vo.setSource(mapping.getSource() == null ? null : mapping.getSource().getCode());
+            records.add(vo);
+        }
+        return pageVO(page.getTotal(), records);
+    }
+
+    /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用） */
+    public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, long pageNum, long pageSize) {
+        IPage<MedicalTerm> page = medicalTermService.page(keyword, enabled, Math.max(1, pageNum), clamp(pageSize));
+        List<KbAdminDTO.TermVO> records = new ArrayList<>(page.getRecords().size());
+        for (MedicalTerm term : page.getRecords()) {
+            KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
+            vo.setId(term.getId());
+            vo.setTerm(term.getTerm());
+            vo.setType(term.getType() == null ? null : term.getType().getCode());
+            vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
+            vo.setEnabled(term.getEnabled());
+            records.add(vo);
+        }
+        return pageVO(page.getTotal(), records);
+    }
+
+    /** 启用/停用术语（kb 侧翻转并刷新内存白名单，chat 入口最长 60s 内也一定生效） */
+    public KbAdminDTO.TermVO toggleTerm(String termId) {
+        MedicalTerm term = medicalTermService.toggle(termId);
+        KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
+        vo.setId(term.getId());
+        vo.setTerm(term.getTerm());
+        vo.setType(term.getType() == null ? null : term.getType().getCode());
+        vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
+        vo.setEnabled(term.getEnabled());
+        return vo;
+    }
+
     // ---------- 内部 ----------
+
+    /** 交叉科室 id 列表（JSON 列）→ 名字串；解析失败不抛（台账不可编辑，坏数据不该挡住整页） */
+    private String crossNames(String crossDeptIdsJson, Map<String, String> deptNames) {
+        if (crossDeptIdsJson == null || crossDeptIdsJson.isBlank()) {
+            return "";
+        }
+        try {
+            List<String> ids = objectMapper.readValue(crossDeptIdsJson, new TypeReference<>() {
+            });
+            return ids.stream().map(id -> deptNames.getOrDefault(id, "（已删除）"))
+                    .collect(Collectors.joining("、"));
+        } catch (Exception e) {
+            log.warn("映射台账的 cross_dept_ids 不是合法 JSON，原样展示：{}", crossDeptIdsJson);
+            return crossDeptIdsJson;
+        }
+    }
+
+    private <T> KbAdminDTO.PageVO<T> pageVO(long total, List<T> records) {
+        KbAdminDTO.PageVO<T> vo = new KbAdminDTO.PageVO<>();
+        vo.setTotal(total);
+        vo.setRecords(records);
+        return vo;
+    }
+
+    private long clamp(long pageSize) {
+        return Math.min(MAX_PAGE_SIZE, Math.max(1, pageSize));
+    }
 
     private Map<String, IngestTask> latestTasks(List<KbDoc> docs) {
         if (docs.isEmpty()) {

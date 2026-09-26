@@ -1,5 +1,6 @@
 package com.guide.admin.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -72,21 +73,66 @@ public final class KbAdminDTO {
         private Integer seq;
     }
 
-    /** 上传表单的科室选项（含停用：停用仅在导诊入口生效，不影响知识维护） */
+    /**
+     * 科室蓝本行（科室蓝本 tab 与上传表单的科室选项**共用一份**）。
+     *
+     * <p>含停用科室——停用只在导诊入口生效，知识库该挂哪个科室与它此刻开不开诊是两件事。
+     * {@code chunkCount} 是该科室下所有文档的切片总数（切片表上没有科室列，由文档归属聚合而来）。
+     */
     @Getter
     @Setter
-    public static class DeptOptionVO {
+    public static class DeptVO {
         private String id;
         private String name;
+        private String location;
+        private String intro;
         private Integer enabled;
         private Long docCount;
+        private Long chunkCount;
+    }
+
+    /** 科室蓝本编辑：改名 / 位置 / 简介 / 启停。name 必填且全库唯一（模型按名字回填科室） */
+    @Getter
+    @Setter
+    public static class DeptUpdateReq {
+        @NotBlank(message = "科室名不能为空")
+        private String name;
+        private String location;
+        private String intro;
+        private Boolean enabled;
+    }
+
+    /** 映射台账行：科室 id 已换成名字，前端不再自己查表拼名字 */
+    @Getter
+    @Setter
+    public static class MappingVO {
+        private String id;
+        private String symptom;
+        private String mainDeptName;
+        /** 交叉科室名，顿号连接；与主科室一样只在展示层合并 */
+        private String crossDeptNames;
+        /** init / manual / feedback */
+        private String source;
+    }
+
+    /** 术语白名单行（**含停用**：停用只是不生效，行留着可重新启用） */
+    @Getter
+    @Setter
+    public static class TermVO {
+        private String id;
+        private String term;
+        /** part / symptom */
+        private String type;
+        /** llm_extract / manual */
+        private String source;
+        private Integer enabled;
     }
 
     /** 分页结果（与其他管理端接口同一形状） */
     @Getter
     @Setter
-    public static class DocPageVO {
+    public static class PageVO<T> {
         private long total;
-        private List<DocVO> records;
+        private List<T> records;
     }
 }
