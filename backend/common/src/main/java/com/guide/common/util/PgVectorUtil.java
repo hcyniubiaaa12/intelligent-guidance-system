@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -28,17 +30,69 @@ public class PgVectorUtil {
     }
 
     /** 写入/覆盖 chunk 向量（回流重入、重新入库走同一条 upsert） */
-    public void upsertChunkVector(String chunkId, String deptId, float[] embedding) {
+    public void upsertChunkVector(ChunkVector vector) {
         jdbcTemplate.update("""
-                INSERT INTO kb_chunk_vec (chunk_id, dept_id, embedding)
-                VALUES (?, ?, CAST(? AS vector))
-                ON CONFLICT (chunk_id) DO UPDATE SET dept_id = EXCLUDED.dept_id, embedding = EXCLUDED.embedding
-                """, chunkId, deptId, toLiteral(embedding));
+                INSERT INTO kb_chunk_vec (chunk_id, dept_id, doc_id, title, content, embedding)
+                VALUES (?, ?, ?, ?, ?, CAST(? AS vector))
+                ON CONFLICT (chunk_id) DO UPDATE SET
+                    dept_id = EXCLUDED.dept_id,
+                    doc_id = EXCLUDED.doc_id,
+                    title = EXCLUDED.title,
+                    content = EXCLUDED.content,
+                    embedding = EXCLUDED.embedding
+                """, vector.chunkId(), vector.deptId(), vector.docId(), vector.title(), vector.content(),
+                toLiteral(vector.embedding()));
     }
 
     /** 删除 chunk 向量（删除补偿：先删 ES → 再删向量 → 再删元数据） */
     public void deleteChunkVector(String chunkId) {
         jdbcTemplate.update("DELETE FROM kb_chunk_vec WHERE chunk_id = ?", chunkId);
+    }
+
+    /**
+     * 批量删除向量（写时补偿：ES 或向量库写失败时，回删本次已写入的向量）。
+     * pgvector 与 ES 都不在 MySQL 事务里，MySQL 回滚不会带走它们，必须主动回删。
+     *
+     * @return 实际删除行数
+     */
+    public int deleteChunkVectors(Collection<String> chunkIds) {
+        if (chunkIds == null || chunkIds.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", Collections.nCopies(chunkIds.size(), "?"));
+        return jdbcTemplate.update("DELETE FROM kb_chunk_vec WHERE chunk_id IN (" + placeholders + ")",
+                chunkIds.toArray());
+    }
+
+    /** 列出正文副本为空的行（迁移前写入的向量），供一次性回填定位待补行 */
+    public List<String> listChunkIdsWithoutPayload() {
+        return jdbcTemplate.queryForList("SELECT chunk_id FROM kb_chunk_vec WHERE doc_id IS NULL", String.class);
+    }
+
+    /**
+     * 回填归属与正文副本（一次性迁移用：老库的向量行没有这三列，embedding 不动）。
+     *
+     * @return 实际更新行数
+     */
+    public int backfillChunkPayload(List<ChunkPayload> payloads) {
+        if (payloads == null || payloads.isEmpty()) {
+            return 0;
+        }
+        int[][] affected = jdbcTemplate.batchUpdate(
+                "UPDATE kb_chunk_vec SET doc_id = ?, title = ?, content = ? WHERE chunk_id = ?",
+                payloads, payloads.size(), (ps, payload) -> {
+                    ps.setString(1, payload.docId());
+                    ps.setString(2, payload.title());
+                    ps.setString(3, payload.content());
+                    ps.setString(4, payload.chunkId());
+                });
+        int updated = 0;
+        for (int[] batch : affected) {
+            for (int rows : batch) {
+                updated += Math.max(rows, 0);
+            }
+        }
+        return updated;
     }
 
     /**
@@ -109,5 +163,19 @@ public class PgVectorUtil {
 
     /** 归桶命中结果 */
     public record BucketHit(String bucketId, double score) {
+    }
+
+    /**
+     * 待写入的向量行。
+     * {@code title} / {@code content} 是 MySQL 切片的**副本，只作人工排查用**——
+     * 检索不读它们（{@link #searchChunks} 不 SELECT），事实仍以 MySQL 为准
+     * （见《数据库设计.md》4.1）。{@code docId} 用于行自证归属与按文档批量清理。
+     */
+    public record ChunkVector(String chunkId, String deptId, String docId, String title, String content,
+                              float[] embedding) {
+    }
+
+    /** 副本回填行（一次性迁移用）：把 MySQL 切片的归属与正文补进已存在的向量行 */
+    public record ChunkPayload(String chunkId, String docId, String title, String content) {
     }
 }

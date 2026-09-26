@@ -16,9 +16,14 @@ import java.util.List;
 
 /**
  * chunk 入库服务：kb 是**唯一**写向量库与 ES chunk 索引的入口（上传流水线 + 回流同步 + 种子语料）。
- * 双写边界：MySQL 事实 + pgvector 向量 + ES 全文，同一方法内顺序写入（MySQL → 向量 → ES），
- * MySQL 侧失败整体回滚；向量/ES 失败向上抛出触发回滚，遗留的半写由删除补偿顺序收敛
- * （先删 ES → 再删向量 → 再删元数据，见链路 B 对齐点三层防线）。
+ *
+ * <p>写入边界：MySQL 事实 + pgvector 向量（含正文副本）+ ES 全文，**同一方法内顺序写入，
+ * 不是同一事务**——MySQL 在事务里，pgvector 走独立连接、ES 走 HTTP，两者都吃不到事务。
+ * 因此失败分两条路收敛：MySQL 由 {@code @Transactional} 自己回滚，已写入的向量由
+ * {@link #compensateWrittenVectors} 主动回删（见链路 B 对齐点·写时补偿）；
+ * 删文档时的补偿顺序则是 先删 ES → 再删向量 → 再删元数据（见 {@link #deleteChunk}）。
+ *
+ * <p>写进 pgvector 的 title / content 是 MySQL 切片的**副本，只作人工排查用**——检索不读它们。
  */
 @Slf4j
 @Service
@@ -49,22 +54,52 @@ public class ChunkIndexService {
 
         List<KbChunk> saved = new ArrayList<>(inputs.size());
         List<EsChunkUtil.ChunkDoc> docs = new ArrayList<>(inputs.size());
-        for (int i = 0; i < inputs.size(); i++) {
-            ChunkInput input = inputs.get(i);
-            KbChunk chunk = new KbChunk();
-            chunk.setDocId(docId);
-            chunk.setTitle(input.title());
-            chunk.setContent(input.content());
-            chunk.setSeq(input.seq());
-            chunkMapper.insert(chunk);
+        List<String> writtenVectorIds = new ArrayList<>(inputs.size());
+        try {
+            for (int i = 0; i < inputs.size(); i++) {
+                ChunkInput input = inputs.get(i);
+                KbChunk chunk = new KbChunk();
+                chunk.setDocId(docId);
+                chunk.setTitle(input.title());
+                chunk.setContent(input.content());
+                chunk.setSeq(input.seq());
+                chunkMapper.insert(chunk);
 
-            pgVectorUtil.upsertChunkVector(chunk.getId(), deptId, vectors.get(i));
-            docs.add(new EsChunkUtil.ChunkDoc(chunk.getId(), deptId, input.title(), input.content(), input.terms()));
-            saved.add(chunk);
+                pgVectorUtil.upsertChunkVector(new PgVectorUtil.ChunkVector(
+                        chunk.getId(), deptId, docId, input.title(), input.content(), vectors.get(i)));
+                writtenVectorIds.add(chunk.getId());
+
+                docs.add(new EsChunkUtil.ChunkDoc(chunk.getId(), deptId, input.title(), input.content(),
+                        input.terms()));
+                saved.add(chunk);
+            }
+            esChunkUtil.indexChunks(docs);
+        } catch (RuntimeException e) {
+            compensateWrittenVectors(writtenVectorIds);
+            throw e;
         }
-        esChunkUtil.indexChunks(docs);
         log.info("chunk 入库完成：docId={} deptId={} 条数={}", docId, deptId, saved.size());
         return saved;
+    }
+
+    /**
+     * 写时补偿：**MySQL 在事务里，pgvector 与 ES 不在**——任一路写失败时 MySQL 会回滚，
+     * 但已写入的向量不会跟着消失，必须用本次内存里记下的 chunk_id 主动回删。
+     *
+     * <p>只补向量、不补 ES：ES 残留同样是「命中在库、元数据已删」，由 rag 回填时按 MySQL
+     * 存在性丢弃（不进 Prompt）；而这里的失败原因往往正是 ES 不可用，再去调它多半也是白费。
+     * 补偿自身失败不能盖住原始异常，只留 ERROR 与 chunkId 供人工清理。
+     */
+    private void compensateWrittenVectors(List<String> writtenVectorIds) {
+        if (writtenVectorIds.isEmpty()) {
+            return;
+        }
+        try {
+            int removed = pgVectorUtil.deleteChunkVectors(writtenVectorIds);
+            log.warn("chunk 入库失败，已回删本次写入的向量：{} 条", removed);
+        } catch (RuntimeException e) {
+            log.error("写时补偿失败，向量残留待人工清理：chunkIds={}", writtenVectorIds, e);
+        }
     }
 
     /** 删除补偿：先删 ES → 再删向量 → 再删元数据（顺序保证一致性收敛） */

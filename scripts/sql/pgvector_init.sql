@@ -14,6 +14,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS kb_chunk_vec (
     chunk_id   VARCHAR(32) PRIMARY KEY,              -- 对应 MySQL kb_chunk.id
     dept_id    VARCHAR(32) NOT NULL,                 -- 科室 id，召回过滤用
+    doc_id     VARCHAR(32) NOT NULL,                 -- 所属文档 id：行自证归属 + 按文档批量清理
+    title      VARCHAR(255) NULL,                    -- 切片标题副本（只作人工排查用，检索不读）
+    content    TEXT NOT NULL,                        -- 切片正文副本（只作人工排查用，检索不读）
     embedding  VECTOR(1024) NOT NULL                 -- 语义向量
 );
 
@@ -24,7 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_kcv_embedding
 CREATE INDEX IF NOT EXISTS idx_kcv_dept
     ON kb_chunk_vec (dept_id);
 
-COMMENT ON TABLE kb_chunk_vec IS '向量召回；与 MySQL kb_chunk 以 chunk_id 对应（kb 唯一 RAG 语料写入）';
+CREATE INDEX IF NOT EXISTS idx_kcv_doc
+    ON kb_chunk_vec (doc_id);
+
+COMMENT ON TABLE kb_chunk_vec IS '向量召回；与 MySQL kb_chunk 以 chunk_id 对应（kb 唯一 RAG 语料写入）。title/content 是 MySQL 切片正文的副本，只作人工排查用——searchChunks 不 SELECT 它们，检索仍经 ChunkTextProvider 回填 MySQL；MySQL 为准，副本不作数，kb_chunk 只写不改';
 
 -- ------------------------------------------------------------
 -- cluster_bucket_vec（feedback 模块直写，例外于 kb 的"唯一写向量库入口"）
