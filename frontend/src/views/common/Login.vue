@@ -61,6 +61,25 @@ const user = useUserStore()
 const mode = ref('login') // login / register（注册默认患者角色，链路 D）
 const loading = ref(false)
 const form = ref({ username: '', password: '', nickname: '' })
+
+/**
+ * 登录后的落点：**由角色决定，redirect 只在它指向该角色有意义的页面时才算数**。
+ *
+ * 为什么不能让 redirect 无条件优先：访客打开站点根路径 `/` 时，路由守卫会把他送到
+ * `/login?redirect=/`（`/` 是**患者首页**）。如果 redirect 压过角色，管理员从根路径进来
+ * 登录就会被送进患者端——"第一次登录管理员账号却跳到用户端"就是这么来的，
+ * 而之后浏览器已有登录态、直接进 `/admin/**` 不再经过登录页，所以只有第一次会碰到。
+ *
+ * 反方向同理：患者带着 `redirect=/admin/...` 来时不该先跳过去再被守卫弹回来。
+ */
+function landingPath(role) {
+  const redirect = route.query.redirect
+  const target = typeof redirect === 'string' && redirect ? redirect : ''
+  if (role === 'admin') {
+    return target.startsWith('/admin') ? target : '/admin/dashboard'
+  }
+  return target && !target.startsWith('/admin') ? target : '/'
+}
 const error = ref('')
 
 function switchMode() {
@@ -93,7 +112,7 @@ async function submit() {
           nickname: form.value.nickname || undefined
         })
     user.setLogin(vo)
-    router.push(route.query.redirect || (vo.role === 'admin' ? '/admin/dashboard' : '/'))
+    router.push(landingPath(vo.role))
   } catch (e) {
     // 后端校验 message（用户名已存在 / 封禁 / 密码错误等）直接展示
     error.value = e.message || '登录失败，请稍后重试'
