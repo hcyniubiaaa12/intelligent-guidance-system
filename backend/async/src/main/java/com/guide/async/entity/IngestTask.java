@@ -17,6 +17,13 @@ public class IngestTask extends BaseEntity {
 
     private String docId;
 
+    /**
+     * 外部解析服务（DocumentMind）的任务号。
+     * 两段式编排靠它：线程池只提交，定时任务扫 running 的 parse 任务去轮询，
+     * 进程重启后接着轮询靠的就是它（这个值推不出来，丢了就接不上）。仅解析阶段有值。
+     */
+    private String externalJobId;
+
     private IngestStage stage;
 
     private IngestStatus status;

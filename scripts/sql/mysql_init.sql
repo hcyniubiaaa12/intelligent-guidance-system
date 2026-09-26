@@ -288,6 +288,7 @@ CREATE TABLE IF NOT EXISTS `root_cause_log` (
 CREATE TABLE IF NOT EXISTS `ingest_task` (
     `id`         VARCHAR(32)  NOT NULL COMMENT 'taskId，幂等与重试以本键为准',
     `doc_id`     VARCHAR(32)  NOT NULL COMMENT '文档 id',
+    `external_job_id` VARCHAR(128) NULL COMMENT '外部解析服务（DocumentMind）的任务号；两段式编排靠它重启后接着轮询',
     `stage`      VARCHAR(32)  NOT NULL DEFAULT 'parse' COMMENT '枚举：parse/split/embed/done',
     `status`     VARCHAR(32)  NOT NULL DEFAULT 'running' COMMENT '枚举：running/success/failed（任务表是权威状态）',
     `total`      INT          NULL COMMENT '总数',
