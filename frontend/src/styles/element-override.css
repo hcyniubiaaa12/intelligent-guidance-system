@@ -104,3 +104,47 @@
   margin-top: 12px;
   color: var(--ink-2);
 }
+
+/* 上传（拖拽区）：**不加 .admin-root 前缀**——el-upload 用在 el-dialog 里，
+   而 dialog teleport 到 body，挂在 .admin-root 下的规则够不着它（与文件头那条注释同因）。
+   靠组件上的 .a-upload 类自我限定，避免影响别处。
+   视觉按方案 B 的卡片语言：8px 圆角 + 1px dashed line + 白底，hover/拖入走靛蓝。 */
+.a-upload .el-upload-dragger {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background-color: var(--card);
+  padding: 22px 16px;
+  transition: border-color .18s ease, background-color .18s ease;
+}
+.a-upload .el-upload-dragger:hover,
+.a-upload .el-upload-dragger.is-dragover {
+  border-color: var(--blue);
+  background-color: var(--wash);
+}
+.a-upload .el-icon--upload {
+  color: var(--dis-text);
+  font-size: 40px;
+  margin-bottom: 6px;
+}
+.a-upload .el-upload__text {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.a-upload .el-upload__text em {
+  color: var(--blue);
+  font-style: normal;
+}
+.a-upload .el-upload__tip {
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+/* 已选文件行：高度与字号对齐方案 B 的 32px 控件 */
+.a-upload .el-upload-list__item {
+  height: 32px;
+  line-height: 32px;
+  font-size: 12.5px;
+  color: var(--ink);
+  border-radius: 0;
+}

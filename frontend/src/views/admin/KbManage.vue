@@ -263,21 +263,38 @@
           <el-input v-model="uploadForm.title" placeholder="留空则用文件名" />
         </el-form-item>
         <el-form-item label="文件">
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".pdf,.docx,.png,.txt,.md,.html,.htm"
-            @change="onFileChange"
-          />
+          <el-upload
+            ref="uploadRef"
+            class="a-upload"
+            drag
+            :auto-upload="false"
+            :limit="1"
+            :accept="ACCEPT"
+            :on-change="onFileChange"
+            :on-remove="onFileRemove"
+            :on-exceed="onFileExceed"
+          >
+            <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+            <div class="el-upload__text">把文件拖到这里，或<em>点击选择</em></div>
+            <template #tip>
+              <div class="el-upload__tip">
+                支持 pdf / docx / png（走 DocumentMind 解析，按量计费）、txt / md / html（本地读），
+                单个文件不超过 50MB。上传后立即返回，解析与入库在后台跑，进度看列表。
+              </div>
+            </template>
+          </el-upload>
         </el-form-item>
       </el-form>
-      <div class="a-field__hint">
-        支持 pdf / docx / png（走 DocumentMind 解析，按量计费）、txt / md / html（本地读）；
-        单个文件不超过 50MB。上传后立即返回，解析与入库在后台跑，进度看列表。
-      </div>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button type="primary" :loading="uploading" @click="submitUpload">开始入库</el-button>
+        <el-button
+          type="primary"
+          :loading="uploading"
+          :disabled="!uploadFile || !uploadForm.deptId"
+          @click="submitUpload"
+        >
+          开始入库
+        </el-button>
       </template>
     </el-dialog>
 
@@ -328,6 +345,7 @@
 <script setup>
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
   listKbDepts, updateKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
@@ -440,9 +458,14 @@ const docQuery = reactive({ deptId: '', status: '', keyword: '' })
 const docPage = reactive({ current: 1, size: 10, total: 0 })
 const uploadVisible = ref(false)
 const uploading = ref(false)
-const fileInput = ref(null)
+const uploadRef = ref(null)
+/** 当前选中的文件（el-upload 自己维护列表，这里只留"那一个"） */
 const uploadFile = ref(null)
 const uploadForm = reactive({ deptId: '', title: '' })
+/** 与后端白名单一致（判定权在后端，这里只用于文件选择框的过滤） */
+const ACCEPT = '.pdf,.docx,.png,.txt,.md,.html,.htm'
+/** 与后端 multipart 上限一致；超了只提示，判定仍归后端 */
+const MAX_BYTES = 50 * 1024 * 1024
 
 // 有文档在跑就每 3s 刷一次列表（进度是后端算的，前端只看）；都停了就停表
 let timer = null
@@ -548,11 +571,25 @@ function openUpload() {
   uploadForm.deptId = docQuery.deptId || (depts.value.find((d) => d.enabled === 1) || {}).id || ''
   uploadForm.title = ''
   uploadFile.value = null
+  uploadRef.value?.clearFiles() // 上一次开窗选过的文件不能跟着留下来
   uploadVisible.value = true
 }
 
-function onFileChange(e) {
-  uploadFile.value = e.target.files?.[0] || null
+function onFileChange(file) {
+  uploadFile.value = file.raw || null
+  if (file.size > MAX_BYTES) {
+    ElMessage.warning(`「${file.name}」${(file.size / 1024 / 1024).toFixed(1)}MB，超过 50MB 上限，后端会拒收`)
+  }
+}
+
+function onFileRemove() {
+  uploadFile.value = null
+}
+
+/** limit=1 时再选一个文件会被拦下，改成**替换**：选错文件后第一反应是重选，不是先删 */
+function onFileExceed(files) {
+  uploadRef.value.clearFiles()
+  uploadRef.value.handleStart(files[0])
 }
 
 async function submitUpload() {
