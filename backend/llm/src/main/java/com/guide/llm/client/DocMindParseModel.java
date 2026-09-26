@@ -68,8 +68,34 @@ public class DocMindParseModel implements DocParseModel {
         } catch (DocParseException e) {
             throw e;
         } catch (Exception e) {
-            throw new DocParseException(DocParseException.Kind.DEPENDENCY, "解析服务暂时不可用，请稍后重试", e);
+            // 栈必须打出来：给人看的失败原因是一句笼统的"服务不可用"，而真正的病因
+            // （签名错 / 欠费 / 超时 / 参数不合法）只在这个异常里。不打它，管理端留下的
+            // 就只是一句"解析服务暂时不可用"，排查要从头复现一遍
+            log.error("提交文档解析失败：fileName={} extension={}", fileName, extension, e);
+            throw new DocParseException(DocParseException.Kind.DEPENDENCY, humanReasonOf(e), e);
         }
+    }
+
+    /**
+     * 把异常翻成一句**能指导下一步**的人话。
+     *
+     * <p>原来无论什么原因都说"解析服务暂时不可用"——管理员看不出该等一会再试、还是自己换个文件、
+     * 还是去查密钥。2026-09-26 实测那次就是典型：提交要**把文件流上传给阿里云**，一段网络抖动
+     * 就让同一份文件连着失败两次，而页面上只有一句"服务不可用"。
+     *
+     * <p>只看**连接层**的异常类型（纯 JDK 类型，不依赖上游 SDK 的异常体系），其余保持笼统——
+     * 宁可说得少，也不要猜错病因。
+     */
+    String humanReasonOf(Exception e) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof java.net.SocketTimeoutException
+                    || t instanceof java.net.ConnectException
+                    || t instanceof java.net.UnknownHostException
+                    || t instanceof java.net.NoRouteToHostException) {
+                return "连接解析服务失败（网络中断或超时），请稍后重新处理";
+            }
+        }
+        return "解析服务暂时不可用，请稍后重试";
     }
 
     @Override
@@ -103,7 +129,8 @@ public class DocMindParseModel implements DocParseModel {
             }
             return new ParseStatus(ParseState.RUNNING, Math.min(99, processing), status);
         } catch (Exception e) {
-            throw new DocParseException(DocParseException.Kind.DEPENDENCY, "查询解析进度失败，请稍后重试", e);
+            log.error("查询解析进度失败：jobId={}", jobId, e);
+            throw new DocParseException(DocParseException.Kind.DEPENDENCY, humanReasonOf(e), e);
         }
     }
 
@@ -163,7 +190,8 @@ public class DocMindParseModel implements DocParseModel {
             var data = response.getBody() == null ? null : response.getBody().getData();
             return new Page(DocMindLayoutReader.readBlocks(data), DocMindLayoutReader.totalBlocks(data));
         } catch (Exception e) {
-            throw new DocParseException(DocParseException.Kind.DEPENDENCY, "读取解析结果失败，请稍后重试", e);
+            log.error("读取解析结果失败：jobId={} offset={}", jobId, offset, e);
+            throw new DocParseException(DocParseException.Kind.DEPENDENCY, humanReasonOf(e), e);
         }
     }
 
