@@ -40,6 +40,7 @@ backend/
 
 - 依赖方向：admin → 各业务模块 → rag → llm；所有模块 → common；禁止反向与循环
 - rag 不依赖业务模块，不感知业务状态（会话、用户）
+- **运行时参数一律经 `auth` 的 `SysConfigService` 读**（`sys_config` 表的属主是 auth）：chat 读检索/追问参数、kb 读切分参数，都是这一条边。它不是业务模块互相依赖——auth 只依赖 common，不成环；参数是全局配置，不是某个模块的领域能力
 - chat 不得直连向量库、ES 与 LLM，只经 rag → llm
 - kb 是唯一写向量库与 ES chunk 索引入口（上传流水线 + 回流同步）；**双写不是同一事务**——MySQL 在事务内，pgvector 走独立连接、ES 走 HTTP，都吃不到事务，故写入失败必须走写时补偿回删已写入的向量；聚类锚点向量除外，归 feedback 模块直写 pgvector（见数据库设计 cluster_bucket_vec）
 - 文档解析：`pdf`/`docx`/`png` 只经 `llm` 适配层调 DocumentMind（**唯一路径，不降级**）；`html` 走 Tika、`txt`/`md` 原生读；**Tika 不得接 pdf/docx**——降级路径会顺着依赖爬回来
