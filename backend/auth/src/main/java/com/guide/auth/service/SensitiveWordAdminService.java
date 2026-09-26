@@ -10,17 +10,18 @@ import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.common.util.PageUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
  * 敏感词库管理（链路 A 入口校验的词库维护，总体架构 6.2/6.3）：
  * 分页查询、单条添加、批量导入（一行一词自动去重）、启停用、观察词转禁止词、删除（逻辑删）。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SensitiveWordAdminService {
@@ -36,14 +37,25 @@ public class SensitiveWordAdminService {
         return PageUtil.of(page, this::toVO);
     }
 
-    /** 单条添加：词唯一（DB 唯一键兜底），新词默认启用 */
+    /**
+     * 单条添加：词唯一（DB 唯一键兜底），新词默认启用。
+     *
+     * <p><b>曾被删过的词按"复活"处理</b>：物理行还在、唯一键还占着，直接 INSERT 只会撞键。
+     * 报一句"已存在"而列表里又找不到它，只会让人以为系统坏了——管理员点"添加"的意图很明确：
+     * 这个词要在库里。复活顺带保留了 hit_count 等历史。
+     */
     public void add(UserAdminDTO.WordAdd dto) {
         SensitiveWordType type = parseType(dto.getType());
-        if (exists(dto.getWord())) {
+        String word = dto.getWord().trim();
+        if (exists(word)) {
             throw new BizException(ErrorCode.SENSITIVE_WORD_EXISTS);
         }
+        if (wordMapper.revive(word, type.getCode()) > 0) {
+            log.info("敏感词「{}」是曾被删除的词，已复活（保留原命中计数）", word);
+            return;
+        }
         SensitiveWord entity = new SensitiveWord();
-        entity.setWord(dto.getWord().trim());
+        entity.setWord(word);
         entity.setType(type);
         entity.setHitCount(0);
         entity.setEnabled(1);
@@ -57,6 +69,9 @@ public class SensitiveWordAdminService {
     /**
      * 批量导入：按行拆分 → trim → 去空去重 → 过滤已存在 → 批量入库。
      * 返回导入数 / 跳过（重复）数，供前端提示。
+     *
+     * <p>与 {@link #add} 同一条规则：**曾被删过的词复活**，不因为"物理行还占着唯一键"而静默丢掉。
+     * 计数口径 = "这些词现在生效了"——复活也算导入成功。
      */
     public UserAdminDTO.ImportResult importWords(UserAdminDTO.WordImport dto) {
         SensitiveWordType type = parseType(dto.getType());
@@ -67,8 +82,15 @@ public class SensitiveWordAdminService {
                 words.add(word);
             }
         }
-        List<String> fresh = words.stream().filter(w -> !exists(w)).toList();
-        for (String word : fresh) {
+        int imported = 0;
+        for (String word : words) {
+            if (exists(word)) {
+                continue;
+            }
+            if (wordMapper.revive(word, type.getCode()) > 0) {
+                imported++;
+                continue;
+            }
             SensitiveWord entity = new SensitiveWord();
             entity.setWord(word);
             entity.setType(type);
@@ -76,13 +98,14 @@ public class SensitiveWordAdminService {
             entity.setEnabled(1);
             try {
                 wordMapper.insert(entity);
+                imported++;
             } catch (DataIntegrityViolationException e) {
-                // 并发导入撞唯一键：跳过该词继续
+                // 并发导入撞唯一键：跳过该词继续（不计入 imported，别虚报）
             }
         }
         UserAdminDTO.ImportResult result = new UserAdminDTO.ImportResult();
-        result.setImported(fresh.size());
-        result.setSkipped(words.size() - fresh.size());
+        result.setImported(imported);
+        result.setSkipped(words.size() - imported);
         return result;
     }
 

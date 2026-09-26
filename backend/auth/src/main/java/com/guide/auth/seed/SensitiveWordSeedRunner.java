@@ -1,6 +1,5 @@
 package com.guide.auth.seed;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.guide.auth.entity.SensitiveWord;
 import com.guide.auth.enums.SensitiveWordType;
 import com.guide.auth.mapper.SensitiveWordMapper;
@@ -23,6 +22,11 @@ import java.util.List;
  * 「投诉」「退钱」「曝光」是患者正当诉求，拦了只会激化矛盾——放行 + 留痕观察即可。
  *
  * <p>幂等：按词去重，已存在的词（含管理端手工添加的）不覆盖、不改类型。
+ *
+ * <p><b>判存在必须按"物理行"判</b>（{@code countIncludingDeleted}）：逻辑删除的行仍占着唯一键
+ * {@code uk_sw_word}。用按逻辑删除过滤的 `selectCount` 会判成"不存在"→ INSERT → 撞键 →
+ * **ApplicationRunner 抛异常，整个应用起不来**（2026-09-26 实测：删掉「滚」后重启即崩）。
+ * 对被删过的词的处理是**跳过而不是复活**——种子只负责把空库填上基础词，不推翻人工的决定。
  */
 @Slf4j
 @Component
@@ -53,9 +57,8 @@ public class SensitiveWordSeedRunner implements ApplicationRunner {
     private int seed(List<String> words, SensitiveWordType type) {
         int inserted = 0;
         for (String word : words) {
-            boolean exists = sensitiveWordMapper.selectCount(Wrappers.<SensitiveWord>lambdaQuery()
-                    .eq(SensitiveWord::getWord, word)) > 0;
-            if (exists) {
+            // 物理存在即跳过（含被管理端删过的词）：唯一键认物理行，不认 deleted 标志
+            if (sensitiveWordMapper.countIncludingDeleted(word) > 0) {
                 continue;
             }
             SensitiveWord entity = new SensitiveWord();

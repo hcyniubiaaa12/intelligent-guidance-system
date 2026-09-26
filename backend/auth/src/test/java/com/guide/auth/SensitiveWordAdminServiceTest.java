@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -88,8 +89,46 @@ class SensitiveWordAdminServiceTest {
         UserAdminDTO.WordImport dto = new UserAdminDTO.WordImport();
         dto.setText("并发词");
         UserAdminDTO.ImportResult result = service.importWords(dto);
-        // 冲突被吞掉不抛异常
+        // 冲突被吞掉不抛异常——但**不许虚报**：这条没进库，imported 就该是 0、skipped 是 1
+        assertEquals(0, result.getImported());
+        assertEquals(1, result.getSkipped());
+    }
+
+    @Test
+    void addRevivesSoftDeletedWordInsteadOfColliding() {
+        // 逻辑上查不到（@TableLogic 加了 deleted=0），但物理行还占着唯一键 uk_sw_word
+        when(wordMapper.selectCount(any())).thenReturn(0L);
+        when(wordMapper.revive("滚", "banned")).thenReturn(1);
+
+        service.add(add("滚", "banned"));
+
+        // 复活而不是 INSERT：INSERT 会撞键（2026-09-26 实测：种子那条路径把应用启动带崩过）
+        verify(wordMapper, never()).insert(any(SensitiveWord.class));
+    }
+
+    @Test
+    void addStillRejectsLiveDuplicate() {
+        when(wordMapper.selectCount(any())).thenReturn(1L);
+        when(wordMapper.revive(any(), any())).thenReturn(0);
+
+        BizException e = assertThrows(BizException.class, () -> service.add(add("狗屎", "banned")));
+        assertEquals(2005, e.getCode());
+        verify(wordMapper, never()).insert(any(SensitiveWord.class));
+    }
+
+    @Test
+    void importRevivesSoftDeletedWordAndCountsItImported() {
+        when(wordMapper.selectCount(any())).thenReturn(0L);
+        when(wordMapper.revive("滚", "banned")).thenReturn(1);
+
+        UserAdminDTO.WordImport dto = new UserAdminDTO.WordImport();
+        dto.setText("滚");
+        UserAdminDTO.ImportResult result = service.importWords(dto);
+
+        // 口径 = "这些词现在生效了"：复活也算导入成功
         assertEquals(1, result.getImported());
+        assertEquals(0, result.getSkipped());
+        verify(wordMapper, never()).insert(any(SensitiveWord.class));
     }
 
     @Test
