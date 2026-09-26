@@ -29,6 +29,26 @@
             <groupId>com.guide</groupId>
             <artifactId>rag</artifactId>
         </dependency>
+        <!-- 切分参数走 sys_config（检索 Top-K / 追问上限同源），与 chat 读配置是同一条路 -->
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>auth</artifactId>
+        </dependency>
+        <!-- Tika：**只接 html**。
+             刻意只引 html 模块而不是 tika-parsers-standard-package——那个 bundle 会把
+             pdf / poi / pdfbox 一起塞进 classpath，而「Tika 不得接 pdf/docx」是本项目的硬规则
+             （降级路径平时不跑，只在故障时跑一次，产出没人验证过就进了知识库）。
+             只引 html 模块，那条路**在依赖层面就不存在**，不靠人守纪律。 -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parser-html-module</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

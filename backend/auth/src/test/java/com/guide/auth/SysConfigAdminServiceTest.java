@@ -264,4 +264,41 @@ class SysConfigAdminServiceTest {
         verify(sysConfigService, never()).refresh();
         verify(sysConfigService, never()).get(eq(SysConfigService.KEY_RETRIEVE_TOP_K), anyString());
     }
+
+    @Test
+    @DisplayName("切分长度必须层层不降：上限小于目标就整批拒绝（配反了「靠近目标」与「不超上限」会打架）")
+    void chunkMaxMustNotBeBelowTarget() {
+        SysConfigAdminDTO.ParamUpdate dto = new SysConfigAdminDTO.ParamUpdate();
+        dto.setItems(List.of(item(SysConfigService.KEY_CHUNK_TARGET_LENGTH, "800"),
+                item(SysConfigService.KEY_CHUNK_MAX_LENGTH, "300")));
+
+        BizException e = assertThrows(BizException.class, () -> service.updateParams(dto.getItems()));
+
+        assertEquals(1001, e.getCode());
+        assertTrue(e.getMessage().contains("不能小于目标切片长度"));
+        verify(configMapper, never()).insert(any(SysConfig.class));
+    }
+
+    @Test
+    @DisplayName("模型切触发长度不得低于单切片上限（否则会给本该机械切掉的文本花冤枉钱）")
+    void chunkModelMinMustNotBeBelowMax() {
+        SysConfigAdminDTO.ParamUpdate dto = new SysConfigAdminDTO.ParamUpdate();
+        dto.setItems(List.of(item(SysConfigService.KEY_CHUNK_MAX_LENGTH, "800"),
+                item(SysConfigService.KEY_CHUNK_MODEL_MIN_LENGTH, "500")));
+
+        BizException e = assertThrows(BizException.class, () -> service.updateParams(dto.getItems()));
+
+        assertEquals(1001, e.getCode());
+        assertTrue(e.getMessage().contains("不能小于单切片上限"));
+    }
+
+    @Test
+    @DisplayName("提交里不涉及切分参数时不做跨项校验")
+    void chunkCheckSkippedWhenUntouched() {
+        when(configMapper.selectOne(any())).thenReturn(null);
+
+        service.updateParams(update(SysConfigService.KEY_RETRIEVE_TOP_N, "5").getItems());
+
+        verify(configMapper).insert(any(SysConfig.class));
+    }
 }

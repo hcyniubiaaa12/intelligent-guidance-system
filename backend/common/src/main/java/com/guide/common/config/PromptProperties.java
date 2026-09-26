@@ -31,12 +31,22 @@ public class PromptProperties {
     public static final String PLACEHOLDER_DIALOGUE = "{dialogue}";
     /** 禁言话术里的剩余分钟数 */
     public static final String PLACEHOLDER_MINUTES = "{minutes}";
+    /** 模型切（链路 B）的片段分隔符——与结论分隔符同理，是代码侧协议常量 */
+    public static final String PLACEHOLDER_SEPARATOR = "{separator}";
+    /** 模型切的目标长度 */
+    public static final String PLACEHOLDER_TARGET = "{target}";
+    /** 模型切的单片段上限 */
+    public static final String PLACEHOLDER_MAX = "{max}";
+    /** 待切分的长文本 */
+    public static final String PLACEHOLDER_TEXT = "{text}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
     private Rewrite rewrite = new Rewrite();
 
     private Chat chat = new Chat();
+
+    private Split split = new Split();
 
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
@@ -66,6 +76,20 @@ public class PromptProperties {
         private String muteReply;
     }
 
+    /**
+     * 文档切分·模型切（链路 B）：给一段**没有标题块**的长文本，让模型只给**边界**。
+     *
+     * <p>与导诊提示词同源的理由一样——切分质量直接就是检索质量（`chunk_broken` 是根因表里
+     * 第一项），迭代时不该改 Java 代码。
+     */
+    @Data
+    public static class Split {
+        /** 必含 {separator} {target} {max} */
+        private String system;
+        /** 必含 {text} */
+        private String userTemplate;
+    }
+
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
@@ -76,6 +100,9 @@ public class PromptProperties {
         require(chat.getBlockedReply(), "prompts.chat.blocked-reply", List.of());
         require(chat.getWarnReply(), "prompts.chat.warn-reply", List.of());
         require(chat.getMuteReply(), "prompts.chat.mute-reply", List.of(PLACEHOLDER_MINUTES));
+        require(split.getSystem(), "prompts.split.system",
+                List.of(PLACEHOLDER_SEPARATOR, PLACEHOLDER_TARGET, PLACEHOLDER_MAX));
+        require(split.getUserTemplate(), "prompts.split.user-template", List.of(PLACEHOLDER_TEXT));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

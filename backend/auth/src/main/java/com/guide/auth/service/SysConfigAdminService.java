@@ -47,7 +47,9 @@ public class SysConfigAdminService {
         /** 链路参数：检索/追问/聚合/术语审核（LLM 配置页「检索与聚合参数」） */
         LINK,
         /** 敏感词处置：统计窗口与警告/禁言阈值（用户管理页「敏感词库 → 处置规则」） */
-        SENSITIVE
+        SENSITIVE,
+        /** 文档切分：目标长度/上限/模型切触发（知识库管理页，`chunk_broken` 的修复动作靠它） */
+        CHUNK
     }
 
     /**
@@ -86,7 +88,16 @@ public class SysConfigAdminService {
             new ParamSpec(SysConfigService.KEY_SENSITIVE_WATCH_WARN, "观察词警告阈值（词次）", ParamType.INT, 1, 1000, "25",
                     "1–1000", "窗口内观察词命中达此值 → 警告（观察词不禁言）", ParamGroup.SENSITIVE),
             new ParamSpec(SysConfigService.KEY_SENSITIVE_MUTE_MINUTES, "禁言时长（分钟）", ParamType.INT, 1, 1440, "60",
-                    "1–1440", "到期自动解除，无需人工操作", ParamGroup.SENSITIVE));
+                    "1–1440", "到期自动解除，无需人工操作", ParamGroup.SENSITIVE),
+            new ParamSpec(SysConfigService.KEY_CHUNK_TARGET_LENGTH, "目标切片长度（字）", ParamType.INT, 50, 4000,
+                    String.valueOf(SysConfigService.DEFAULT_CHUNK_TARGET_LENGTH),
+                    "50–4000", "递归切尽量往它靠；也是产出校验的基准（下限为其 1/4）", ParamGroup.CHUNK),
+            new ParamSpec(SysConfigService.KEY_CHUNK_MAX_LENGTH, "单切片上限（字）", ParamType.INT, 100, 8000,
+                    String.valueOf(SysConfigService.DEFAULT_CHUNK_MAX_LENGTH),
+                    "100–8000", "超过它必走递归切；须不小于目标长度", ParamGroup.CHUNK),
+            new ParamSpec(SysConfigService.KEY_CHUNK_MODEL_MIN_LENGTH, "模型切触发长度（字）", ParamType.INT, 200, 20000,
+                    String.valueOf(SysConfigService.DEFAULT_CHUNK_MODEL_MIN_LENGTH),
+                    "200–20000", "无标题的连续文本达到它才调模型切；须不小于上限", ParamGroup.CHUNK));
 
     /** 校验通过、待写入的一项（校验阶段产出，写入阶段消费） */
     private record Resolved(ParamSpec spec, String value) {
@@ -141,6 +152,7 @@ public class SysConfigAdminService {
             resolved.add(new Resolved(spec, normalize(spec, item.getValue())));
         }
         checkSensitiveThresholds(resolved);
+        checkChunkLengths(resolved);
         for (Resolved item : resolved) {
             // 原值取自本次 selectOne（不走 SysConfigService 的缓存，否则日志可能把新值当旧值打出来）
             String before = upsert(item.spec(), item.value());
@@ -171,6 +183,33 @@ public class SysConfigAdminService {
         if (mute <= warn) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
                     "禁止词禁言阈值（" + mute + "）必须大于警告阈值（" + warn + "），否则警告永远不会触发");
+        }
+    }
+
+    /**
+     * 跨项校验：切分长度必须**层层不降**（目标 ≤ 上限 ≤ 模型切触发）。
+     *
+     * <p>与敏感词阈值同一类问题：三个数配反了不会报任何错，只会让某一层的条件永远不成立——
+     * 上限 < 目标时「尽量靠近目标」与「不得超过上限」直接打架；模型触发 < 上限时，
+     * 模型切会给「本来就该被机械切掉」的文本花冤枉钱。
+     *
+     * <p>同样只在本次提交涉及这三个键时才校验。
+     */
+    private void checkChunkLengths(List<Resolved> resolved) {
+        boolean touched = resolved.stream().anyMatch(item -> item.spec().group() == ParamGroup.CHUNK);
+        if (!touched) {
+            return;
+        }
+        int target = effectiveInt(resolved, SysConfigService.KEY_CHUNK_TARGET_LENGTH);
+        int max = effectiveInt(resolved, SysConfigService.KEY_CHUNK_MAX_LENGTH);
+        int modelMin = effectiveInt(resolved, SysConfigService.KEY_CHUNK_MODEL_MIN_LENGTH);
+        if (max < target) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "单切片上限（" + max + "）不能小于目标切片长度（" + target + "）");
+        }
+        if (modelMin < max) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "模型切触发长度（" + modelMin + "）不能小于单切片上限（" + max + "），否则模型切会给本该机械切掉的文本花钱");
         }
     }
 

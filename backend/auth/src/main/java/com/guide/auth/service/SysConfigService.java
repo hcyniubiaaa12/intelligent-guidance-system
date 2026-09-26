@@ -40,12 +40,31 @@ public class SysConfigService {
     /** 禁言时长（分钟，到期自动解除） */
     public static final String KEY_SENSITIVE_MUTE_MINUTES = "sensitive.mute.minutes";
 
+    /** 切分：目标切片长度（字符），递归切尽量往它靠 */
+    public static final String KEY_CHUNK_TARGET_LENGTH = "chunk.target.length";
+    /** 切分：单切片上限（字符），超过它必走递归切 */
+    public static final String KEY_CHUNK_MAX_LENGTH = "chunk.max.length";
+    /** 切分：模型切触发长度（字符），无标题的连续文本达到它才值得花一次模型调用 */
+    public static final String KEY_CHUNK_MODEL_MIN_LENGTH = "chunk.model.min.length";
+    /** 入库轮询间隔（秒）：定时任务扫到 running 的解析任务后，隔多久去问一次外部服务 */
+    public static final String KEY_INGEST_POLL_INTERVAL_SECONDS = "ingest.poll.interval.seconds";
+    /** 单次解析的总超时（分钟）：超了标 failed(retryable)，不无限等下去 */
+    public static final String KEY_INGEST_PARSE_TIMEOUT_MINUTES = "ingest.parse.timeout.minutes";
+
     /**
      * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
      * 与 SysConfigAdminService 白名单里的 ParamSpec 同源——改这里就够，别再散落第二份字面量。
      */
     public static final int DEFAULT_RETRIEVE_TOP_K = 10;
     public static final int DEFAULT_RETRIEVE_TOP_N = 5;
+
+    /** 切分参数的代码侧默认值（与 SplitParams 的常量同值，改一处即可） */
+    public static final int DEFAULT_CHUNK_TARGET_LENGTH = 400;
+    public static final int DEFAULT_CHUNK_MAX_LENGTH = 800;
+    public static final int DEFAULT_CHUNK_MODEL_MIN_LENGTH = 1200;
+    /** 入库轮询的代码侧默认值 */
+    public static final int DEFAULT_INGEST_POLL_INTERVAL_SECONDS = 10;
+    public static final int DEFAULT_INGEST_PARSE_TIMEOUT_MINUTES = 30;
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
