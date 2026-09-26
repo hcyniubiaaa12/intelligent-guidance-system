@@ -324,5 +324,10 @@ INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c09', 'sensitive.banned.warn.count',   '10', '窗口内禁止词命中词次达此值 → 警告'),
 ('c10', 'sensitive.banned.mute.count',   '30', '窗口内禁止词命中词次达此值 → 禁言'),
 ('c11', 'sensitive.watch.warn.count',    '25', '窗口内观察词命中词次达此值 → 警告（不禁言）'),
-('c12', 'sensitive.mute.minutes',        '60', '禁言时长（分钟，到期自动解除）')
+('c12', 'sensitive.mute.minutes',        '60', '禁言时长（分钟，到期自动解除）'),
+('c13', 'chunk.target.length',           '400',  '切分：目标切片长度（字），递归切尽量往它靠'),
+('c14', 'chunk.max.length',              '800',  '切分：单切片上限（字），超过它必走递归切'),
+('c15', 'chunk.model.min.length',        '1200', '切分：模型切触发长度（字），无标题的连续文本达到它才调模型'),
+('c16', 'ingest.poll.interval.seconds',  '10',   '入库：轮询外部解析进度的间隔（秒）'),
+('c17', 'ingest.parse.timeout.minutes',  '30',   '入库：单次解析总超时（分钟），超了标 failed 可重试')
 ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;

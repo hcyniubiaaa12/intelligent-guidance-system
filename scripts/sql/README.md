@@ -23,7 +23,8 @@ mysql -uroot -p < mysql_init.sql
 | 2026-09-19 | `chat_session` 新增 `has_result`（新主诉判定双信号之一，见《数据库设计.md》§2） | `migration_20260919_chat_session_has_result.sql` |
 | 2026-09-20 | `user` 新增 `mute_until`、新建 `user_violation`、`sys_config` 新增 5 条敏感词处置参数（见《数据库设计.md》§1） | `migration_20260920_user_violation.sql` |
 | 2026-09-26 | **pgvector** `kb_chunk_vec` 新增 `doc_id` / `title` / `content`（归属 + 正文副本，见《数据库设计.md》§4.1）。**分两步**，中间要回填存量行 | `migration_20260926_kb_chunk_vec_payload_step1.sql` → 回填 → `..._step2.sql` |
-| 2026-09-26 | `ingest_task` 新增 `external_job_id`（外部解析服务任务号，两段式编排靠它重启后接着轮询，见《数据库设计.md》§7）。上传流水线未动工，暂不执行也不影响既有功能 | `migration_20260926_ingest_task_external_job_id.sql` |
+| 2026-09-26 | `ingest_task` 新增 `external_job_id`（外部解析服务任务号，两段式编排靠它重启后接着轮询，见《数据库设计.md》§7） | `migration_20260926_ingest_task_external_job_id.sql` |
+| 2026-09-26 | `sys_config` 新增 5 条入库参数（切分 3 + 轮询 2，见《数据库设计.md》§1）。不执行也能跑（回落代码侧默认值），只是管理端改不了切分口径 | `migration_20260926_ingest_chunk_params.sql` |
 
 ## PostgreSQL + pgvector（后执行）
 
