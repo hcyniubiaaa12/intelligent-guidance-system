@@ -28,9 +28,9 @@ backend/
 ├── auth/       # 链路 D：Security + JWT 签发/校验、登录注册、角色权限、用户封禁状态校验；sys_config 运行时参数
 ├── chat/       # 链路 A：问诊对话编排、SSE 事件流（delta/question/result/done/error + session）、会话/消息落库、信息充足性判定与追问、敏感词入口前置校验
 ├── rag/        # RAG 检索层：查询改写→召回→重排→Prompt→解析
-├── llm/        # LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank；唯一外部模型出口
-├── kb/         # 链路 B：知识库管理、科室/文档/映射维护；唯一写向量库入口
-├── async/      # 离线侧：入库流水线线程池 + 任务表编排（解析→切分→向量化→入库）
+├── llm/        # LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank / 阿里 DocumentMind 文档解析；唯一外部模型出口
+├── kb/         # 链路 B：知识库管理、科室/文档/映射维护；唯一写向量库入口；文档解析（格式分流）与切分（三层策略）
+├── async/      # 离线侧：入库流水线线程池 + 任务表编排（阶段推进；解析与切分在 kb）
 ├── feedback/   # 链路 C：埋点、比对、聚合、审核回流
 ├── stats/      # 统计看板：准确率/分布/盲区
 └── admin/      # 启动器：聚合全部模块、controller 层、application.yml
@@ -41,7 +41,8 @@ backend/
 - 依赖方向：admin → 各业务模块 → rag → llm；所有模块 → common；禁止反向与循环
 - rag 不依赖业务模块，不感知业务状态（会话、用户）
 - chat 不得直连向量库、ES 与 LLM，只经 rag → llm
-- kb 是唯一写向量库与 ES chunk 索引入口（上传流水线 + 回流同步，双写同事务边界）；聚类锚点向量除外，归 feedback 模块直写 pgvector（见数据库设计 cluster_bucket_vec）
+- kb 是唯一写向量库与 ES chunk 索引入口（上传流水线 + 回流同步）；**双写不是同一事务**——MySQL 在事务内，pgvector 走独立连接、ES 走 HTTP，都吃不到事务，故写入失败必须走写时补偿回删已写入的向量；聚类锚点向量除外，归 feedback 模块直写 pgvector（见数据库设计 cluster_bucket_vec）
+- 文档解析：`pdf`/`docx`/`png` 只经 `llm` 适配层调 DocumentMind（**唯一路径，不降级**）；`html` 走 Tika、`txt`/`md` 原生读；**Tika 不得接 pdf/docx**——降级路径会顺着依赖爬回来
 - feedback 只读导诊记录、只写映射与知识片段；埋点旁路，不阻塞主流程
 - async 线程池与在线导诊线程隔离，不共用
 - 回流只前向修正，不回改历史导诊记录；写知识库唯一路径是人工 approve
@@ -73,7 +74,7 @@ scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / asy
 ## 6. 功能完成后的校验（提交前逐项过）
 
 - 数据流：entity / mapper / dto / 前端 api / 页面五处同步；检查统计看板、导出、关联页面是否漏改
-- 检索存储双写：chunk 改动必须同步 pgvector 与 ES 两路（索引/删除均同事务边界）
+- 检索存储双写：chunk 改动必须同步 pgvector 与 ES 两路，外加 MySQL 里的切片正文副本（三处）；**不是同一事务**——MySQL 在事务内，pgvector 与 ES 不在，失败靠写时补偿（回删已写向量）与删除补偿顺序收敛
 - 约束：无新中间件；依赖方向未破坏；未绕过 LLM 适配层；埋点未侵入主流程；线程池未混用
 - 验证：后端编译通过；接口真实请求跑通；涉及链路 A/B/C/D 时核对基线文档对齐点
 - 文档：涉及链路对齐点、参数、模块边界的改动，同步更新《总体架构与链路设计.md》
