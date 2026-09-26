@@ -13,6 +13,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
+import com.guide.common.util.TextUtil;
 import com.guide.common.model.ChunkHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
@@ -27,6 +28,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 /**
  * 导诊记录服务（链路 A 第 ⑥⑦ 步 + 链路 C 前半的挂号确认）。
@@ -41,6 +45,12 @@ public class GuideService {
 
     /** 证据快照中 prompt 摘要的最大长度 */
     private static final int PROMPT_SNIPPET_MAX = 2000;
+
+    /** 判断依据里每条证据原文的截断长度：够自证，又不至于把卡片撑成一篇文章 */
+    private static final int CITE_CONTENT_MAX = 400;
+
+    /** 正文里的注号引用：「（注3、注5）」「注1」都认；「关注」这类词后面不是数字，不会被误抓 */
+    private static final Pattern PROSE_CITE = Pattern.compile("注\\s*(\\d+)");
 
     private final GuideRecordMapper guideRecordMapper;
     private final ChatSessionMapper sessionMapper;
@@ -190,14 +200,17 @@ public class GuideService {
             node.put("title", chunk.title());
             node.put("score", chunk.score());
             node.put("rank", rank++);
+            // 原文进快照：回放（就诊记录 / 审核页）要显示「判断依据」的原文，
+            // 而快照的语义就是"当时的原样"——切片日后被删被重建，回放仍站得住
+            node.put("content", TextUtil.abbreviate(chunk.content(), CITE_CONTENT_MAX));
             snippet.append('注').append(rank - 1).append('《').append(chunk.title()).append("》：")
-                    .append(abbreviate(chunk.content(), 200)).append('\n');
+                    .append(TextUtil.abbreviate(chunk.content(), 200)).append('\n');
         }
         evidence.put("retrieved_query", context.rewrittenQuery());
         ArrayNode cited = evidence.putArray("model_cited");
         answer.cites().forEach(cited::add);
-        evidence.put("prompt_snippet", abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
-        evidence.put("model_output_raw", abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
+        evidence.put("prompt_snippet", TextUtil.abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
+        evidence.put("model_output_raw", TextUtil.abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
         return evidence.toString();
     }
 
@@ -206,11 +219,13 @@ public class GuideService {
         List<ChatDTO.Top3Item> top3 = kept.stream()
                 .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getName(), percent(candidate.confidence())))
                 .toList();
-        // 判断依据脚注：注号 = 证据快照 retrieved 顺序（与 Prompt 中的「注N」一致）
+        // 判断依据脚注：注号 = 证据快照 retrieved 顺序（与 Prompt 中的「注N」一致），
+        // **只列模型真正引用的那些**，并带上原文——依据要能自证，光有标题不足以
         List<ChatDTO.Cite> cites = new ArrayList<>();
         List<ChunkHit> chunks = context.chunks();
-        for (int i = 0; i < chunks.size(); i++) {
-            cites.add(new ChatDTO.Cite(i + 1, chunks.get(i).title()));
+        for (int no : citedNos(withProseCites(answer), chunks.size())) {
+            ChunkHit hit = chunks.get(no - 1);
+            cites.add(new ChatDTO.Cite(no, hit.title(), TextUtil.abbreviate(hit.content(), CITE_CONTENT_MAX)));
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
@@ -239,11 +254,44 @@ public class GuideService {
         return false;
     }
 
-    private String abbreviate(String text, int max) {
-        if (text == null) {
-            return "";
+    /**
+     * 模型引用到的注号：**去重、排序、丢掉越界的**。
+     *
+     * <p>越界不是假想：模型偶尔会给出段落里根本不存在的注号（比如只召回了 5 条却写「注7」），
+     * 而引用解析是宽松的（`AnswerParser.parseCites` 只保证能解析成整数，不保证在范围内）。
+     * 直接拿它去取 chunks 会 IndexOutOfBounds——那是**模型输出导致服务崩溃**，必须在这里拦掉。
+     *
+     * <p>**一条都没引用时退回全部召回**：模型没标「（注N）」不代表没有依据，
+     * 而"判断依据"整块空着比多列几条更糟——这一块是推荐卡的可信度来源。
+     */
+    /**
+     * 模型引用的注号 = **它结构化输出里的 cites ∪ 正文里写到的「注N」**。
+     *
+     * <p>为什么要取并集：模型这两处会不一致——实测过它正文写「（注3、注5）」而 cites 数组只有 [1,3]。
+     * 只按数组取，患者就会看到一个**正文引用了、判断依据里却不存在**的注号（改"只列引用的"之前
+     * 因为全列所以看不出来）。判断依据的最低保证是：**正文里出现的每个注号都能在这里查到**。
+     */
+    List<Integer> withProseCites(RagAnswer answer) {
+        List<Integer> all = new ArrayList<>(answer.cites() == null ? List.of() : answer.cites());
+        Matcher matcher = PROSE_CITE.matcher(answer.reply() == null ? "" : answer.reply());
+        while (matcher.find()) {
+            all.add(Integer.parseInt(matcher.group(1)));
         }
-        return text.length() > max ? text.substring(0, max) + "..." : text;
+        return all;
+    }
+
+    List<Integer> citedNos(List<Integer> cites, int chunkCount) {
+        // null 也当"没引用"处理：这条路径的尽头是 SSE 响应，任何一处 NPE 都会让患者端
+        // 收到一个断掉的流（而且只在模型输出异常时才触发，最难复现的那类）
+        List<Integer> valid = (cites == null ? List.<Integer>of() : cites).stream()
+                .filter(no -> no != null && no >= 1 && no <= chunkCount)
+                .distinct()
+                .sorted()
+                .toList();
+        if (!valid.isEmpty() || chunkCount == 0) {
+            return valid;
+        }
+        return IntStream.rangeClosed(1, chunkCount).boxed().toList();
     }
 
     /** 结论产出：落库记录 + SSE result 载荷 */

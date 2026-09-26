@@ -40,7 +40,15 @@ public class ChatDTO {
     }
 
     /** 结论溯源引用（注号对应证据快照 retrieved 顺序） */
-    public record Cite(int no, String text) {
+    /**
+     * 判断依据的一条：注号 + 切片标题 + **证据原文**（截断，见 {@code CITE_CONTENT_MAX}）。
+     *
+     * <p>只列**模型真正引用**的注——召回但没用上的那些列进"依据"会让人以为系统参考了 5 条，
+     * 而实际只用了 2 条（2026-09-26 实测：卡片列 5 条、模型只引 2 条，且其中 4 条标题一模一样）。
+     * 光有标题也说明不了什么：同一节的多个切片共用一个小标题，标题给不出区分度，
+     * 原文才是能自证的那部分。
+     */
+    public record Cite(int no, String title, String content) {
     }
 
     /** result 事件载荷（渲染推荐卡的完整数据） */

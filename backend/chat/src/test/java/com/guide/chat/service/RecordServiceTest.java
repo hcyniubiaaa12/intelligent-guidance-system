@@ -1,6 +1,7 @@
 package com.guide.chat.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.dto.RecordDTO;
 import com.guide.chat.entity.ChatMessage;
 import com.guide.chat.entity.ChatSession;
@@ -13,6 +14,7 @@ import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
+import com.guide.rag.spi.ChunkTextProvider;
 import com.guide.rag.support.AnswerParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -28,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -46,6 +50,7 @@ class RecordServiceTest {
     private ChatMessageMapper messageMapper;
     private GuideRecordMapper recordMapper;
     private DeptService deptService;
+    private ChunkTextProvider chunkTextProvider;
     private RecordService service;
 
     @BeforeEach
@@ -55,8 +60,9 @@ class RecordServiceTest {
         recordMapper = mock(GuideRecordMapper.class);
         deptService = mock(DeptService.class);
         ObjectMapper objectMapper = new ObjectMapper();
+        chunkTextProvider = mock(ChunkTextProvider.class);
         service = new RecordService(sessionMapper, messageMapper, recordMapper, deptService,
-                new AnswerParser(objectMapper), objectMapper);
+                new AnswerParser(objectMapper), chunkTextProvider, objectMapper);
 
         // 科室名解析：两个用到的科室
         when(deptService.getById("d-neuro")).thenReturn(dept("d-neuro", "神经内科", "门诊楼 4 层 A 区"));
@@ -215,11 +221,51 @@ class RecordServiceTest {
         assertEquals(3, card.top3().size());
         assertEquals(85, card.top3().get(0).pct());
         assertNull(card.top3().get(2).pct(), "模型没给合法置信度 → pct 为 null，前端显示「—」而不是 0%");
+        // 快照里没有 model_cited（老记录/模型没标引用）→ 退回列出全部召回，
+        // 不让「判断依据」整块空掉
         assertEquals(2, card.cites().size());
-        assertEquals("头痛的分诊与危险信号", card.cites().get(0).text());
+        assertEquals("头痛的分诊与危险信号", card.cites().get(0).title());
+        assertEquals(1, card.cites().get(0).no());
         assertEquals("后枕部胀痛伴低头加重", card.note());
         assertTrue(card.booked());
         assertEquals("门诊楼 4 层 A 区", card.actualDeptLocation());
+    }
+
+    @Test
+    @DisplayName("判断依据只列模型引用的注：没引用的不列，老快照缺原文时回 MySQL 取")
+    void cardListsOnlyCitedNotesWithContent() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(19, 18, 0), SessionStatus.CLOSED, 0));
+        when(messageMapper.selectList(any())).thenReturn(List.of());
+
+        GuideRecord record = new GuideRecord();
+        record.setId("r2");
+        record.setSessionId("s1");
+        record.setRecDeptId("d-neuro");
+        record.setConfidence(0.9);
+        record.setLowConfidence(0);
+        // 注3 召回了但模型没用上 → 不该出现在判断依据里；
+        // 注2 是 2026-09-26 之前的老快照（没有 content）→ 回 MySQL 取。
+        // 用文本块写：这段 JSON 里嵌套引号太多，字符串拼接错一处就变成"解析得了但取不到字段"的哑弹
+        record.setEvidence("""
+                {"retrieved":[
+                  {"rank":1,"chunk_id":"c1","title":"头痛的分诊与危险信号","content":"头痛伴发热、颈项强直需急诊"},
+                  {"rank":2,"chunk_id":"c2","title":"颈肩腰腿痛的分诊要点"},
+                  {"rank":3,"chunk_id":"c3","title":"头晕与眩晕的鉴别","content":"眩晕的鉴别"}],
+                 "model_cited":[1,2],
+                 "model_output_raw":"---RESULT---\\n{\\"dept\\":\\"神经内科\\",\\"confidence\\":0.9}"}
+                """);
+        when(recordMapper.selectList(any())).thenReturn(List.of(record));
+        when(chunkTextProvider.loadTexts(List.of("c2")))
+                .thenReturn(Map.of("c2", new ChunkTextProvider.ChunkText("颈肩腰腿痛的分诊要点", "颈部僵硬伴手指麻木者首诊骨科")));
+
+        List<ChatDTO.Cite> cites = service.sessionDetail(ME, "s1").card().cites();
+
+        assertEquals(2, cites.size(), "注3 模型没引用，不该列进判断依据");
+        assertEquals(1, cites.get(0).no());
+        assertEquals("头痛伴发热、颈项强直需急诊", cites.get(0).content());
+        assertEquals(2, cites.get(1).no());
+        assertEquals("颈部僵硬伴手指麻木者首诊骨科", cites.get(1).content(), "老快照没存原文，回 MySQL 回填");
+        verify(chunkTextProvider).loadTexts(List.of("c2"));
     }
 
     @Test

@@ -15,9 +15,11 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
+import com.guide.common.util.TextUtil;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
+import com.guide.rag.spi.ChunkTextProvider;
 import com.guide.rag.support.AnswerParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,10 +29,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 就诊记录（患者端只读回放）：把既有事实按「一次就诊」重新组织给患者自己看。
@@ -50,6 +54,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RecordService {
 
+    /** 判断依据里每条证据原文的截断长度（与实时结论卡同口径） */
+    private static final int CITE_CONTENT_MAX = 400;
+
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final ChatSessionMapper sessionMapper;
@@ -57,6 +64,7 @@ public class RecordService {
     private final GuideRecordMapper guideRecordMapper;
     private final DeptService deptService;
     private final AnswerParser answerParser;
+    private final ChunkTextProvider chunkTextProvider;
     private final ObjectMapper objectMapper;
 
     /** 我的会话列表（按天分组，天与会话都最新在前） */
@@ -172,9 +180,28 @@ public class RecordService {
             }
             JsonNode evidence = record.getEvidence() == null ? null : objectMapper.readTree(record.getEvidence());
             if (evidence != null) {
-                // 注号 = 证据快照 retrieved 顺序（与 Prompt 中「注N」同一套编号）
+                // 判断依据的口径与实时结论卡一致：**只列模型引用的注**（快照里的 model_cited），
+                // 注号仍等于 retrieved 顺序（与正文「（注N）」同一套编号），并带上原文
+                Set<Integer> cited = new HashSet<>();
+                for (JsonNode no : evidence.path("model_cited")) {
+                    cited.add(no.asInt());
+                }
+                // 一条都没引用时退回全部召回（与实时结论卡同一口径）：
+                // 模型没标「（注N）」不代表没有依据，而这一块空着比多列几条更糟
+                boolean filter = !cited.isEmpty();
+                Map<String, String> texts = loadContentsForMissing(evidence, cited, filter);
                 for (JsonNode chunk : evidence.path("retrieved")) {
-                    cites.add(new ChatDTO.Cite(chunk.path("rank").asInt(), chunk.path("title").asText()));
+                    int rank = chunk.path("rank").asInt();
+                    if (filter && !cited.contains(rank)) {
+                        continue;
+                    }
+                    String content = chunk.path("content").asText("");
+                    if (content.isEmpty()) {
+                        // 2026-09-26 之前的快照没存原文：回 MySQL 取一次，让老记录也有原文可看
+                        content = texts.getOrDefault(chunk.path("chunk_id").asText(""), "");
+                    }
+                    cites.add(new ChatDTO.Cite(rank, chunk.path("title").asText(),
+                            TextUtil.abbreviate(content, CITE_CONTENT_MAX)));
                 }
                 // 结论说明不在 guide_record 列里，只在 evidence 的模型原始输出里——用同一套解析器取回，
                 // 取不到就当没有（卡片少一行说明，不影响其余字段）
@@ -189,6 +216,30 @@ public class RecordService {
                 record.getLowConfidence() != null && record.getLowConfidence() == 1,
                 booked, actual == null ? null : actual.getName(),
                 actual == null ? null : actual.getLocation());
+    }
+
+    /**
+     * 给快照里**没存原文**的那些被引注补上正文（读 MySQL，MySQL 是切片正文的事实源）。
+     * 只为 2026-09-26 之前落库的老记录服务；新记录快照里自带原文，这里返回空 Map。
+     */
+    private Map<String, String> loadContentsForMissing(JsonNode evidence, Set<Integer> cited, boolean filter) {
+        List<String> missing = new ArrayList<>();
+        for (JsonNode chunk : evidence.path("retrieved")) {
+            boolean wanted = !filter || cited.contains(chunk.path("rank").asInt());
+            if (wanted && chunk.path("content").asText("").isEmpty()) {
+                String id = chunk.path("chunk_id").asText("");
+                if (!id.isEmpty()) {
+                    missing.add(id);
+                }
+            }
+        }
+        if (missing.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> texts = new LinkedHashMap<>();
+        chunkTextProvider.loadTexts(missing)
+                .forEach((id, text) -> texts.put(id, text.content()));
+        return texts;
     }
 
     /** 按天分组（天与天内会话都最新在前）；日期口径用服务器本地日期 */
