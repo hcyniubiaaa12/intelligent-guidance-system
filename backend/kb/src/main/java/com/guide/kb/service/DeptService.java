@@ -1,6 +1,8 @@
 package com.guide.kb.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.guide.common.api.ErrorCode;
+import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.mapper.DeptMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,5 +47,40 @@ public class DeptService {
         return deptMapper.selectOne(Wrappers.<Dept>lambdaQuery()
                 .eq(Dept::getName, name.trim())
                 .last("LIMIT 1"));
+    }
+
+    /**
+     * 管理端维护科室蓝本：改名、改位置与简介、启用/停用。
+     *
+     * <p><b>科室名必须唯一</b>，这不是洁癖：模型输出的是**科室名字符串**，写库与推荐校验
+     * 都靠 {@link #findByName} 精确匹配把它换回科室实体。重名会让这一步变成"看运气取第一条"
+     * ——同一条主诉今天落到 A 科室、明天落到 B 科室，而且页面与看板都看不出异常。
+     *
+     * <p>停用只影响导诊入口（挂号页不列、推荐校验过滤），chunk 与历史记录原样保留，
+     * 所以这里不做任何连带清理。
+     */
+    public Dept update(String id, String name, String location, String intro, boolean enabled) {
+        Dept dept = getById(id);
+        if (dept == null) {
+            throw new BizException(ErrorCode.DEPT_NOT_FOUND);
+        }
+        String trimmed = name == null ? "" : name.strip();
+        if (trimmed.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "科室名不能为空");
+        }
+        Dept sameName = findByName(trimmed);
+        if (sameName != null && !sameName.getId().equals(id)) {
+            throw new BizException(ErrorCode.DEPT_NAME_EXISTS.getCode(), "科室名「" + trimmed + "」已被占用");
+        }
+        dept.setName(trimmed);
+        dept.setLocation(blankToNull(location));
+        dept.setIntro(blankToNull(intro));
+        dept.setEnabled(enabled ? 1 : 0);
+        deptMapper.updateById(dept);
+        return dept;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 }

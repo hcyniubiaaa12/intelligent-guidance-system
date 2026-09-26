@@ -1,6 +1,10 @@
 package com.guide.kb.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.guide.common.api.ErrorCode;
+import com.guide.common.exception.BizException;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.mapper.MedicalTermMapper;
 import lombok.RequiredArgsConstructor;
@@ -66,6 +70,33 @@ public class MedicalTermService {
     public void refresh() {
         cache.set(new CacheEntry(load(), System.currentTimeMillis()));
         log.info("医学术语白名单已刷新，启用术语 {} 条", enabledTerms().size());
+    }
+
+    /** 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用） */
+    public IPage<MedicalTerm> page(String keyword, Boolean enabled, long pageNum, long pageSize) {
+        return medicalTermMapper.selectPage(new Page<>(pageNum, pageSize),
+                Wrappers.<MedicalTerm>lambdaQuery()
+                        .like(keyword != null && !keyword.isBlank(), MedicalTerm::getTerm, keyword)
+                        .eq(enabled != null, MedicalTerm::getEnabled, Boolean.TRUE.equals(enabled) ? 1 : 0)
+                        .orderByAsc(MedicalTerm::getTerm));
+    }
+
+    /**
+     * 启用/停用（管理端「确认启用」与「停用」都走它）：翻转后**立即 refresh**。
+     *
+     * <p>白名单是 chat 入口的防误杀闸门，管理端点一下就该生效——不能等 60s TTL。
+     * TTL 是兜底（多实例部署时别的实例靠它收敛），不是这里的正常路径。
+     */
+    public MedicalTerm toggle(String id) {
+        MedicalTerm term = medicalTermMapper.selectById(id);
+        if (term == null) {
+            throw new BizException(ErrorCode.TERM_NOT_FOUND);
+        }
+        term.setEnabled(Integer.valueOf(1).equals(term.getEnabled()) ? 0 : 1);
+        medicalTermMapper.updateById(term);
+        refresh();
+        log.info("术语「{}」已{}", term.getTerm(), Integer.valueOf(1).equals(term.getEnabled()) ? "启用" : "停用");
+        return term;
     }
 
     private record CacheEntry(Set<String> terms, long loadedAt) {

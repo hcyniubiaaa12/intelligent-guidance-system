@@ -38,6 +38,8 @@ public enum ErrorCode {
     DOC_HAS_NO_SOURCE(5006, "该文档没有原文件，无法重新处理"),
     INGEST_TASK_NOT_FOUND(5007, "入库任务不存在"),
     FILE_TOO_LARGE(5008, "文件过大"),
+    DEPT_NAME_EXISTS(5009, "科室名已存在"),
+    TERM_NOT_FOUND(5010, "术语不存在"),
 
     // feedback 6xxx
     RECORD_NOT_FOUND(6000, "导诊记录不存在"),

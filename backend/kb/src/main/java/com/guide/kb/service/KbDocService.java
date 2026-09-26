@@ -1,5 +1,6 @@
 package com.guide.kb.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -117,6 +119,33 @@ public class KbDocService {
                         .select(KbDoc::getDeptId))
                 .stream()
                 .collect(Collectors.groupingBy(KbDoc::getDeptId, Collectors.counting()));
+    }
+
+    /**
+     * 每个科室的**切片数**（科室蓝本 tab 的「切片数」列）。
+     *
+     * <p>切片表上只有 {@code doc_id}（科室归属在文档上，见数据库设计 §3），所以先取
+     * "文档 → 科室"再按文档聚合切片数。聚合走 SQL 的 group by，只回"每份文档几片"，
+     * 不把切片行拉回内存——知识库上量后这条路径是列表页每次加载都要走的。
+     */
+    public Map<String, Long> countChunksByDept() {
+        Map<String, String> docDept = kbDocMapper.selectList(Wrappers.<KbDoc>lambdaQuery()
+                        .select(KbDoc::getId, KbDoc::getDeptId))
+                .stream()
+                .collect(Collectors.toMap(KbDoc::getId, KbDoc::getDeptId, (a, b) -> a));
+        Map<String, Long> result = new HashMap<>();
+        for (Map<String, Object> row : kbChunkMapper.selectMaps(new QueryWrapper<KbChunk>()
+                .select("doc_id", "count(*) AS cnt")
+                .groupBy("doc_id"))) {
+            String deptId = docDept.get(String.valueOf(row.get("doc_id")));
+            if (deptId == null) {
+                // 文档已删、切片还没收走（删除补偿失败的那种残留）：不计入任何科室
+                continue;
+            }
+            long count = ((Number) row.get("cnt")).longValue();
+            result.merge(deptId, count, Long::sum);
+        }
+        return result;
     }
 
     // ---------- 状态机 ----------
