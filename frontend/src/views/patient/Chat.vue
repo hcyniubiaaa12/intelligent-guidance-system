@@ -221,7 +221,9 @@
                   <div class="p-card__foot">
                     <span class="p-eyebrow">判 断 依 据</span>
                     <p v-for="c in m.card.cites" :key="c.no" class="p-cite">
-                      <span class="p-cite__no">注{{ c.no }}</span>　{{ c.text }}
+                      <span class="p-cite__no">注{{ c.no }}</span>
+                      <span class="p-cite__title">{{ c.title }}</span>
+                      <span class="p-cite__body">{{ c.content }}</span>
                     </p>
                   </div>
 
@@ -445,7 +447,7 @@ function cardText(card) {
   if (card.note) lines.push(card.note)
   if (card.cites?.length) {
     lines.push('判断依据：')
-    card.cites.forEach((c) => lines.push(`  注${c.no}　${c.text}`))
+    card.cites.forEach((c) => lines.push(`  注${c.no}　${c.title}\n    ${c.content}`))
   }
   lines.push('（分诊建议，不能替代医生诊断）')
   return lines.join('\n')

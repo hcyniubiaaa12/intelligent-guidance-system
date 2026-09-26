@@ -278,10 +278,26 @@
   color: var(--ink-2);
   line-height: 1.7;
 }
+.p-cite + .p-cite {
+  margin-top: 8px;
+}
 .p-cite__no {
   color: var(--teal);
   font-family: var(--sans);
   font-size: 11px;
+}
+/* 标题一行，原文另起一段：原文可能 400 字，跟标题挤在一行会读不成句 */
+.p-cite__title {
+  color: var(--ink);
+  font-weight: 600;
+}
+.p-cite__body {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-2);
+  /* 原文是"引用"，用左侧细线把它与结论正文区分开——与追问气泡同一套语言 */
+  border-left: 2px solid var(--teal-soft);
+  padding-left: 8px;
 }
 .p-card__lowhint {
   margin-top: 8px;
