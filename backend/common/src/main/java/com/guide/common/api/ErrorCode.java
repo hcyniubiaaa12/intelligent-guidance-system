@@ -32,6 +32,12 @@ public enum ErrorCode {
     DOC_NOT_FOUND(5000, "文档不存在"),
     DEPT_NOT_FOUND(5001, "科室不存在"),
     DEPT_DISABLED(5002, "科室已停用，暂不可挂号"),
+    UPLOAD_FORMAT_UNSUPPORTED(5003, "不支持的文件格式"),
+    UPLOAD_EMPTY_FILE(5004, "文件为空"),
+    DOC_INGESTING(5005, "该文档正在处理中，请等待完成"),
+    DOC_HAS_NO_SOURCE(5006, "该文档没有原文件，无法重新处理"),
+    INGEST_TASK_NOT_FOUND(5007, "入库任务不存在"),
+    FILE_TOO_LARGE(5008, "文件过大"),
 
     // feedback 6xxx
     RECORD_NOT_FOUND(6000, "导诊记录不存在"),

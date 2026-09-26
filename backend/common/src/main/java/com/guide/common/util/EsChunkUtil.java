@@ -82,6 +82,36 @@ public class EsChunkUtil {
     }
 
     /**
+     * 批量删除 chunk（删文档 / 重新入库「先删旧切片」走这条）。
+     *
+     * <p>用 bulk 而不是逐条 delete：一份文档的切片数在几十到几百，重新入库时逐条发
+     * HTTP 会把「先删旧再重建」的删除段拖成分钟级。
+     *
+     * <p>失败分两种：**传输层失败（连不上 / 超时 / 非 2xx）直接抛**——删除补偿的顺序保证
+     * （先删 ES → 再删向量 → 再删元数据）不能靠「删不掉就算了」推进，抛出去让调用方停在这一步；
+     * **bulk 内部的逐条错误只记 WARN**（与 {@link #indexChunks} 同形）——残留在 ES 的切片
+     * 同样是"命中在库、元数据已删"，读时由回填按 MySQL 存在性丢弃，不会进 Prompt。
+     */
+    public void deleteChunks(List<String> chunkIds) {
+        if (chunkIds == null || chunkIds.isEmpty()) {
+            return;
+        }
+        String index = properties.getChunkIndex();
+        try {
+            BulkRequest.Builder builder = new BulkRequest.Builder();
+            for (String chunkId : chunkIds) {
+                builder.operations(op -> op.delete(d -> d.index(index).id(chunkId)));
+            }
+            var response = client.bulk(builder.build());
+            if (response.errors()) {
+                log.warn("ES 批量删除部分失败，index={}", index);
+            }
+        } catch (IOException | RuntimeException e) {
+            throw new IllegalStateException("ES 批量删除失败：" + e.getMessage(), e);
+        }
+    }
+
+    /**
      * BM25 关键词召回。ES 不可用/索引不存在时返回空列表（rag 侧退化为单路召回）。
      */
     public List<ChunkHit> searchChunks(String query, int topK) {

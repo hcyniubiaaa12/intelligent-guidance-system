@@ -64,6 +64,16 @@ public class PgVectorUtil {
                 chunkIds.toArray());
     }
 
+    /**
+     * 按文档批量删除向量（删文档 / 重新入库「先删旧切片」用）。
+     * 走 {@code doc_id} 索引——行自证归属正是为这一刻加的列。
+     *
+     * @return 实际删除行数
+     */
+    public int deleteChunkVectorsByDoc(String docId) {
+        return jdbcTemplate.update("DELETE FROM kb_chunk_vec WHERE doc_id = ?", docId);
+    }
+
     /** 列出正文副本为空的行（迁移前写入的向量），供一次性回填定位待补行 */
     public List<String> listChunkIdsWithoutPayload() {
         return jdbcTemplate.queryForList("SELECT chunk_id FROM kb_chunk_vec WHERE doc_id IS NULL", String.class);

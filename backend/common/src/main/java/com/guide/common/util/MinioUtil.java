@@ -2,6 +2,7 @@ package com.guide.common.util;
 
 import com.guide.common.config.MinioProperties;
 import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
@@ -76,6 +77,25 @@ public class MinioUtil {
         upload(defaultBucket, objectKey, stream, size, contentType);
     }
 
+    /**
+     * 下载文件（返回流，**调用方负责关闭**）。
+     *
+     * <p>入库流水线靠它取原文：解析重试与重新入库读的都是 MinIO 里的原文件
+     * （系统没有「替换文件」这个操作，见链路 B）。
+     */
+    public InputStream download(String bucket, String objectKey) {
+        try {
+            return client.getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build());
+        } catch (Exception e) {
+            throw new RuntimeException("下载文件失败: " + bucket + "/" + objectKey, e);
+        }
+    }
+
+    /** 从默认桶下载文件（调用方负责关闭流） */
+    public InputStream download(String objectKey) {
+        return download(defaultBucket, objectKey);
+    }
+
     /** 删除文件 */
     public void remove(String bucket, String objectKey) {
         try {
@@ -83,6 +103,11 @@ public class MinioUtil {
         } catch (Exception e) {
             throw new RuntimeException("删除文件失败: " + bucket + "/" + objectKey, e);
         }
+    }
+
+    /** 从默认桶删除文件 */
+    public void remove(String objectKey) {
+        remove(defaultBucket, objectKey);
     }
 
     /** 获取预签名访问 URL（默认 1 小时有效） */
