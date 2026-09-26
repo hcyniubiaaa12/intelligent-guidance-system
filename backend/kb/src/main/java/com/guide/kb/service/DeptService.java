@@ -25,6 +25,14 @@ public class DeptService {
                 .orderByAsc(Dept::getCreatedAt));
     }
 
+    /**
+     * 全部科室（**含停用**）：管理端知识维护用。
+     * 停用只在导诊入口生效——知识库该挂哪个科室，与它此刻开不开诊是两件事。
+     */
+    public List<Dept> listAll() {
+        return deptMapper.selectList(Wrappers.<Dept>lambdaQuery().orderByAsc(Dept::getCreatedAt));
+    }
+
     public Dept getById(String id) {
         return id == null ? null : deptMapper.selectById(id);
     }
