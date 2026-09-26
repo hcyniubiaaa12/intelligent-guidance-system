@@ -12,6 +12,7 @@ import io.minio.http.Method;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
@@ -57,7 +58,15 @@ public class MinioUtil {
         }
     }
 
-    /** 上传文件（桶不存在自动创建） */
+    /**
+     * 上传文件（桶不存在自动创建）。
+     *
+     * <p>{@code contentType} **允许为空**：multipart 的 part 不一定带 Content-Type
+     * （浏览器与客户端都可能省掉），而 MinIO SDK 对它做非空校验，直接透传会抛
+     * 「content type must not be null」——上游看到的是 1000 系统内部错误，与"文件有问题"毫无关系。
+     * 空值回落 {@code application/octet-stream}：本系统的下载都经后端流式转发，
+     * 存储类型只影响从 MinIO 裸取时的表现，不值得为它拦下一次上传。
+     */
     public void upload(String bucket, String objectKey, InputStream stream, long size, String contentType) {
         try {
             createBucketIfAbsent(bucket);
@@ -65,7 +74,7 @@ public class MinioUtil {
                     .bucket(bucket)
                     .object(objectKey)
                     .stream(stream, size, -1)
-                    .contentType(contentType)
+                    .contentType(contentTypeOrDefault(contentType))
                     .build());
         } catch (Exception e) {
             throw new RuntimeException("上传文件失败: " + bucket + "/" + objectKey, e);
@@ -75,6 +84,11 @@ public class MinioUtil {
     /** 上传到默认桶 */
     public void upload(String objectKey, InputStream stream, long size, String contentType) {
         upload(defaultBucket, objectKey, stream, size, contentType);
+    }
+
+    /** 空 contentType 的回落值（见 {@link #upload(String, String, InputStream, long, String)} 的说明） */
+    static String contentTypeOrDefault(String contentType) {
+        return StringUtils.hasText(contentType) ? contentType : "application/octet-stream";
     }
 
     /**
