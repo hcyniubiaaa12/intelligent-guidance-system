@@ -57,8 +57,18 @@
             <div class="a-topbar__title">{{ route.meta.title || '控制台' }}</div>
             <div class="a-topbar__sub">{{ route.meta.sub || '' }}</div>
           </div>
-          <div class="a-topbar__ops">
-            <button class="a-btn a-btn--ghost">近 7 天</button>
+          <!-- 区间切换只在"区间"有意义的页面出现（看板）；其余页面显示的是死按钮，
+               点它没有任何反应，却像是能改变数据口径 —— 宁可没有 -->
+          <div v-if="isDashboard" class="a-topbar__ops">
+            <button
+              v-for="d in RANGES"
+              :key="d"
+              class="a-btn"
+              :class="activeDays === d ? '' : 'a-btn--ghost'"
+              @click="switchRange(d)"
+            >
+              近 {{ d }} 天
+            </button>
           </div>
         </header>
 
@@ -71,7 +81,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Fold, Expand, ArrowUp } from '@element-plus/icons-vue'
@@ -112,11 +122,25 @@ function onUserCommand(cmd) {
   if (cmd === 'logout') onLogout()
 }
 
-// 待办徽标由审核队列实时数据驱动（当前为模板假数据）；abbr 为折叠态两字缩写
+// 区间切换：状态放在**路由 query**（`?days=30`）而不是组件间传参——
+// 页面刷新/分享链接后区间不丢，也不需要在顶栏与看板之间搭一层状态。
+const RANGES = [7, 30]
+const isDashboard = computed(() => route.name === 'dashboard')
+const activeDays = computed(() => Number(route.query.days) || 7)
+
+function switchRange(days) {
+  if (days !== activeDays.value) {
+    router.replace({ path: route.path, query: { ...route.query, days } })
+  }
+}
+
+// abbr 为折叠态两字缩写。
+// badge 是**待办数**，必须来自实时数据——审核队列的待办数要等链路 C 后半（聚合归桶）才有来源，
+// 在那之前一律 0（不显示）。写死一个数字最像"有内容"，而它会被当成待办数去处理。
 const navs = [
   { path: '/admin/dashboard', label: '数据看板', abbr: '看板', badge: 0 },
   { path: '/admin/kb', label: '知识库管理', abbr: '知识', badge: 0 },
-  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: 3 },
+  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: 0 },
   { path: '/admin/users', label: '用户管理', abbr: '用户', badge: 0 },
   { path: '/admin/llm', label: 'LLM 配置', abbr: '模型', badge: 0 }
 ]

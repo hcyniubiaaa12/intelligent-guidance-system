@@ -116,12 +116,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getDashboardOverview, pageGuideRecords } from '../../api/admin'
 
-// 看板口径固定近 7 天（页面 meta 已声明），后端上限 90
-const days = 7
+// 区间由顶栏的切换按钮决定，状态就在路由 query（`?days=30`）——刷新与分享链接都不丢
+const route = useRoute()
+const days = computed(() => Number(route.query.days) || 7)
 
 const kpis = ref([])
 const trend = ref([])
@@ -173,7 +175,7 @@ async function loadOverview() {
   loading.value = true
   loadError.value = ''
   try {
-    const data = await getDashboardOverview(days)
+    const data = await getDashboardOverview(days.value)
     kpis.value = data.kpis || []
     trend.value = data.trend || []
     rootCauses.value = data.rootCauses || []
@@ -194,6 +196,11 @@ async function loadRecords(pageNo = page.current) {
     ElMessage.error(errText(e))
   }
 }
+
+// 顶栏切区间只改路由 query，数据重取由这里触发（列表与分页不受区间影响）
+watch(days, () => {
+  loadOverview()
+})
 
 onMounted(() => {
   loadOverview()

@@ -19,7 +19,7 @@ const routes = [
         path: 'dashboard',
         name: 'dashboard',
         component: () => import('../views/admin/Dashboard.vue'),
-        meta: { title: '数据看板', sub: '近 7 天 · 口径：已反馈导诊记录' }
+        meta: { title: '数据看板', sub: '口径：已反馈导诊记录（区间由顶栏切换）' }
       },
       {
         path: 'kb',
