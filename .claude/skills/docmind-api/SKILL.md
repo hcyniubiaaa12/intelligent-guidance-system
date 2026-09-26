@@ -97,12 +97,20 @@ data.getProcessing();    // 0.0 → 100.0
 // 路 A：分页拉版面块（结构化，本项目走这条）
 GetDocParserResultResponse r = client.getDocParserResult(
         new GetDocParserResultRequest().setId(jobId).setLayoutNum(0).setLayoutStepSize(50));
-// 返回体是 Map<String,?>，结构由服务端定义
+// 返回体是 Map<String,?>，结构由服务端定义：data.layouts = 全篇按阅读顺序排好的平铺列表
 
 // 路 B：下载整篇文件（markdown）
 String url = st.getBody().getData().getOutputFormatResult().get(0).getOutputFileUrl();
 // 直接用 HttpClient GET 即可，URL 自带签名，不需要再带 AK
 ```
+
+**分页语义（2026-09-26 实测确认）**：`layoutNum` 是**块偏移**、`layoutStepSize` 是取多少块，
+就在上面那个平铺列表上滑动；取到末尾返回少于 step 块、再往后返回空。
+
+- **没有总数字段**——判"取完了"只能靠"这一页不满 step"（`queryDocParserStatus` 里的
+  `numberOfSuccessfulParsing`/`paragraphCount` 是解析计数，**不等于** layouts 条数，别拿它判）
+- 实测 `layoutStepSize=500` 时一份两页 PDF 一次返回全部 62 块
+- `layoutNum` 取 1 就是"从第 1 块起"（不是页码）
 
 > **结果文件 URL 是 OSS 签名链接，实测有效期 12 小时**（`Expires` 时间戳减当前时间 = 43200 秒），而且是 **http 不是 https**。所以：要么及时下载，要么就别依赖它——**重新解析是要重新付费的**。
 
@@ -116,10 +124,10 @@ String url = st.getBody().getData().getOutputFormatResult().get(0).getOutputFile
 
 | 字段 | 实测值 | 用途 |
 |---|---|---|
-| `type` | `title` / `text` | **切分边界的唯一依据** |
+| `type` | `title` / `text` / `table` | **切分边界的唯一依据** |
 | `fontSize` | 页眉 12 / 正文 12 / H2 14 / H1 15 | 能推层级，但本项目**不用**（切分只需要边界） |
-| `index` | 1,2,3… | **服务端已排好阅读顺序，不需要自己按坐标排序** |
-| `pageNum` | docx 恒 0 | 页码溯源，仅 pdf 有意义 |
+| `index` | 0,1,2… | ⚠️ **页内序号**，第 2 页从 0 重来（2026-09-26 实测）。排序键是 **(pageNum, index)**——只按 index 排会把两页逐条交错 |
+| `pageNum` | docx 恒 0；pdf 从 0 起 | 页码溯源 + **排序主键** |
 | `markdownContent` | `"# 心血管内科分诊知识  \n\n"` | 每块自带，和 markdown 视图同源 |
 | `text` | 纯文本 | |
 | bbox 坐标 | **没有** | 普通文本块没有坐标 |

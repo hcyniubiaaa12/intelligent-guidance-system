@@ -14,10 +14,10 @@ import java.util.Map;
  * <p>单独成一个纯函数类是为了可测：SDK 的返回体是 {@code Map<String, ?>}（服务端定义结构），
  * 桩一个 Map 就能把映射规则钉住，不必起真客户端。
  *
- * <p><b>为什么额外做了容错</b>：外层包装键没有实测过（探针把返回体 dump 出来了，但报告没留档），
- * 已知的是**块内的字段名**（type / text / markdownContent / pageNum / index）。所以这里
- * 先按 {@code layouts} 找，找不到就扫一遍 Map，挑出「元素是 Map 且带 type 字段」的那个列表——
- * 键名猜错时不会静默返回 0 块（那会让每份 pdf 都"解析产出异常"，而真正的原因只是键名不同）。
+ * <p><b>为什么额外做了容错</b>：外层包装键实测为 {@code layouts}（2026-09-26 探针复验），
+ * 但它是服务端定义的结构、不在 SDK 契约里——这里先按已知键找，找不到就扫一遍 Map，
+ * 挑出「元素是 Map 且带 type 字段」的那个列表，键名一变不会静默返回 0 块
+ * （那会让每份 pdf 都"解析产出异常"，而真正的原因只是键名不同）。
  *
  * <p>三种块类型来自两个信号：{@code type} 含 title → 标题块；带 {@code numCol} 或 {@code cells}
  * → 表格块；其余 → 正文块。表格**不靠 type 判**——表格的 type 取值没实测过，而
@@ -32,14 +32,22 @@ final class DocMindLayoutReader {
     private DocMindLayoutReader() {
     }
 
-    /** 单页 → 版面块（按 index 排好；服务端已给阅读顺序，这里只是防御性地再确认一次） */
+    /**
+     * 结果体 → 版面块，按阅读顺序排好。
+     *
+     * <p><b>{@code index} 是页内序号，排序必须带上 {@code pageNum}</b>——2026-09-26 实测：
+     * 一份两页的 PDF，第 2 页的 index 从 0 重新开始。只按 index 排会把两页**逐条交错**
+     * （第 1 页的第 1 块、第 2 页的第 1 块、第 1 页的第 2 块……），表现为正文里前后句子
+     * 毫无关系地拼在一起。这个错法很隐蔽：每块文本都完整，只有顺序不对，
+     * 看单块看不出问题，看检索结果才发现"召回的内容牛头不对马嘴"。
+     */
     static List<LayoutBlock> readBlocks(Map<String, ?> data) {
         List<Map<String, ?>> raw = new ArrayList<>(findBlockList(data));
-        // 有 index 就按它排（都缺时是稳定排序，保持服务端给的顺序）
-        raw.sort(Comparator.comparingInt(block -> {
-            Integer index = intOrNull(block.get("index"));
-            return index == null ? Integer.MAX_VALUE : index;
-        }));
+        // 服务端返回的本就是阅读顺序，这里按 (页码, 页内序号) 重排只是兜住乱序的情况；
+        // 都缺时是稳定排序，保持服务端给的顺序
+        raw.sort(Comparator
+                .comparingInt((Map<String, ?> block) -> pageOf(block))
+                .thenComparingInt(DocMindLayoutReader::indexOf));
         List<LayoutBlock> blocks = new ArrayList<>(raw.size());
         for (Map<String, ?> block : raw) {
             LayoutBlock mapped = toBlock(block);
@@ -114,6 +122,18 @@ final class DocMindLayoutReader {
 
     private static String str(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    /** 页码（缺省 0：docx 恒为 0，PDF 从 0 起） */
+    private static int pageOf(Map<String, ?> block) {
+        Integer page = intOrNull(block.get("pageNum"));
+        return page == null ? 0 : page;
+    }
+
+    /** 页内序号（缺省排到最后，不抢已有顺序的位置） */
+    private static int indexOf(Map<String, ?> block) {
+        Integer index = intOrNull(block.get("index"));
+        return index == null ? Integer.MAX_VALUE : index;
     }
 
     private static String firstNonBlank(String... candidates) {

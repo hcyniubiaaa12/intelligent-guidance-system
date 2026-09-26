@@ -35,6 +35,23 @@ class DocMindLayoutReaderTest {
     }
 
     @Test
+    @DisplayName("多页文档按 (页码, 页内序号) 排：index 是页内序号，只看它会把两页逐条交错")
+    void ordersByPageThenIndex() {
+        // 实测形态：第 2 页的 index 从 0 重新开始。这份桩刻意乱序，还原"只按 index 排"的错法
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "text", "text", "第二页第一句", "index", 0, "pageNum", 1)),
+                block(Map.of("type", "text", "text", "第一页第一句", "index", 0, "pageNum", 0)),
+                block(Map.of("type", "text", "text", "第二页第二句", "index", 1, "pageNum", 1)),
+                block(Map.of("type", "text", "text", "第一页第二句", "index", 1, "pageNum", 0))
+        ));
+
+        List<LayoutBlock> blocks = DocMindLayoutReader.readBlocks(data);
+
+        assertThat(blocks).extracting(LayoutBlock::text).containsExactly(
+                "第一页第一句", "第一页第二句", "第二页第一句", "第二页第二句");
+    }
+
+    @Test
     @DisplayName("表格：靠 numCol/cells 判类型，取 markdown 形态")
     void mapsTableByStructureNotByType() {
         Map<String, Object> table = new LinkedHashMap<>();

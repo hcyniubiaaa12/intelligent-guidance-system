@@ -110,10 +110,17 @@ public class DocMindParseModel implements DocParseModel {
     /**
      * 拉全部版面块。**读接口，反复拉不再计费**——所以宁可多拉几次也不要重新提交解析。
      *
-     * <p>分页按**块偏移**推进（{@code layoutNum} = 已取到的块数）。服务端的分页语义没有实测过，
-     * 所以做了两道防御：一是每页开得很大（默认 500 块，多数文档一次拿完），二是下一页与
-     * 上一页首块相同时立即停止并记 WARN——万一 {@code layoutNum} 其实是页码，
-     * 最多是少拿后面的块并留下日志，不会原地打转。
+     * <p>分页按**块偏移**推进（{@code layoutNum} = 已取到的块数）。这个语义 2026-09-26 实测确认：
+     * 返回体是**全篇按阅读顺序排好的一个平铺列表**，{@code layoutNum}/{@code layoutStepSize}
+     * 就是这个列表上的「从第几块起、取几块」，取到末尾时返回少于 step 块、再往后返回空。
+     * 两点与直觉不同，代码里都留了防御：
+     * <ul>
+     *   <li><b>没有总数字段</b>——判"取完了"只能靠"这一页不满 step"（再有声明的总数就优先信它）</li>
+     *   <li><b>块里的 {@code index} 是页内序号</b>，不是全篇序号（第 2 页从 0 重来）。
+     *       排序键是 (pageNum, index)，见 {@link DocMindLayoutReader}</li>
+     * </ul>
+     * {@code layoutStepSize} 默认开得很大（多数文档一次拿完），另有一道重复页护栏：
+     * 万一服务端哪天把 {@code layoutNum} 改成页码语义，最多是少拿后面的块并留下 WARN，不会原地打转。
      */
     @Override
     public List<LayoutBlock> fetchBlocks(String jobId) {
@@ -135,7 +142,7 @@ public class DocMindParseModel implements DocParseModel {
             lastFirstBlock = first;
             declaredTotal = current.total();
             all.addAll(current.blocks());
-            // 拿到声明的总数就按它判完；拿不到就按"这一页没满"判完
+            // 拿到声明的总数就按它判完；拿不到（实测就没有）就按"这一页没满"判完
             if (declaredTotal >= 0 ? all.size() >= declaredTotal : current.blocks().size() < step) {
                 break;
             }
