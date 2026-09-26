@@ -39,3 +39,6 @@ application-prod.yml
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# skill 里探针脚本的编译产物（.claude/skills/*/scripts/.work/）
+.claude/skills/*/scripts/.work/

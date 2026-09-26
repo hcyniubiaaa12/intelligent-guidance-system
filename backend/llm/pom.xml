@@ -12,12 +12,20 @@
 
     <artifactId>llm</artifactId>
     <name>llm</name>
-    <description>LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank；唯一外部模型出口</description>
+    <description>LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank / 阿里 DocumentMind 文档解析；唯一外部模型出口</description>
 
     <dependencies>
         <dependency>
             <groupId>com.guide</groupId>
             <artifactId>common</artifactId>
+        </dependency>
+        <!-- DocumentMind 文档解析（链路 B：pdf/docx/png 的唯一解析路径，不降级）。
+             tea-openapi / tea-util 等由它传递引入，不必显式声明；
+             结果文件是 JSON，用已有的 Jackson 解析，不额外引 fastjson。 -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>docmind_api20220711</artifactId>
+            <version>2.0.14</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
