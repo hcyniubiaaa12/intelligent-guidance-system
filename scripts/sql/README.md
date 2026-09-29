@@ -14,7 +14,9 @@ mysql -uroot -p < mysql_init.sql
 
 ⚠️ admin 初始密码为示例 BCrypt 值（明文 `123456`），上线前请重新生成替换。
 
-脚本即最终形态：历次增量（`has_result`、`mute_until` / `user_violation`、敏感词与入库的 `sys_config`、`ingest_task.external_job_id`、`kb_chunk.chunk_type`、`guide_record.bucket_id`）都已并入本文件，不再单发迁移脚本。
+脚本即最终形态：历次增量（`has_result`、`mute_until` / `user_violation`、敏感词与入库的 `sys_config`、`ingest_task.external_job_id`、`kb_chunk.chunk_type`、`guide_record.bucket_id`、`review_task.main_dept_id`）都已并入本文件，不再单发迁移脚本。
+
+⚠️ **全表都是 `CREATE TABLE IF NOT EXISTS`——重跑本脚本不会修改已存在的表。** 表已经建过、而后续版本改过列（改名 / 加列）时，重跑等于什么都没做，库会停在旧结构上，症状是运行期才炸的 `Unknown column`（例如 `review_task` 早期叫 `result_dept_id`，后来改成 `main_dept_id`）。**改过表结构之后，对已有的库要单独执行一次 ALTER**；判断有没有漏，拿 `information_schema.COLUMNS` 与本文件对一遍列名即可。
 
 ## PostgreSQL + pgvector（后执行）
 

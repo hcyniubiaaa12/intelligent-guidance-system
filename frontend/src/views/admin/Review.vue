@@ -2,7 +2,12 @@
   <section class="a-panel">
     <div class="a-panel__head">
       <span class="a-panel__title">审核队列 · 错误模式聚合桶</span>
-      <span class="a-panel__hint">共 {{ page.total }} 个待审</span>
+      <div class="a-panel__ops">
+        <span class="a-panel__hint">共 {{ page.total }} 个待审</span>
+        <button class="a-btn a-btn--ghost" :disabled="aggregating" @click="runAggregate">
+          {{ aggregating ? '聚合中…' : '立即聚合' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="a-empty">加载中…</div>
@@ -168,7 +173,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  pagePendingBuckets, pageTerminalBuckets, getReviewBucket, listRootCauses, listReviewDepts,
+  aggregateBuckets, pagePendingBuckets, pageTerminalBuckets, getReviewBucket, listRootCauses, listReviewDepts,
   applyBucketCauses, updateRecordCauses, previewSyntheticChunk,
   approveBucket, rejectBucket, dismissBucket, reReviewBucket
 } from '../../api/admin'
@@ -190,6 +195,7 @@ function statusTag(status) {
   return 'a-tag--plain'
 }
 const loading = ref(true)
+const aggregating = ref(false)
 const expandedId = ref('')
 const detail = ref(null)
 const detailLoading = ref(false)
@@ -260,6 +266,20 @@ async function reReview(bucket) {
     await Promise.all([loadBuckets(page.current), loadTerminal(terminalPage.current)])
   } catch (e) {
     ElMessage.error(errText(e))
+  }
+}
+
+/** 归桶是整点定时任务，演示与排查等不了那一小时，这里手动跑一次 */
+async function runAggregate() {
+  aggregating.value = true
+  try {
+    const processed = await aggregateBuckets()
+    ElMessage.success(processed ? `已归桶 ${processed} 条记录` : '没有新的全错记录需要聚合')
+    await Promise.all([loadBuckets(1), loadTerminal(terminalPage.current)])
+  } catch (e) {
+    ElMessage.error(errText(e))
+  } finally {
+    aggregating.value = false
   }
 }
 

@@ -9,6 +9,7 @@ import com.guide.common.api.Result;
 import com.guide.common.exception.BizException;
 import com.guide.feedback.entity.ClusterBucket;
 import com.guide.feedback.enums.RootCauseKey;
+import com.guide.feedback.scheduler.AggregationScheduler;
 import com.guide.feedback.service.ApprovalService;
 import com.guide.feedback.service.ReviewService;
 import com.guide.feedback.service.RootCauseService;
@@ -46,6 +47,13 @@ public class ReviewAdminController {
     private final RootCauseService rootCauseService;
     private final ApprovalService approvalService;
     private final DeptService deptService;
+    private final AggregationScheduler aggregationScheduler;
+
+    /** 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数 */
+    @PostMapping("/aggregate")
+    public Result<Integer> aggregate() {
+        return Result.ok(aggregationScheduler.aggregateNow());
+    }
 
     /** 待审桶（按样本数降序） */
     @GetMapping("/pending")

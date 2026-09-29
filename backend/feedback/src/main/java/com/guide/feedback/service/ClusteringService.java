@@ -32,6 +32,9 @@ import java.util.regex.Pattern;
  * <p>只收全错记录：{@code actual_dept} 非空、{@code top3_hit=0}、{@code low_confidence=0}。
  * 低置信度进盲区榜，不进聚合。处理一条、标记一条，并记下所属桶——同方向可以有多个桶，
  * 审核页按桶取记录，不能按方向反推。
+ *
+ * <p>本类只放规则，不放循环：扫描（{@link #scanPending()}）与逐条归桶（{@link #clusterOne}）分开，
+ * 由 {@code AggregationScheduler} 串起来，这样 {@code clusterOne} 的事务才真的生效。
  */
 @Slf4j
 @Service
@@ -57,38 +60,26 @@ public class ClusteringService {
     private final SysConfigService sysConfigService;
 
     /**
-     * 扫描未聚合的全错记录，逐条归桶。
+     * 扫描待归桶的记录：{@code actual_dept} 非空、{@code top3_hit=0}、{@code low_confidence=0}。
+     * 低置信度进盲区榜，不进聚合。
      *
-     * @return 成功归桶的记录数（单条失败不拖垮整批，下次还会再扫到它）
+     * <p>只查不归——逐条归桶是独立事务（见 {@link #clusterOne}），循环由调用方驱动。
+     * 本方法里再调 {@code clusterOne} 就成了自调用，绕开 AOP 代理，{@code @Transactional} 直接失效。
      */
-    public int aggregateNewRecords() {
-        List<GuideRecord> records = guideRecordMapper.selectList(Wrappers.<GuideRecord>lambdaQuery()
+    public List<GuideRecord> scanPending() {
+        return guideRecordMapper.selectList(Wrappers.<GuideRecord>lambdaQuery()
                 .eq(GuideRecord::getAggregated, 0)
                 .isNotNull(GuideRecord::getActualDeptId)
                 .eq(GuideRecord::getTop3Hit, 0)
                 .eq(GuideRecord::getLowConfidence, 0));
-        if (records.isEmpty()) {
-            log.info("无新增全错记录需要聚合");
-            return 0;
-        }
-        log.info("开始聚合 {} 条新增全错记录", records.size());
-        int processed = 0;
-        for (GuideRecord record : records) {
-            try {
-                if (clusterOne(record)) {
-                    processed++;
-                }
-            } catch (RuntimeException e) {
-                // 单条失败不标 aggregated：下次扫描还会再看到它，不会静默丢失
-                log.error("归桶失败，记录 ID: {}", record.getId(), e);
-            }
-        }
-        log.info("聚合完成，成功处理 {} / {} 条记录", processed, records.size());
-        return processed;
     }
 
     /**
      * 一条记录的归桶与标记同事务：中途失败整条回滚，记录仍是 aggregated=0。
+     *
+     * <p><b>必须由别的 bean 调用</b>（现在是 {@code AggregationScheduler}）——本类内部直调
+     * 走的是原始对象而非代理，事务不生效，桶计数会加上去而记录留在 {@code aggregated=0}，
+     * 下次扫描再算一遍，桶计数就虚了。
      *
      * @return 是否真的归进了桶。抽不出主诉时标已处理并返回 false——主诉不会自己长出来，
      *         不标记的话这条记录会每小时被重新扫到、每小时打一条警告

@@ -32,8 +32,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 归桶的四条路径：精确命中、语义命中、开新桶、达阈值升级。
- * 低置信度与无主诉的记录不归桶。
+ * 单条记录归桶的四条路径：精确命中、语义命中、开新桶、达阈值升级。
+ * 无主诉的记录标记跳过，终态桶只累加。
+ *
+ * <p>这里直接调 {@link ClusteringService#clusterOne}——扫描与循环在
+ * {@code AggregationScheduler}（另有其测试）。扫描口径（低置信度不进聚合）在联调里实测：
+ * 低置信度与已命中 Top3 的记录跑完归桶仍是 {@code aggregated=0}。
  */
 @ExtendWith(MockitoExtension.class)
 class ClusteringServiceTest {
@@ -73,27 +77,15 @@ class ClusteringServiceTest {
     }
 
     @Test
-    @DisplayName("扫描条件包含低置信度：低置信度进盲区榜，不进聚合")
-    void scanExcludesLowConfidence() {
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of());
-
-        assertThat(clusteringService.aggregateNewRecords()).isZero();
-
-        verify(guideRecordMapper).selectList(any());
-        verify(clusterBucketMapper, never()).insert(any(ClusterBucket.class));
-    }
-
-    @Test
     @DisplayName("精确归桶：同方向同键的桶计数 +1，记录记下所属桶")
     void exactMatchIncrements() {
         ClusterBucket bucket = bucket(2, BucketStatus.MONITORING);
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
         when(chatMessageMapper.selectOne(any())).thenReturn(message("头疼，发热"));
         when(clusterBucketMapper.selectOne(any())).thenReturn(bucket);
         when(sysConfigService.getInt(ClusteringService.KEY_UPGRADE_COUNT,
                 ClusteringService.DEFAULT_UPGRADE_COUNT)).thenReturn(3);
 
-        assertThat(clusteringService.aggregateNewRecords()).isEqualTo(1);
+        assertThat(clusteringService.clusterOne(record)).isTrue();
 
         assertThat(bucket.getCount()).isEqualTo(3);
         assertThat(bucket.getStatus()).isEqualTo(BucketStatus.PENDING);
@@ -109,7 +101,6 @@ class ClusteringServiceTest {
     @DisplayName("语义归桶：精确未命中且相似度达阈值时归入，不另开桶")
     void semanticMatchJoinsExisting() {
         ClusterBucket bucket = bucket(1, BucketStatus.MONITORING);
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
         when(chatMessageMapper.selectOne(any())).thenReturn(message("头痛发热"));
         when(clusterBucketMapper.selectOne(any())).thenReturn(null);
         when(embeddingModel.embed("头痛发热")).thenReturn(VECTOR);
@@ -120,7 +111,7 @@ class ClusteringServiceTest {
         when(clusterBucketMapper.selectById("bucket-1")).thenReturn(bucket);
         when(sysConfigService.getInt(anyString(), eq(ClusteringService.DEFAULT_UPGRADE_COUNT))).thenReturn(3);
 
-        clusteringService.aggregateNewRecords();
+        clusteringService.clusterOne(record);
 
         assertThat(bucket.getCount()).isEqualTo(2);
         assertThat(bucket.getStatus()).isEqualTo(BucketStatus.MONITORING);
@@ -131,7 +122,6 @@ class ClusteringServiceTest {
     @Test
     @DisplayName("相似度低于阈值：开新桶，锚点向量写入 pgvector")
     void belowThresholdOpensBucket() {
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
         when(chatMessageMapper.selectOne(any())).thenReturn(message("腹痛"));
         when(clusterBucketMapper.selectOne(any())).thenReturn(null);
         when(embeddingModel.embed("腹痛")).thenReturn(VECTOR);
@@ -145,7 +135,7 @@ class ClusteringServiceTest {
             return 1;
         });
 
-        clusteringService.aggregateNewRecords();
+        clusteringService.clusterOne(record);
 
         ArgumentCaptor<ClusterBucket> created = ArgumentCaptor.forClass(ClusterBucket.class);
         verify(clusterBucketMapper).insert(created.capture());
@@ -158,10 +148,9 @@ class ClusteringServiceTest {
     @Test
     @DisplayName("没有患者消息：不归桶，但标记已处理，避免每小时重试")
     void missingSymptomIsMarkedSkipped() {
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
         when(chatMessageMapper.selectOne(any())).thenReturn(null);
 
-        assertThat(clusteringService.aggregateNewRecords()).isZero();
+        assertThat(clusteringService.clusterOne(record)).isFalse();
 
         verify(clusterBucketMapper, never()).insert(any(ClusterBucket.class));
         ArgumentCaptor<GuideRecord> marked = ArgumentCaptor.forClass(GuideRecord.class);
@@ -174,11 +163,10 @@ class ClusteringServiceTest {
     @DisplayName("终态桶的新样本只累加，不自动回到待审")
     void terminalBucketStaysTerminal() {
         ClusterBucket bucket = bucket(5, BucketStatus.APPROVED);
-        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
         when(chatMessageMapper.selectOne(any())).thenReturn(message("头痛"));
         when(clusterBucketMapper.selectOne(any())).thenReturn(bucket);
 
-        clusteringService.aggregateNewRecords();
+        clusteringService.clusterOne(record);
 
         assertThat(bucket.getCount()).isEqualTo(6);
         assertThat(bucket.getStatus()).isEqualTo(BucketStatus.APPROVED);

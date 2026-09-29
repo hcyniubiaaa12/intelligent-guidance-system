@@ -141,6 +141,11 @@ export function toggleKbTerm(termId) {
 }
 
 // —— 审核队列（链路 C）——
+// 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数
+export function aggregateBuckets() {
+  return http.post('/admin/review/aggregate')
+}
+
 // 待审桶按样本数降序；科室名由后端拼好，页面不拿科室 id 给人看
 export function pagePendingBuckets(params) {
   return http.get('/admin/review/pending', { params })

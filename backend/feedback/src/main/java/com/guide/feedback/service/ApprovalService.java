@@ -304,23 +304,23 @@ public class ApprovalService {
         return new ArrayList<>(union);
     }
 
+    /** 写回审核结果。走自定义 SQL 而不是 updateById：驳回时 mainDeptId 是 null，见 ReviewTaskMapper */
     private void finishTask(String bucketId, String mainDeptId, String reviewedBy) {
         ReviewTask task = taskOf(bucketId);
         if (task == null) {
-            task = new ReviewTask();
-            task.setBucketId(bucketId);
+            ReviewTask created = new ReviewTask();
+            created.setBucketId(bucketId);
+            created.setStatus(ReviewStatus.DONE);
+            created.setMainDeptId(mainDeptId);
+            created.setReviewedBy(reviewedBy);
+            created.setReviewedAt(LocalDateTime.now());
+            reviewTaskMapper.insert(created);
+            return;
         }
-        task.setStatus(ReviewStatus.DONE);
-        task.setMainDeptId(mainDeptId);
-        task.setReviewedBy(reviewedBy);
-        task.setReviewedAt(LocalDateTime.now());
-        if (task.getId() == null) {
-            reviewTaskMapper.insert(task);
-        } else {
-            reviewTaskMapper.updateById(task);
-        }
+        reviewTaskMapper.finish(task.getId(), reviewedBy, LocalDateTime.now(), mainDeptId);
     }
 
+    /** 修正重审：审核痕迹三个字段都要写成空，同样不能走 updateById */
     private void reopenTask(String bucketId, ReviewTask task) {
         if (task == null) {
             ReviewTask created = new ReviewTask();
@@ -329,11 +329,7 @@ public class ApprovalService {
             reviewTaskMapper.insert(created);
             return;
         }
-        task.setStatus(ReviewStatus.PENDING);
-        task.setReviewedBy(null);
-        task.setReviewedAt(null);
-        task.setMainDeptId(null);
-        reviewTaskMapper.updateById(task);
+        reviewTaskMapper.reopen(task.getId());
     }
 
     private ReviewTask taskOf(String bucketId) {

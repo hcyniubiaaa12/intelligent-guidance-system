@@ -312,6 +312,8 @@ textarea.a-input { resize: vertical; line-height: 1.6; }
 }
 .a-panel__title { font-size: 13.5px; font-weight: 700; }
 .a-panel__hint { font-size: 11px; color: var(--ink-2); }
+/* 面板头部右侧一组：hint + 操作按钮。head 是 space-between，多一个直接子元素会被推散 */
+.a-panel__ops { display: flex; align-items: center; gap: 12px; }
 
 /* ---------- 柱状趋势（纯 CSS flex 柱） ---------- */
 .a-chart { display: flex; align-items: flex-end; gap: 10px; height: 150px; }

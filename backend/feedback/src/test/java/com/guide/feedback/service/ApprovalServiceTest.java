@@ -161,10 +161,11 @@ class ApprovalServiceTest {
     }
 
     @Test
-    @DisplayName("修正重审：approved 桶撤掉台账与合成 chunk，回到 pending")
+    @DisplayName("修正重审：approved 桶撤掉台账与合成 chunk，审核痕迹清空，回到 pending")
     void reReviewRevokesPreviousOutput() {
         bucket.setStatus(BucketStatus.APPROVED);
         ReviewTask task = new ReviewTask();
+        task.setId("task-1");
         task.setBucketId("bucket-1");
         task.setStatus(ReviewStatus.DONE);
         task.setMainDeptId("dept-main");
@@ -182,9 +183,9 @@ class ApprovalServiceTest {
 
         verify(deptMappingMapper).delete(any());
         verify(chunkIndexService).deleteChunk("chunk-1");
+        // 走自定义 SQL 而不是 updateById：三个字段要写成 null，updateById 会跳过它们
+        verify(reviewTaskMapper).reopen("task-1");
         assertThat(bucket.getStatus()).isEqualTo(BucketStatus.PENDING);
-        assertThat(task.getStatus()).isEqualTo(ReviewStatus.PENDING);
-        assertThat(task.getMainDeptId()).isNull();
     }
 
     @Test
