@@ -63,14 +63,15 @@ public class ChunkIndexService {
                 chunk.setTitle(input.title());
                 chunk.setContent(input.content());
                 chunk.setSeq(input.seq());
+                chunk.setChunkType(input.type());
                 chunkMapper.insert(chunk);
 
                 pgVectorUtil.upsertChunkVector(new PgVectorUtil.ChunkVector(
-                        chunk.getId(), deptId, docId, input.title(), input.content(), vectors.get(i)));
+                        chunk.getId(), deptId, docId, input.title(), input.content(), input.type(), vectors.get(i)));
                 writtenVectorIds.add(chunk.getId());
 
                 docs.add(new EsChunkUtil.ChunkDoc(chunk.getId(), deptId, input.title(), input.content(),
-                        input.terms()));
+                        input.type().getCode(), input.terms()));
                 saved.add(chunk);
             }
             esChunkUtil.indexChunks(docs);

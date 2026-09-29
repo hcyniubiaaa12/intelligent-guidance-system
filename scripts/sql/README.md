@@ -1,6 +1,6 @@
 # SQL 初始化脚本
 
-对应《数据库设计.md》v0.2。双库分工：MySQL 管事实，pgvector 管语义。
+对应《数据库设计.md》v0.5。双库分工：MySQL 管事实，pgvector 管语义。
 
 ## MySQL（先执行）
 
@@ -25,6 +25,7 @@ mysql -uroot -p < mysql_init.sql
 | 2026-09-26 | **pgvector** `kb_chunk_vec` 新增 `doc_id` / `title` / `content`（归属 + 正文副本，见《数据库设计.md》§4.1）。**分两步**，中间要回填存量行 | `migration_20260926_kb_chunk_vec_payload_step1.sql` → 回填 → `..._step2.sql` |
 | 2026-09-26 | `ingest_task` 新增 `external_job_id`（外部解析服务任务号，两段式编排靠它重启后接着轮询，见《数据库设计.md》§7） | `migration_20260926_ingest_task_external_job_id.sql` |
 | 2026-09-26 | `sys_config` 新增 5 条入库参数（切分 3 + 轮询 2，见《数据库设计.md》§1）。不执行也能跑（回落代码侧默认值），只是管理端改不了切分口径 | `migration_20260926_ingest_chunk_params.sql` |
+| 2026-09-29 | `kb_chunk` / `kb_chunk_vec` 增加 `chunk_type`（外部版面类型；历史与未知统一 `unknown`），新入库同步 ES `keyword` 字段；已有 ES 文档不回填 | `migration_20260929_kb_chunk_type.sql` + `migration_20260929_kb_chunk_vec_type.sql` |
 
 ## PostgreSQL + pgvector（后执行）
 

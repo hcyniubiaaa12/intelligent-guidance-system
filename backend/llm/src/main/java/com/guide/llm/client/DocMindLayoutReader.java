@@ -84,8 +84,13 @@ final class DocMindLayoutReader {
             String content = firstNonBlank(markdown, text);
             return content.isBlank() ? null : LayoutBlock.table(content, pageNum);
         }
-        if (type != null && type.toLowerCase(java.util.Locale.ROOT).contains("title")) {
+        LayoutBlock.BlockType blockType = LayoutBlock.BlockType.fromExternalType(type);
+        if (blockType == LayoutBlock.BlockType.TITLE) {
             return text.isBlank() ? null : LayoutBlock.title(text, pageNum);
+        }
+        if (blockType == LayoutBlock.BlockType.UNKNOWN) {
+            log.warn("DocumentMind 返回未映射的 layout.type：{}，按 unknown 入库", type);
+            return text.isBlank() ? null : LayoutBlock.unknown(text, pageNum);
         }
         return text.isBlank() ? null : LayoutBlock.text(text, pageNum);
     }

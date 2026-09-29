@@ -53,11 +53,11 @@ public class DocSplitter {
         List<ChunkInput> chunks = new ArrayList<>();
         for (Piece piece : structureSplit(blocks)) {
             if (piece.table()) {
-                chunks.add(toChunk(piece.title(), piece.text(), docTitle));
+                chunks.add(toChunk(piece.title(), piece.text(), docTitle, piece.type()));
                 continue;
             }
             for (String text : splitText(piece.title(), piece.text(), params)) {
-                chunks.add(toChunk(piece.title(), text, docTitle));
+                chunks.add(toChunk(piece.title(), text, docTitle, piece.type()));
             }
         }
         return renumber(chunks);
@@ -76,6 +76,7 @@ public class DocSplitter {
     private List<Piece> structureSplit(List<LayoutBlock> blocks) {
         List<Piece> pieces = new ArrayList<>();
         StringBuilder buffer = new StringBuilder();
+        LayoutBlock.BlockType bufferType = LayoutBlock.BlockType.UNKNOWN;
         String currentTitle = null;
         for (LayoutBlock block : blocks) {
             if (block == null) {
@@ -83,33 +84,37 @@ public class DocSplitter {
             }
             switch (block.type()) {
                 case TITLE -> {
-                    flush(pieces, currentTitle, buffer);
+                    flush(pieces, currentTitle, buffer, bufferType);
                     currentTitle = block.text().strip();
+                    bufferType = LayoutBlock.BlockType.UNKNOWN;
                 }
                 case TABLE -> {
-                    flush(pieces, currentTitle, buffer);
+                    flush(pieces, currentTitle, buffer, bufferType);
                     String markdown = block.markdown() == null || block.markdown().isBlank()
                             ? block.text().strip() : block.markdown().strip();
                     if (!markdown.isEmpty()) {
-                        pieces.add(new Piece(currentTitle, markdown, true));
+                        pieces.add(new Piece(currentTitle, markdown, true, LayoutBlock.BlockType.TABLE));
                     }
                 }
-                case TEXT -> {
+                case TEXT, UNKNOWN -> {
                     if (!block.text().isBlank()) {
+                        if (bufferType != block.type()) {
+                            bufferType = block.type();
+                        }
                         buffer.append(block.text().strip()).append('\n');
                     }
                 }
             }
         }
-        flush(pieces, currentTitle, buffer);
+        flush(pieces, currentTitle, buffer, bufferType);
         return pieces;
     }
 
-    private void flush(List<Piece> pieces, String title, StringBuilder buffer) {
+    private void flush(List<Piece> pieces, String title, StringBuilder buffer, LayoutBlock.BlockType type) {
         String text = buffer.toString().strip();
         buffer.setLength(0);
         if (!text.isEmpty()) {
-            pieces.add(new Piece(title, text, false));
+            pieces.add(new Piece(title, text, false, type));
         }
     }
 
@@ -258,8 +263,9 @@ public class DocSplitter {
         return resolved.length() <= TITLE_MAX ? resolved : resolved.substring(0, TITLE_MAX);
     }
 
-    private ChunkInput toChunk(String title, String text, String docTitle) {
-        return new ChunkInput(resolveTitle(title, docTitle), text, 0, List.of());
+    private ChunkInput toChunk(String title, String text, String docTitle, LayoutBlock.BlockType type) {
+        return new ChunkInput(resolveTitle(title, docTitle), text, 0, List.of(),
+                type == null ? LayoutBlock.BlockType.UNKNOWN : type);
     }
 
     /** seq 从 1 连续编号：它是切片在文档内的位置，回放与排查都按它排 */
@@ -267,12 +273,12 @@ public class DocSplitter {
         List<ChunkInput> out = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             ChunkInput chunk = chunks.get(i);
-            out.add(new ChunkInput(chunk.title(), chunk.content(), i + 1, chunk.terms()));
+            out.add(new ChunkInput(chunk.title(), chunk.content(), i + 1, chunk.terms(), chunk.type()));
         }
         return out;
     }
 
     /** 结构切的产物：一段正文（或一张表）＋它继承的标题 */
-    private record Piece(String title, String text, boolean table) {
+    private record Piece(String title, String text, boolean table, LayoutBlock.BlockType type) {
     }
 }

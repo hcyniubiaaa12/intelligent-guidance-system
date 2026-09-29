@@ -3,6 +3,7 @@ package com.guide.common.util;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.LayoutBlock;
 import com.guide.common.config.PgVectorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,16 +33,17 @@ public class PgVectorUtil {
     /** 写入/覆盖 chunk 向量（回流重入、重新入库走同一条 upsert） */
     public void upsertChunkVector(ChunkVector vector) {
         jdbcTemplate.update("""
-                INSERT INTO kb_chunk_vec (chunk_id, dept_id, doc_id, title, content, embedding)
-                VALUES (?, ?, ?, ?, ?, CAST(? AS vector))
+                INSERT INTO kb_chunk_vec (chunk_id, dept_id, doc_id, title, content, chunk_type, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, CAST(? AS vector))
                 ON CONFLICT (chunk_id) DO UPDATE SET
                     dept_id = EXCLUDED.dept_id,
                     doc_id = EXCLUDED.doc_id,
                     title = EXCLUDED.title,
                     content = EXCLUDED.content,
+                    chunk_type = EXCLUDED.chunk_type,
                     embedding = EXCLUDED.embedding
                 """, vector.chunkId(), vector.deptId(), vector.docId(), vector.title(), vector.content(),
-                toLiteral(vector.embedding()));
+                vector.chunkType().getCode(), toLiteral(vector.embedding()));
     }
 
     /** 删除 chunk 向量（删除补偿：先删 ES → 再删向量 → 再删元数据） */
@@ -182,7 +184,11 @@ public class PgVectorUtil {
      * （见《数据库设计.md》4.1）。{@code docId} 用于行自证归属与按文档批量清理。
      */
     public record ChunkVector(String chunkId, String deptId, String docId, String title, String content,
-                              float[] embedding) {
+                              LayoutBlock.BlockType chunkType, float[] embedding) {
+
+        public ChunkVector {
+            chunkType = chunkType == null ? LayoutBlock.BlockType.UNKNOWN : chunkType;
+        }
     }
 
     /** 副本回填行（一次性迁移用）：把 MySQL 切片的归属与正文补进已存在的向量行 */

@@ -42,3 +42,6 @@ Thumbs.db
 
 # skill 里探针脚本的编译产物（.claude/skills/*/scripts/.work/）
 .claude/skills/*/scripts/.work/
+
+# 临时测试文档（API 探针、手工验证用，不入库）
+测试文档/

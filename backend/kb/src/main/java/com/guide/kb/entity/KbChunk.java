@@ -2,6 +2,7 @@ package com.guide.kb.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.guide.common.entity.BaseEntity;
+import com.guide.common.model.LayoutBlock;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -23,4 +24,7 @@ public class KbChunk extends BaseEntity {
     private String content;
 
     private Integer seq;
+
+    /** 外部版面识别出的类型；非外部识别来源为 unknown */
+    private LayoutBlock.BlockType chunkType;
 }

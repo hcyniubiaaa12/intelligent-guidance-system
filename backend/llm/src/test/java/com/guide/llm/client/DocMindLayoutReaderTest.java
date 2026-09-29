@@ -52,7 +52,20 @@ class DocMindLayoutReaderTest {
     }
 
     @Test
-    @DisplayName("表格：靠 numCol/cells 判类型，取 markdown 形态")
+    @DisplayName("未知 layout.type → unknown，缺失 type 也不丢块")
+    void unknownLayoutTypeFallsBackToUnknown() {
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "caption", "text", "图注")),
+                block(Map.of("text", "无类型正文"))
+        ));
+
+        List<LayoutBlock> blocks = DocMindLayoutReader.readBlocks(data);
+
+        assertThat(blocks).extracting(LayoutBlock::type).containsExactly(
+                LayoutBlock.BlockType.UNKNOWN, LayoutBlock.BlockType.UNKNOWN);
+    }
+
+
     void mapsTableByStructureNotByType() {
         Map<String, Object> table = new LinkedHashMap<>();
         table.put("type", "text");

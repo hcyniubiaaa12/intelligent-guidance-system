@@ -32,12 +32,15 @@ public class EsChunkUtil {
         this.properties = properties;
     }
 
-    /** 建索引（不存在时），含中文分词 mapping；幂等 */
+    /** 建索引（不存在时），含中文分词 mapping；已存在时只追加 chunk_type mapping，不回填历史文档 */
     public void ensureIndex() {
         String index = properties.getChunkIndex();
         try {
             boolean exists = client.indices().exists(e -> e.index(index)).value();
             if (exists) {
+                client.indices().putMapping(p -> p.index(index)
+                        .properties("chunk_type", property -> property.keyword(k -> k)));
+                log.info("ES 索引已补充 chunk_type mapping：{}", index);
                 return;
             }
             client.indices().create(c -> c.index(index).mappings(m -> m
@@ -45,6 +48,7 @@ public class EsChunkUtil {
                     .properties("dept_id", p -> p.keyword(k -> k))
                     .properties("title", p -> p.text(t -> t.analyzer("ik_max_word").searchAnalyzer("ik_smart")))
                     .properties("content", p -> p.text(t -> t.analyzer("ik_max_word").searchAnalyzer("ik_smart")))
+                    .properties("chunk_type", p -> p.keyword(k -> k))
                     .properties("medical_terms", p -> p.keyword(k -> k))));
             log.info("ES 索引已创建：{}", index);
         } catch (IOException | RuntimeException e) {
@@ -144,6 +148,7 @@ public class EsChunkUtil {
             @JsonProperty("dept_id") String deptId,
             @JsonProperty("title") String title,
             @JsonProperty("content") String content,
+            @JsonProperty("chunk_type") String chunkType,
             @JsonProperty("medical_terms") List<String> medicalTerms) {
     }
 }

@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS `kb_chunk` (
     `title`      VARCHAR(255) NULL COMMENT '切片标题（溯源引用）',
     `content`    TEXT        NOT NULL COMMENT '切片内容',
     `seq`        INT         NOT NULL COMMENT '切片序号',
+    `chunk_type` VARCHAR(32) NOT NULL DEFAULT 'unknown' COMMENT '版面类型：title/text/table/unknown',
     `deleted`    TINYINT     NOT NULL DEFAULT 0,
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

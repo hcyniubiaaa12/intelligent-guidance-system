@@ -55,8 +55,8 @@ elasticsearch:
 logging:
   level:
     com.guide: INFO
-    # com.guide.rag: DEBUG   # 逐条召回明细、Prompt 组装、模型原始输出
-    # com.guide.llm: DEBUG   # 模型请求/响应摘要（模型名、条数、耗时、重排分数）
+    com.guide.rag: DEBUG   # 逐条召回明细、Prompt 组装、模型原始输出
+    com.guide.llm: DEBUG   # 模型请求/响应摘要（模型名、条数、耗时、重排分数）
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level %-34.34logger{34} [%X{turn:-}] %msg%n"
   file:

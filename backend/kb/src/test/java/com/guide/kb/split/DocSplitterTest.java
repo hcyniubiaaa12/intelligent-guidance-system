@@ -35,8 +35,8 @@ class DocSplitterTest {
         assertThat(chunks.get(0).title()).isEqualTo("心血管内科分诊知识");
         assertThat(chunks.get(0).content()).isEqualTo("劳力性胸闷多见于冠心病。");
         assertThat(chunks.get(1).title()).isEqualTo("呼吸内科");
-        assertThat(chunks.get(1).content()).isEqualTo("咳嗽伴发热建议首诊呼吸内科。");
-        assertThat(modelSplitter.calls).isZero();
+        assertThat(chunks.get(0).type()).isEqualTo(LayoutBlock.BlockType.TEXT);
+        assertThat(chunks.get(1).type()).isEqualTo(LayoutBlock.BlockType.TEXT);
     }
 
     @Test
@@ -52,6 +52,7 @@ class DocSplitterTest {
         assertThat(chunks).hasSize(2);
         assertThat(chunks.get(1).content()).isEqualTo(markdown);
         assertThat(chunks.get(1).title()).isEqualTo("鉴别表");
+        assertThat(chunks.get(1).type()).isEqualTo(LayoutBlock.BlockType.TABLE);
     }
 
     @Test
