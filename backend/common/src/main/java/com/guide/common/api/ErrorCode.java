@@ -44,6 +44,8 @@ public enum ErrorCode {
     // feedback 6xxx
     RECORD_NOT_FOUND(6000, "导诊记录不存在"),
     RECORD_ALREADY_REGISTERED(6001, "该导诊记录已完成挂号"),
+    BUCKET_NOT_FOUND(6002, "聚合桶不存在"),
+    BUCKET_STATUS_INVALID(6003, "桶状态不符合操作要求"),
 
     // llm 7xxx（LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank）
     LLM_NOT_CONFIGURED(7000, "模型服务未配置，请在 application-local.yml 填写 API Key"),

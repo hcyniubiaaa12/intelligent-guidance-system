@@ -40,6 +40,9 @@ public class GuideRecord extends BaseEntity {
     /** 0/1 增量标记 */
     private Integer aggregated;
 
+    /** 所属聚合桶：归桶成功时写入；同方向可有多个桶，审核不能按方向反推成员 */
+    private String bucketId;
+
     /** JSON 证据快照 */
     private String evidence;
 }

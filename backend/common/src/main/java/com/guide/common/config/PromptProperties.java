@@ -39,6 +39,12 @@ public class PromptProperties {
     public static final String PLACEHOLDER_MAX = "{max}";
     /** 待切分的长文本 */
     public static final String PLACEHOLDER_TEXT = "{text}";
+    /** 回流合成 chunk：症状原文 */
+    public static final String PLACEHOLDER_SYMPTOM = "{symptom}";
+    /** 回流合成 chunk：主科室名 */
+    public static final String PLACEHOLDER_MAIN_DEPT = "{mainDept}";
+    /** 回流合成 chunk：交叉科室说明（可为空） */
+    public static final String PLACEHOLDER_CROSS_DEPTS = "{crossDepts}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -47,6 +53,8 @@ public class PromptProperties {
     private Chat chat = new Chat();
 
     private Split split = new Split();
+
+    private Feedback feedback = new Feedback();
 
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
@@ -90,6 +98,21 @@ public class PromptProperties {
         private String userTemplate;
     }
 
+    /**
+     * 回流合成 chunk（链路 C）：管理员 approve 前生成的鉴别诊断文本。
+     *
+     * <p>与导诊提示词同源——它会进知识库、被 RAG 检索到，改一句话就影响同类主诉的推荐，
+     * 迭代时不该改 Java 代码。
+     */
+    @Data
+    public static class Feedback {
+        private String system;
+        /** 必含 {symptom} {mainDept} {crossDepts} */
+        private String userTemplate;
+        /** LLM 失败时的兜底，必含同样三个占位符 */
+        private String fallbackTemplate;
+    }
+
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
@@ -103,6 +126,11 @@ public class PromptProperties {
         require(split.getSystem(), "prompts.split.system",
                 List.of(PLACEHOLDER_SEPARATOR, PLACEHOLDER_TARGET, PLACEHOLDER_MAX));
         require(split.getUserTemplate(), "prompts.split.user-template", List.of(PLACEHOLDER_TEXT));
+        List<String> feedbackPlaceholders = List.of(
+                PLACEHOLDER_SYMPTOM, PLACEHOLDER_MAIN_DEPT, PLACEHOLDER_CROSS_DEPTS);
+        require(feedback.getSystem(), "prompts.feedback.system", List.of());
+        require(feedback.getUserTemplate(), "prompts.feedback.user-template", feedbackPlaceholders);
+        require(feedback.getFallbackTemplate(), "prompts.feedback.fallback-template", feedbackPlaceholders);
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

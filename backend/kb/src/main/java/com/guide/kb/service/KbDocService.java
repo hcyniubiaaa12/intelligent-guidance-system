@@ -43,7 +43,9 @@ public class KbDocService {
 
     /** 内建标记串：种子语料与回流合成 chunk 都不是 MinIO 里的文件，不能去 MinIO 删 */
     private static final String SEED_PREFIX = "seed://";
-    private static final String FEEDBACK_PREFIX = "feedback://";
+    public static final String FEEDBACK_PREFIX = "feedback://";
+    /** 回流容器的 file_url：不是文件，但 kb_doc.file_url 是 NOT NULL，必须占住这个字段 */
+    public static final String FEEDBACK_FILE_URL = "feedback://synthetic";
 
     private final KbDocMapper kbDocMapper;
     private final KbChunkMapper kbChunkMapper;
@@ -51,6 +53,48 @@ public class KbDocService {
     private final EsChunkUtil esChunkUtil;
     private final PgVectorUtil pgVectorUtil;
     private final MinioUtil minioUtil;
+
+    /**
+     * 某科室的「回流补充 · XX科」容器（懒创建）。
+     *
+     * <p>合成 chunk 必须挂主科室的容器：切片继承文档的科室，而科室正是推荐校验的依据。
+     * 一个全局容器会逼出一个虚拟科室，停用它就会把全部回流知识一起拦掉。
+     * 容器没有原文件（{@code file_url=feedback://synthetic}），所以没有「重新处理」。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public KbDoc ensureFeedbackContainer(String deptId, String deptName) {
+        if (deptService.getById(deptId) == null) {
+            throw new BizException(ErrorCode.DEPT_NOT_FOUND);
+        }
+        KbDoc existing = kbDocMapper.selectOne(Wrappers.<KbDoc>lambdaQuery()
+                .eq(KbDoc::getDeptId, deptId)
+                .eq(KbDoc::getFileUrl, FEEDBACK_FILE_URL)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            return existing;
+        }
+        KbDoc doc = new KbDoc();
+        doc.setDeptId(deptId);
+        doc.setTitle("回流补充 · " + (deptName == null || deptName.isBlank() ? deptId : deptName.strip()));
+        doc.setFileUrl(FEEDBACK_FILE_URL);
+        doc.setStatus(DocStatus.DONE);
+        doc.setChunkTotal(0);
+        doc.setChunkDone(0);
+        kbDocMapper.insert(doc);
+        log.info("回流容器已建：docId={} deptId={} title={}", doc.getId(), deptId, doc.getTitle());
+        return doc;
+    }
+
+    /** 某科室已有的回流容器；还没 approve 过则为 null（不顺手创建） */
+    public KbDoc findFeedbackContainer(String deptId) {
+        if (deptId == null || deptId.isBlank()) {
+            return null;
+        }
+        return kbDocMapper.selectOne(Wrappers.<KbDoc>lambdaQuery()
+                .eq(KbDoc::getDeptId, deptId)
+                .eq(KbDoc::getFileUrl, FEEDBACK_FILE_URL)
+                .last("LIMIT 1"));
+    }
 
     /**
      * 建文档：**先落 MinIO，再落库**。

@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS `guide_record` (
     `top1_hit`        TINYINT       NULL COMMENT '0/1',
     `top3_hit`        TINYINT       NULL COMMENT '0/1',
     `aggregated`      TINYINT       NOT NULL DEFAULT 0 COMMENT '增量标记 0/1',
+    `bucket_id`       VARCHAR(32)   NULL COMMENT '所属聚合桶：归桶成功时写入，是「桶内记录」的唯一依据；同方向可有多个桶，不能按方向反推',
     `evidence`        JSON          NULL COMMENT '证据快照（只写，审核回放）',
     `deleted`         TINYINT       NOT NULL DEFAULT 0,
     `created_at`      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -117,7 +118,8 @@ CREATE TABLE IF NOT EXISTS `guide_record` (
     PRIMARY KEY (`id`),
     KEY `idx_gr_session` (`session_id`),
     KEY `idx_gr_actual` (`actual_dept_id`),
-    KEY `idx_gr_aggregated` (`aggregated`)
+    KEY `idx_gr_aggregated` (`aggregated`),
+    KEY `idx_gr_bucket` (`bucket_id`)
 ) ENGINE=InnoDB COMMENT='导诊记录表；历史不回改，rec_top3/evidence 供看板排序精度聚合与审核回放';
 
 -- ------------------------------------------------------------
@@ -239,9 +241,9 @@ CREATE TABLE IF NOT EXISTS `cluster_bucket` (
     `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_cb_exact` (`exact_key`),
+    UNIQUE KEY `uk_cb_direction_exact` (`rec_dept_id`, `actual_dept_id`, `exact_key`),
     KEY `idx_cb_status` (`status`)
-) ENGINE=InnoDB COMMENT='错误模式聚合桶（MySQL 存事实）；锚点向量在 pgvector cluster_bucket_vec';
+) ENGINE=InnoDB COMMENT='错误模式聚合桶（MySQL 存事实）；锚点向量在 pgvector cluster_bucket_vec；精确键只在同方向内唯一';
 
 CREATE TABLE IF NOT EXISTS `review_task` (
     `id`             VARCHAR(32) NOT NULL,

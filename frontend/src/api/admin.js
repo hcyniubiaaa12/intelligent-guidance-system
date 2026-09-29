@@ -140,6 +140,70 @@ export function toggleKbTerm(termId) {
   return http.post(`/admin/kb/terms/${termId}/toggle`)
 }
 
+// —— 审核队列（链路 C）——
+// 待审桶按样本数降序；科室名由后端拼好，页面不拿科室 id 给人看
+export function pagePendingBuckets(params) {
+  return http.get('/admin/review/pending', { params })
+}
+
+// 终态桶：修正重审的入口
+export function pageTerminalBuckets(params) {
+  return http.get('/admin/review/terminal', { params })
+}
+
+// 侧栏徽标：没有待审就是 0，不写死数字
+export function countPendingBuckets() {
+  return http.get('/admin/review/pending/count')
+}
+
+// 桶详情：代表样本 + 证据快照 + 交叉科室预填
+export function getReviewBucket(id) {
+  return http.get(`/admin/review/buckets/${id}`)
+}
+
+// 根因字典：key 入库、label 显示，页面不本地镜像
+export function listRootCauses() {
+  return http.get('/admin/review/causes')
+}
+
+// 科室选择器：含停用科室（审核是知识层动作，与开不开诊无关）
+export function listReviewDepts() {
+  return http.get('/admin/review/depts')
+}
+
+// 桶级套用根因（独立保存，不改桶状态）
+export function applyBucketCauses(id, causes) {
+  return http.post(`/admin/review/buckets/${id}/causes`, { causes })
+}
+
+// 逐条覆盖根因
+export function updateRecordCauses(recordId, causes) {
+  return http.post(`/admin/review/records/${recordId}/causes`, { causes })
+}
+
+// 预览合成 chunk：症状与科室名由后端按桶推导，这里只传科室 id
+export function previewSyntheticChunk(id, data) {
+  return http.post(`/admin/review/buckets/${id}/preview`, data)
+}
+
+// 确认 approve：syntheticText 是管理员定稿后的文本
+export function approveBucket(id, data) {
+  return http.post(`/admin/review/buckets/${id}/approve`, data)
+}
+
+export function rejectBucket(id) {
+  return http.post(`/admin/review/buckets/${id}/reject`)
+}
+
+export function dismissBucket(id) {
+  return http.post(`/admin/review/buckets/${id}/dismiss`)
+}
+
+// 修正重审：终态桶回到待审；已 approve 的会撤掉上次的台账与合成 chunk
+export function reReviewBucket(id) {
+  return http.post(`/admin/review/buckets/${id}/re-review`)
+}
+
 // —— 数据看板 ——
 // 首屏聚合：KPI + 每日趋势 + 根因分布（准确率口径由后端统一，见 DashboardService 注释）
 export function getDashboardOverview(days = 7) {

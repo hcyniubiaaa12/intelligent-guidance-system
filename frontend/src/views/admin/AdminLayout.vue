@@ -81,12 +81,13 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Fold, Expand, ArrowUp } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
 import { logout as apiLogout } from '../../api/auth'
+import { countPendingBuckets } from '../../api/admin'
 import '../../styles/admin.css'
 
 const route = useRoute()
@@ -135,13 +136,21 @@ function switchRange(days) {
 }
 
 // abbr 为折叠态两字缩写。
-// badge 是**待办数**，必须来自实时数据——审核队列的待办数要等链路 C 后半（聚合归桶）才有来源，
-// 在那之前一律 0（不显示）。写死一个数字最像"有内容"，而它会被当成待办数去处理。
-const navs = [
+// badge 是待办数，只挂审核队列，取待审桶的真实数量；取不到就显示 0，不写死一个数字。
+const pendingCount = ref(0)
+const navs = computed(() => [
   { path: '/admin/dashboard', label: '数据看板', abbr: '看板', badge: 0 },
   { path: '/admin/kb', label: '知识库管理', abbr: '知识', badge: 0 },
-  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: 0 },
+  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: pendingCount.value },
   { path: '/admin/users', label: '用户管理', abbr: '用户', badge: 0 },
   { path: '/admin/llm', label: 'LLM 配置', abbr: '模型', badge: 0 }
-]
+])
+
+onMounted(async () => {
+  try {
+    pendingCount.value = (await countPendingBuckets()) || 0
+  } catch {
+    pendingCount.value = 0
+  }
+})
 </script>

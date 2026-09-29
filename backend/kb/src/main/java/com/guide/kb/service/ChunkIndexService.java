@@ -4,6 +4,7 @@ import com.guide.common.util.EsChunkUtil;
 import com.guide.common.util.PgVectorUtil;
 import com.guide.kb.dto.ChunkInput;
 import com.guide.kb.entity.KbChunk;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.guide.kb.mapper.KbChunkMapper;
 import com.guide.llm.client.EmbeddingModel;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,25 @@ public class ChunkIndexService {
     private final EmbeddingModel embeddingModel;
     private final PgVectorUtil pgVectorUtil;
     private final EsChunkUtil esChunkUtil;
+
+    /**
+     * 回流合成 chunk：一段已定稿的鉴别诊断文本，不走解析/切分。
+     *
+     * <p>文本是管理员预览定稿的，再切一次只会把一条完整的鉴别关系拦腰切断
+     * （那正是根因表里的 {@code chunk_broken}）。序号接在容器现有切片之后，
+     * 修正重审替换时先删旧片，新片仍接在末尾。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public KbChunk indexSyntheticChunk(String docId, String deptId, String title, String content) {
+        Integer maxSeq = chunkMapper.selectList(Wrappers.<KbChunk>lambdaQuery()
+                        .eq(KbChunk::getDocId, docId)
+                        .orderByDesc(KbChunk::getSeq)
+                        .last("LIMIT 1"))
+                .stream().map(KbChunk::getSeq).findFirst().orElse(0);
+        List<KbChunk> saved = indexChunks(docId, deptId, List.of(
+                new ChunkInput(title, content, maxSeq + 1, List.of())));
+        return saved.get(0);
+    }
 
     /**
      * 批量入库：向量化一次批调（摊薄成本），再逐条写 MySQL + pgvector + ES。
