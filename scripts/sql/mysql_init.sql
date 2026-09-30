@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS `chat_session` (
 CREATE TABLE IF NOT EXISTS `chat_message` (
     `id`         VARCHAR(32) NOT NULL,
     `session_id` VARCHAR(32) NOT NULL COMMENT '会话 id',
-    `role`       VARCHAR(32) NOT NULL COMMENT '枚举：user/ai/question（question 即追问）',
+    `role`       VARCHAR(32) NOT NULL COMMENT '枚举：user/ai/question/info（question 即追问，info 即资料回答）',
     `content`    TEXT        NOT NULL COMMENT '消息内容',
     `deleted`    TINYINT     NOT NULL DEFAULT 0,
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
