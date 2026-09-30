@@ -1,6 +1,6 @@
 // SSE 客户端（链路 A 对话流）：fetch + ReadableStream 手写解析
 // 为什么不用 EventSource：它无法携带 Authorization 头，也不支持 POST 请求体。
-// 事件协议（见后端 SseEvents）：session → delta → (question | result) → done，异常走 error，
+// 事件协议（见后端 SseEvents）：session → delta → (question | info | result) → done，异常走 error，
 // notice（处置提示/警告）可出现在任意位置且不改变主流程；每条的 data 均为 JSON；
 // error 之后后端还会补一个 done，前端以 error 收尾即可。
 import router from '../router'
@@ -12,6 +12,7 @@ const HANDLER = {
   session: 'onSession',
   delta: 'onDelta',
   question: 'onQuestion',
+  info: 'onInfo',
   result: 'onResult',
   notice: 'onNotice',
   done: 'onDone',
@@ -51,7 +52,7 @@ async function readFailure(res) {
  * 发送消息并消费 SSE 流（链路 A）。
  *
  * @param {{sessionId?: string, content: string}} payload 续聊回传 sessionId；为空则后端开新会话
- * @param {object} handlers 事件回调：onSession/onDelta/onQuestion/onResult/onNotice/onDone/onError
+ * @param {object} handlers 事件回调：onSession/onDelta/onQuestion/onInfo/onResult/onNotice/onDone/onError
  *   参数为该事件的 data（JSON 已解析）；网络异常与流中断也回落到 onError({ message })
  * @param {AbortSignal} [signal] 可选：离开页面时中断，不写已卸载组件
  * @returns {Promise<void>} 流结束（或异常已回落 onError）后 resolve

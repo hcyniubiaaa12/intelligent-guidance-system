@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 // 会话状态 store：当前会话、对话条目、SSE 流式状态
 // entries 为对话条目数组（一个聊天页可先后承载多个会话与多张结论卡），形态：
-//   { type: 'user' | 'ai' | 'question', content }
+//   { type: 'user' | 'ai' | 'question' | 'info', content }（info = 资料回答，患者问知识库内容时的复述）
 //   { type: 'card', recordId, card }   结论卡（挂号与埋点都要 recordId）
 //   { type: 'notice', content }        处置提示（敏感词累计触发的警告），独立一泡
 //   { type: 'error', message, text }   error 态（text = 待重发的输入）

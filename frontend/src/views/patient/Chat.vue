@@ -168,6 +168,24 @@
                   </button>
                 </div>
 
+                <!-- 资料回答：患者问的是知识库内容，系统如实复述片段作答（不推荐科室、不是追问）
+                     与追问一样复用 AI 气泡的形状，只有标签不同——患者一眼能分出这不是分诊结论 -->
+                <div v-else-if="m.type === 'info'" class="p-ai">
+                  <div class="p-ai__tag">分 诊 助 理 · 资 料</div>
+                  <div class="p-ai__text">{{ m.content }}</div>
+                  <button
+                    v-if="m.content"
+                    class="p-act__btn"
+                    :class="{ 'is-copied': copiedKey === 'if' + i }"
+                    :aria-label="copiedKey === 'if' + i ? '已复制' : '复制这条资料回答'"
+                    @click="copyText('if' + i, m.content)"
+                  >
+                    <svg v-if="copiedKey !== 'if' + i" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor"/><path d="M8.5 3.5v-2h-7v7h2" fill="none" stroke="currentColor"/></svg>
+                    <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                    {{ copiedKey === 'if' + i ? '已 复 制' : '复 制' }}
+                  </button>
+                </div>
+
                 <!-- AI 回复：直排文字 + moss 小标签（SSE delta 逐字填充同一文本节点）
                      本块必须单行书写：.p-ai__text 是 pre-wrap，换行缩进会被原样渲染 -->
                 <div v-else-if="m.type === 'ai'" class="p-ai">
@@ -514,7 +532,8 @@ const marks = computed(() => replay.value?.questions || [])
 /** 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致 */
 function toReplayEntries(d) {
   const out = (d.messages || []).map((m) => ({
-    type: m.role === 'user' ? 'user' : m.role === 'question' ? 'question' : 'ai',
+    // 追问与资料回答在回放里也要保持各自的定性（否则同一条消息实时看是「· 资料」、历史里变成普通回复）
+    type: m.role === 'user' ? 'user' : m.role === 'question' ? 'question' : m.role === 'info' ? 'info' : 'ai',
     content: m.content,
     qNo: m.role === 'user' ? m.questionNo : undefined
   }))
@@ -708,6 +727,15 @@ async function runTurn(content) {
           // 绝不能重复渲染；② 规则模板兜底（无 delta，占位气泡本就是空的）。
           // 两种情况下都复用当前气泡，视觉上等价于「新建一个追问气泡」。
           bubble.type = 'question'
+          bubble.content = full
+          endTurn()
+        },
+
+        // 资料回答（患者问的是知识库内容而不是描述症状）：内容同样已随 delta 流过，
+        // 事件只做定性——复用当前气泡换个标签即可。它既不是追问（系统没在要信息）也不是结论
+        // （没有科室推荐），必须让患者看出来，否则会把一段资料读成分诊结论。
+        onInfo: ({ content: full }) => {
+          bubble.type = 'info'
           bubble.content = full
           endTurn()
         },
