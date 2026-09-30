@@ -8,7 +8,10 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 模型输出解析单测：覆盖正常结论、纯追问、畸形输出三类分支。
+ * 模型输出解析单测：verdict 三态（RECOMMEND / ASK / INFO）、未声明降级、畸形输出容错。
+ *
+ * <p>「未声明」这一组是 2026-09-30 的关键行为变更：无分隔符 / JSON 畸形 / 声明了结论却没给 dept，
+ * 此前全都返回 ASK（等于把模型没按协议来伪装成正常追问），现在一律 UNKNOWN。
  */
 class AnswerParserTest {
 
@@ -36,9 +39,10 @@ class AnswerParserTest {
     }
 
     @Test
-    @DisplayName("无分隔符 = 信息不足，按追问处理")
-    void treatAsAskWhenNoMarker() {
-        RagAnswer answer = parser.parse("这个胸闷大概持续多久了？有没有向左肩放射？");
+    @DisplayName("模型声明 ASK：按追问解析（判据是声明，不是「有没有 JSON」）")
+    void parsesDeclaredAsk() {
+        RagAnswer answer = parser.parse("这个胸闷大概持续多久了？有没有向左肩放射？\n"
+                + AnswerParser.MARKER + "\n{\"verdict\":\"ASK\"}");
 
         assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.ASK);
         assertThat(answer.reply()).isEqualTo("这个胸闷大概持续多久了？有没有向左肩放射？");
@@ -46,11 +50,79 @@ class AnswerParserTest {
     }
 
     @Test
-    @DisplayName("分隔符后 JSON 畸形：按追问兜底，不抛异常")
-    void malformedJsonFallsBackToAsk() {
+    @DisplayName("模型声明 INFO：按资料回答解析（不推荐科室、不占追问轮次）")
+    void parsesDeclaredInfo() {
+        RagAnswer answer = parser.parse("根据知识片段，P1 事故必须记录根因、影响用户数、恢复时间与补偿方案。\n"
+                + AnswerParser.MARKER + "\n{\"verdict\":\"INFO\"}");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.INFO);
+        assertThat(answer.reply()).contains("P1 事故必须记录");
+        assertThat(answer.top3()).isEmpty();
+        assertThat(answer.confidence()).isNull();
+    }
+
+    @Test
+    @DisplayName("verdict 大小写不敏感：ask 也能识别")
+    void verdictIsCaseInsensitive() {
+        assertThat(parser.parse(AnswerParser.MARKER + "\n{\"verdict\":\"ask\"}").verdict())
+                .isEqualTo(RagAnswer.Verdict.ASK);
+        assertThat(parser.parse(AnswerParser.MARKER + "\n{\"verdict\":\" info \"}").verdict())
+                .isEqualTo(RagAnswer.Verdict.INFO);
+    }
+
+    @Test
+    @DisplayName("verdict 取值不认识：按未声明处理，不当成追问")
+    void unknownVerdictValueFallsBackToUnknown() {
+        RagAnswer answer = parser.parse("这段是回答。\n" + AnswerParser.MARKER + "\n{\"verdict\":\"CHITCHAT\"}");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.UNKNOWN);
+        assertThat(answer.reply()).isEqualTo("这段是回答。");
+    }
+
+    @Test
+    @DisplayName("声明 RECOMMEND 却没给 dept：按未声明处理（不能出结论，也不能退回追问）")
+    void recommendWithoutDeptFallsBackToUnknown() {
+        RagAnswer answer = parser.parse("建议就诊。\n" + AnswerParser.MARKER
+                + "\n{\"verdict\":\"RECOMMEND\",\"confidence\":0.8}");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.UNKNOWN);
+        assertThat(answer.reply()).isEqualTo("建议就诊。");
+    }
+
+    @Test
+    @DisplayName("无 verdict 但有 dept：老格式向后兼容，仍按结论")
+    void legacyJsonWithoutVerdictStillRecommend() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"confidence\":0.6}");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.RECOMMEND);
+    }
+
+    @Test
+    @DisplayName("空输出：按未声明处理（不是追问，也不是结论）")
+    void blankOutputFallsBackToUnknown() {
+        RagAnswer answer = parser.parse("   ");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.UNKNOWN);
+        assertThat(answer.reply()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("无分隔符且无 JSON：按未声明处理（不再等同于追问）")
+    void treatAsUnknownWhenNoMarker() {
+        RagAnswer answer = parser.parse("这个胸闷大概持续多久了？有没有向左肩放射？");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.UNKNOWN);
+        assertThat(answer.reply()).isEqualTo("这个胸闷大概持续多久了？有没有向左肩放射？");
+        assertThat(answer.top3()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("分隔符后 JSON 畸形：按未声明兜底，不抛异常")
+    void malformedJsonFallsBackToUnknown() {
         RagAnswer answer = parser.parse("建议就诊。\n" + AnswerParser.MARKER + "\n{dept: 心血管内科");
 
-        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.ASK);
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.UNKNOWN);
         assertThat(answer.reply()).isEqualTo("建议就诊。");
     }
 

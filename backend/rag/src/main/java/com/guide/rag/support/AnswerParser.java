@@ -13,9 +13,15 @@ import java.util.List;
 
 /**
  * 模型输出解析（链路 A 第 ⑥ 步）。
- * 协议：自然语言回复在前，结论以分隔符 {@value #MARKER} + JSON 对象收尾；
- * 只输出自然语言 = 信息不足需追问（ASK）。
- * 容错：JSON 前后多余文字按花括号配对截取；置信度非法（越界/非递减）置 null 并按低置信度分流。
+ * 协议：自然语言回复在前，结论以分隔符 {@value #MARKER} + JSON 对象收尾，**JSON 必须带 verdict 字段**
+ * （`RECOMMEND` / `ASK` / `INFO`）。
+ *
+ * <p><b>判据是「模型声明了什么」，不是「有没有 JSON」</b>（2026-09-30 改）：此前"没有合法 JSON"
+ * 直接等于追问，于是模型漏协议、JSON 畸形、答了资料给不出科室，全被伪装成追问——患者看到一段
+ * 回答被贴上「追问」标签，追问轮次还白涨，而且没有任何异常信号可查。现在三种情况一律降级为
+ * {@link RagAnswer.Verdict#UNKNOWN}（当普通回答 + 上层 WARN），异常回到异常的样子。
+ *
+ * <p>容错：JSON 前后多余文字按花括号配对截取；置信度非法（越界/非递减）置 null 并按低置信度分流。
  */
 @Slf4j
 @Component
@@ -34,16 +40,16 @@ public class AnswerParser {
 
     public RagAnswer parse(String modelOutput) {
         if (!StringUtils.hasText(modelOutput)) {
-            return RagAnswer.ask("");
+            return RagAnswer.unknown("");
         }
         int markerIndex = modelOutput.indexOf(MARKER);
         if (markerIndex < 0) {
-            // 无分隔符：可能是纯追问，也可能是只给了 JSON（无自然语言）——后者按结论处理
+            // 例外：模型只给了 JSON 没给自然语言（历史形态）——JSON 之前的文字才是可见回复
             String json = extractJsonObject(modelOutput);
             if (json == null) {
-                return RagAnswer.ask(modelOutput.trim());
+                log.warn("模型未输出结论分隔符，按未声明处理（当普通回答，不占追问轮次）：{}", abbreviate(modelOutput));
+                return RagAnswer.unknown(modelOutput.trim());
             }
-            // JSON 之前的自然语言才是可见回复；解析失败时退回模型全文（不能把已流出的追问丢成空串）
             int jsonStart = modelOutput.indexOf(json);
             String visible = jsonStart > 0 ? modelOutput.substring(0, jsonStart).trim() : "";
             return buildAnswer(visible, modelOutput.trim(), json);
@@ -51,26 +57,39 @@ public class AnswerParser {
         String reply = modelOutput.substring(0, markerIndex).trim();
         String json = extractJsonObject(modelOutput.substring(markerIndex + MARKER.length()));
         if (json == null) {
-            log.warn("模型输出了结论分隔符但没有合法 JSON，按追问处理：{}", abbreviate(modelOutput));
-            return RagAnswer.ask(reply);
+            log.warn("模型输出了结论分隔符但没有合法 JSON，按未声明处理：{}", abbreviate(modelOutput));
+            return RagAnswer.unknown(reply);
         }
         return buildAnswer(reply, reply, json);
     }
 
     /**
      * @param reply         可见的自然语言回复（分隔符/JSON 之前的部分）
-     * @param fallbackReply JSON 不可用时的兜底回复（退回追问，保证患者不看到空白气泡）
+     * @param fallbackReply JSON 不可用时的兜底回复（降级为未声明，至少让患者看到内容而不是空白气泡）
      */
     private RagAnswer buildAnswer(String reply, String fallbackReply, String json) {
         RawResult raw;
         try {
             raw = objectMapper.readValue(json, RawResult.class);
         } catch (Exception e) {
-            log.warn("结论 JSON 解析失败，按追问处理：{}", abbreviate(json));
-            return RagAnswer.ask(fallbackReply);
+            log.warn("结论 JSON 解析失败，按未声明处理：{}", abbreviate(json));
+            return RagAnswer.unknown(fallbackReply);
         }
-        if (raw == null || !StringUtils.hasText(raw.dept())) {
-            return RagAnswer.ask(fallbackReply);
+        if (raw == null) {
+            return RagAnswer.unknown(fallbackReply);
+        }
+        RagAnswer.Verdict declared = declared(raw.verdict());
+        if (declared == RagAnswer.Verdict.ASK) {
+            return RagAnswer.ask(reply);
+        }
+        if (declared == RagAnswer.Verdict.INFO) {
+            return RagAnswer.info(reply);
+        }
+        // 走到这里是 RECOMMEND，或模型没声明 verdict（老格式向后兼容）——两者都必须给出 dept；
+        // 给不出就不是结论，也不能退回追问，只能降级
+        if (!StringUtils.hasText(raw.dept())) {
+            log.warn("模型未给出可用科室（verdict={}），按未声明处理：{}", raw.verdict(), abbreviate(json));
+            return RagAnswer.unknown(reply);
         }
 
         List<RagAnswer.DeptCandidate> top3 = new ArrayList<>();
@@ -96,6 +115,23 @@ public class AnswerParser {
         String note = raw.note() == null ? "" : raw.note().trim();
         return new RagAnswer(RagAnswer.Verdict.RECOMMEND, reply, top3, note,
                 parseCites(raw.cites()), firstConfidence, confidenceValid(top3));
+    }
+
+    /**
+     * verdict 字段解析：缺省或取值不认识 → UNKNOWN（不抛异常：容错靠上层降级 + WARN，
+     * 抛异常会让一次"模型没按协议"变成患者侧的失败）。
+     * 按取值字符串 switch，**不用 valueOf**（见进度.md 已知坑：枚举反序列化禁用 valueOf）。
+     */
+    private RagAnswer.Verdict declared(String verdict) {
+        if (!StringUtils.hasText(verdict)) {
+            return RagAnswer.Verdict.UNKNOWN;
+        }
+        return switch (verdict.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "RECOMMEND" -> RagAnswer.Verdict.RECOMMEND;
+            case "ASK" -> RagAnswer.Verdict.ASK;
+            case "INFO" -> RagAnswer.Verdict.INFO;
+            default -> RagAnswer.Verdict.UNKNOWN;
+        };
     }
 
     /**
@@ -183,7 +219,8 @@ public class AnswerParser {
 
     /** 模型结论原始结构（宽松映射：多余字段忽略、缺失字段置 null） */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record RawResult(String dept, Double confidence, List<RawDept> top3, String note, JsonNode cites) {
+    private record RawResult(String verdict, String dept, Double confidence, List<RawDept> top3,
+                             String note, JsonNode cites) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
