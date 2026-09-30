@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS kb_chunk_vec (
     doc_id     VARCHAR(32) NOT NULL,                 -- 所属文档 id：行自证归属 + 按文档批量清理
     title      VARCHAR(255) NULL,                    -- 切片标题副本（只作人工排查用，检索不读）
     content    TEXT NOT NULL,                        -- 切片正文副本（只作人工排查用，检索不读）
-    chunk_type VARCHAR(32) NOT NULL DEFAULT 'unknown', -- 版面类型：title/text/table/unknown
+    chunk_type VARCHAR(32) NOT NULL DEFAULT 'unknown', -- 版面类型：title/text/table/figure/image/formula/code/header/footer/unknown
     embedding  VECTOR(1024) NOT NULL                 -- 语义向量
 );
 

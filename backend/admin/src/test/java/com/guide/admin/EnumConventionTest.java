@@ -9,6 +9,7 @@ import com.guide.auth.enums.UserStatus;
 import com.guide.auth.enums.ViolationLevel;
 import com.guide.chat.enums.MessageRole;
 import com.guide.chat.enums.SessionStatus;
+import com.guide.common.model.LayoutBlock;
 import com.guide.feedback.enums.BucketStatus;
 import com.guide.feedback.enums.FilterAction;
 import com.guide.feedback.enums.ReviewStatus;
@@ -39,7 +40,10 @@ class EnumConventionTest {
             SessionStatus.class, MessageRole.class,
             DocStatus.class, DocFailType.class, MappingSource.class, TermType.class, TermSource.class,
             TrackStage.class, FilterAction.class, BucketStatus.class, ReviewStatus.class,
-            IngestStage.class, IngestStatus.class
+            IngestStage.class, IngestStatus.class,
+            // 块类型落在 kb_chunk.chunk_type（VARCHAR），新加的 figure/image/formula/code/header/footer
+            // 也必须遵守"编码值 = 常量名小写"这条约定，否则库里会出现两套写法的同一个类型
+            LayoutBlock.BlockType.class
     );
 
     @Test
