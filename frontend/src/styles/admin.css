@@ -20,6 +20,12 @@
   --moss-soft: #E8F2EC;
   --moss: #4A7C59;
   --err: #A94438;
+  /* 禁用/占位：placeholder 与禁用态文字用它，禁用底用 --dis-bg。
+     这两个令牌必须在这里（以及 element-override.css 的 :root）真实定义——
+     只写 var(--dis-text) 而不定义，color 会在计算值阶段失效并回退成继承来的深色 --ink，
+     症状就是"placeholder 显示成黑字"（曾被当成样式没生效排查过） */
+  --dis-text: #A8B0C3;
+  --dis-bg: #EEF1F6;
 
   --sans: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 

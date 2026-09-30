@@ -41,6 +41,12 @@
   --el-border-radius-base: 0;
   --el-border-radius-small: 0;
   --el-font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  /* 管理端方案 B 的两个令牌，这里再定义一遍：EP 弹层（el-dialog / el-upload 等）teleport 到
+     body，拿不到 .admin-root 上的令牌，只挂 .admin-root 会让弹层里的 var(--dis-text) 失效
+     （失效的 color 会回退成继承色 —— placeholder 变黑就是这么来的） */
+  --dis-text: #A8B0C3;
+  --dis-bg: #EEF1F6;
 }
 
 /* 表格：表头用 wash 底，行 hover 用 wash */
@@ -87,14 +93,17 @@
 .admin-root .el-textarea__inner:focus {
   box-shadow: 0 0 0 1px var(--blue) inset;
 }
+/* placeholder 用浅灰（--dis-text），不是正文色；
+   el-select 的占位走自己的 --el-text-color-placeholder，此处只管 el-input / el-textarea */
 .admin-root .el-input__inner::placeholder,
 .admin-root .el-textarea__inner::placeholder {
   color: var(--dis-text);
+  opacity: 1; /* Firefox 默认给 placeholder 加透明度，会把这层浅灰再压淡一层 */
 }
 /* 禁用态：浅灰底 */
 .admin-root .el-input.is-disabled .el-input__wrapper,
 .admin-root .el-textarea.is-disabled .el-textarea__inner {
-  background-color: #EEF1F6;
+  background-color: var(--dis-bg);
   box-shadow: 0 0 0 1px var(--line) inset;
 }
 
