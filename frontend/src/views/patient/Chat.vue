@@ -62,17 +62,20 @@
                 <span>{{ shortDate(day.date) }}</span>
                 <span class="n">{{ day.sessions.length }} 次{{ isCollapsed(day) ? ' · 已折叠' : '' }}</span>
               </div>
-              <button
-                v-for="s in visibleSessions(day)"
-                :key="s.id"
-                class="p-i"
-                :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
-                @click="openSession(s.id)"
-              >
-                <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
-                <span class="p-i__q">{{ s.questionCount }} 问</span>
-                <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
-              </button>
+              <!-- 一行 = 会话 + 归档动作。动作是**兄弟** button（.p-i 自己是 button，里面不能再放 button），
+                   绝对定位贴在右侧，hover 才浮现——与对话区的复制按钮同一套语言 -->
+              <div v-for="s in visibleSessions(day)" :key="s.id" class="p-irow">
+                <button
+                  class="p-i"
+                  :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                  @click="openSession(s.id)"
+                >
+                  <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                  <span class="p-i__q">{{ s.questionCount }} 问</span>
+                  <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+                </button>
+                <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归 档</button>
+              </div>
               <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
                 展 开 该 天 全 部 {{ day.sessions.length }} 次
               </button>
@@ -81,8 +84,35 @@
               </button>
             </template>
             <p v-if="!shownDays.length" class="p-chat__nores">
-              {{ tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
+              {{ archivedTotal ? '都收进归档了' : tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
             </p>
+
+            <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
+            <template v-if="archivedDaysShown.length">
+              <button class="p-fold p-fold--arch" @click="archOpen = !archOpen">
+                {{ archOpen ? '收 起 归 档' : `已 归 档 · ${archivedTotal} 次` }}
+              </button>
+              <template v-if="archOpen">
+                <template v-for="day in archivedDaysShown" :key="day.date">
+                  <div class="p-day">
+                    <span>{{ shortDate(day.date) }}</span>
+                    <span class="n">{{ day.sessions.length }} 次</span>
+                  </div>
+                  <div v-for="s in day.sessions" :key="s.id" class="p-irow is-arch">
+                    <button
+                      class="p-i"
+                      :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                      @click="openSession(s.id)"
+                    >
+                      <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                      <span class="p-i__q">{{ s.questionCount }} 问</span>
+                      <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+                    </button>
+                    <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取 回</button>
+                  </div>
+                </template>
+              </template>
+            </template>
           </div>
 
           <!-- 底部用户区（桌面才有；手机在顶栏） -->
@@ -375,7 +405,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useChatStore } from '../../stores/chat'
 import { logout as apiLogout } from '../../api/auth'
-import { listSessions, sessionDetail } from '../../api/records'
+import { listSessions, sessionDetail, archiveSession } from '../../api/records'
 import { streamChat } from '../../utils/sse'
 import { track } from '../../utils/track'
 import '../../styles/patient.css'
@@ -420,6 +450,9 @@ const booked = ref(0)
 const tab = ref('all')
 const sideOpen = ref(false)
 const expanded = ref(new Set())
+// 归档区（收纳）：归档的会话仍在列表数据里，后端按天分好（口径=会话开始那天），折在下面
+const archivedDays = ref([])
+const archOpen = ref(false)
 
 // ---------- 侧栏收起/展开（学 DS：收起成一条只留「折叠图标＋新建对话」的精简轨） ----------
 const SIDE_HIDDEN_KEY = 'p-chat-side-hidden'
@@ -479,6 +512,17 @@ const shownDays = computed(() => {
     .filter((d) => d.sessions.length > 0)
 })
 
+/** 归档区跟着当前 tab 的过滤口径走（挂号历史 tab 里只列挂过号的归档会话），结构同主区（按天） */
+const archivedDaysShown = computed(() => {
+  if (tab.value === 'all') return archivedDays.value
+  return archivedDays.value
+    .map((d) => ({ ...d, sessions: d.sessions.filter((s) => s.booked) }))
+    .filter((d) => d.sessions.length > 0)
+})
+
+/** 归档区总条数（折起时的「N 次」标签用） */
+const archivedTotal = computed(() => archivedDaysShown.value.reduce((sum, d) => sum + d.sessions.length, 0))
+
 /** 正在看的是哪一条：看历史就是历史的，实时对话就是本轮的 */
 const activeSessionId = computed(() => replay.value?.session?.id || chat.sessionId || null)
 
@@ -486,12 +530,40 @@ async function loadSessions() {
   try {
     const data = await listSessions()
     days.value = data.days || []
+    archivedDays.value = data.archivedDays || []
     total.value = data.totalSessions || 0
     booked.value = data.totalBooked || 0
   } catch (e) {
     // 侧栏拉不到不该挡住发消息；接口真挂了别处也会报错
     console.error('[chat] 会话列表拉取失败', e)
   }
+}
+
+/**
+ * 归档 / 取回一条会话。归档是收纳不是删除：归档后仍能点开只读回放，随时可「取回」。
+ *
+ * <p>两个细节：
+ * ① 归档的若正是当前正在看（回放）或正在聊的那条，**把视图一起收掉**——它已经不在列表主区了，
+ *    还留在对话区会让人以为归档没生效；正在聊的那条则回到"新咨询"状态（新消息不会再回到归档会话）。
+ * ② 归档后自动展开归档区一次：让患者看见"它去哪了"，否则像凭空消失。
+ */
+async function setArchived(session, next) {
+  try {
+    await archiveSession(session.id, next)
+  } catch (e) {
+    console.error('[chat] 归档操作失败', e)
+    return
+  }
+  if (next) {
+    // 归档当前活跃会话：连视图一起收
+    if (replay.value?.session?.id === session.id) replay.value = null
+    else if (chat.sessionId === session.id) chat.reset()
+    archOpen.value = true
+  } else if (archivedTotal.value <= 1) {
+    // 取回的是归档区最后一条：连收纳区一起收起来
+    archOpen.value = false
+  }
+  await loadSessions()
 }
 
 function switchTab(next) {
@@ -1172,6 +1244,37 @@ onBeforeUnmount(() => {
   color: var(--teal);
 }
 .p-fold:hover { text-decoration: underline; }
+
+/* ---------- 归档：入口 hover 才浮现（与对话区复制按钮同一套语言），收纳区折在列表末尾 ---------- */
+.p-irow { position: relative; }
+.p-irow__act {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  color: var(--teal);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.p-irow:hover .p-irow__act,
+.p-irow__act:focus-visible { opacity: 1; }
+/* hover 时把时间淡掉：归档按钮就压在那个位置，两条文字会叠 */
+.p-i__d { transition: opacity .18s ease; }
+.p-irow:hover .p-i__d { opacity: 0; }
+/* 触屏没有 hover：常显动作，并让出时间的位置 */
+@media (hover: none) {
+  .p-irow__act { opacity: 1; }
+  .p-irow .p-i__d { opacity: 0; }
+}
+.p-fold--arch { border-bottom-style: solid; }
+.p-irow.is-arch .p-i__x { color: var(--ink-2); }
 
 /* ---------- 回放时的只读条（替代输入区） ---------- */
 .p-chat__lock {
