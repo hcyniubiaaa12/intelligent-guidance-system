@@ -41,10 +41,11 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * 问诊对话编排（链路 A 主链路）。
  * 单轮流：会话状态机 → 消息落库 → 敏感词入口前置校验 → 规则硬门槛 → RAG 检索
- * → 流式生成（分流闸门逐字转发 delta）→ 解析 → 追问 或 结论落库 → result → done。
+ * → 流式生成（分流闸门逐字转发 delta）→ 解析 → 追问 / 资料回答 / 结论落库 → result → done。
  *
- * <p>SSE 四态：delta（对话流）/ question（追问，不出结论）/ result（结论卡片）/ done（收尾），
- * 异常统一走 error（文案说清原因与下一步）。
+ * <p>SSE 五态：delta（对话流）/ question（追问，不出结论）/ info（资料回答，不出结论也不占轮次）
+ * / result（结论卡片）/ done（收尾），异常统一走 error（文案说清原因与下一步）。
+ * 三态由模型在结论 JSON 的 verdict 字段里显式声明，见 {@link com.guide.rag.dto.RagAnswer.Verdict}。
  */
 @Slf4j
 @Service
@@ -186,13 +187,21 @@ public class ChatService {
             // ② 规则硬门槛：确定性无效输入 / 首条主诉过于笼统 → 模板追问，不调模型
             int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
             int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
-            String gateReason = ruleGateReason(session, content, askRound, askMaxRounds);
-            if (gateReason != null) {
-                String question = sufficiencyRule.templateQuestion();
-                log.info("规则门槛：{}｜追问轮次 {}/{}，模板追问（未调模型/未检索）",
-                        gateReason, askRound, askMaxRounds);
+            GateHit gateHit = ruleGate(session, content, askRound, askMaxRounds);
+            if (gateHit != null) {
+                // 连发无效输入时换第二档话术（否则患者看到同一句复读）——按"本会话是否已回过模板追问"切档
+                String question = templateQuestionAsked(sessionId, sufficiencyRule.templateQuestion())
+                        ? sufficiencyRule.templateQuestionRepeat()
+                        : sufficiencyRule.templateQuestion();
+                log.info("规则门槛：{}｜追问轮次 {}/{}，模板追问（未调模型/未检索，{}）",
+                        gateHit.reason(), askRound, askMaxRounds,
+                        gateHit.consumesRound() ? "计入追问轮次" : "**不计入**追问轮次");
                 saveMessage(sessionId, MessageRole.QUESTION, question);
-                ask(emitter, session, question);
+                if (gateHit.consumesRound()) {
+                    ask(emitter, session, question);
+                } else {
+                    askWithoutBudget(emitter, session, question, askRound);
+                }
                 return;
             }
 
@@ -233,17 +242,43 @@ public class ChatService {
                     firstTokenMs, generationMs, rawOutput.length(), generation[2], generation[1]);
             log.debug("模型原始输出：{}", abbreviate(rawOutput, 800));
 
-            // ⑤ 解析与分流
+            // ⑤ 解析与分流：按模型**显式声明**的 verdict 走三条路，见 RagAnswer.Verdict
             RagAnswer answer = answerParser.parse(rawOutput);
             if (answer.verdict() == RagAnswer.Verdict.RECOMMEND && !rawOutput.contains(AnswerParser.MARKER)) {
-                // 模型漏输出结论分隔符：JSON 已随 delta 流进气泡，这里只留痕，便于后续调 Prompt
+                // 模型漏输出结论分隔符但 JSON 齐全：JSON 已随 delta 流进气泡，这里只留痕，便于后续调 Prompt
                 log.warn("模型未输出结论分隔符，按 JSON 兜底解析（结论 JSON 已随 delta 进入气泡）");
             }
             logAnswer(answer, forceConclusion);
-            if (answer.verdict() == RagAnswer.Verdict.ASK && !forceConclusion) {
-                saveMessage(sessionId, MessageRole.QUESTION, answer.reply());
-                ask(emitter, session, answer.reply());
-                return;
+            if (forceConclusion) {
+                // 追问预算已用尽：链路 A 的承诺是"问满就问不出也要给结论"（提示词已用 {extra} 要求
+                // verdict=RECOMMEND）。模型不配合时**不在这一轮降级**——照旧往下走结论路径，
+                // 由 saveConclusion 回落检索片段所属科室兜底，否则这个会话会永远闭不了环
+                // （ask_round 已到上限、又永远不出 result，患者挂不上号）
+                if (answer.verdict() != RagAnswer.Verdict.RECOMMEND) {
+                    log.warn("已达追问上限但模型未声明 RECOMMEND（verdict={}），按强制结论兜底下发", answer.verdict());
+                }
+            } else {
+                if (answer.reply().isBlank() && answer.verdict() != RagAnswer.Verdict.RECOMMEND) {
+                    // 非结论却没给任何文本：对话框里没东西可展示，只能当失败（追问文本为空、资料回答为空）
+                    throw new BizException(ErrorCode.LLM_CALL_FAILED, "模型未返回可展示内容");
+                }
+                if (answer.verdict() == RagAnswer.Verdict.ASK) {
+                    saveMessage(sessionId, MessageRole.QUESTION, answer.reply());
+                    ask(emitter, session, answer.reply());
+                    return;
+                }
+                if (answer.verdict() == RagAnswer.Verdict.INFO) {
+                    answerInfo(session, answer.reply(), emitter);
+                    return;
+                }
+                if (answer.verdict() == RagAnswer.Verdict.UNKNOWN) {
+                    // 模型没按协议声明：当普通回答发出去，**不占追问轮次、不动会话状态**。
+                    // 曾经这里等于"追问"——于是一次协议故障被伪装成正常追问，既没信号还白吃一次预算
+                    log.warn("模型未声明 verdict，本轮按普通回答处理（不占追问轮次）：{}", abbreviate(answer.reply(), 120));
+                    saveMessage(sessionId, MessageRole.AI, answer.reply());
+                    send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, false));
+                    return;
+                }
             }
 
             // ⑥ 结论：科室校验 + 导诊记录落库 + result/done
@@ -254,20 +289,27 @@ public class ChatService {
         }
     }
 
-    /** 解析结果留痕：判定分支、模型自报置信度（含是否通过校验）、Top3、引用注号 */
+    /**
+     * 解析结果留痕：判定分支、模型自报置信度（含是否通过校验）、Top3、引用注号。
+     * 判定按 verdict 三态打，UNKNOWN 单列——它就是「模型没按协议来」的告警面（可 grep `判定=未声明`）。
+     */
     private void logAnswer(RagAnswer answer, boolean forceConclusion) {
-        if (answer.verdict() == RagAnswer.Verdict.ASK) {
-            log.info("结论解析：判定=追问（信息不足{}）｜追问内容 {} 字",
+        switch (answer.verdict()) {
+            case ASK -> log.info("结论解析：判定=追问（信息不足{}）｜追问内容 {} 字",
                     forceConclusion ? "，但已到追问上限，将强制出低置信度结论" : "", answer.reply().length());
-            return;
+            case INFO -> log.info("结论解析：判定=资料回答｜回复 {} 字｜不占追问轮次", answer.reply().length());
+            case UNKNOWN -> log.warn("结论解析：判定=未声明（模型未按协议给 verdict）｜回复 {} 字｜按普通回答处理",
+                    answer.reply().length());
+            case RECOMMEND -> {
+                StringBuilder top3 = new StringBuilder();
+                for (RagAnswer.DeptCandidate candidate : answer.top3()) {
+                    top3.append(candidate.dept()).append('=').append(candidate.confidence()).append(' ');
+                }
+                log.info("结论解析：判定=出结论｜模型自报置信度={}（校验{}）｜Top3 [{}]｜引用注号 {}｜说明 {}",
+                        answer.confidence(), answer.confidenceValid() ? "通过" : "未通过→置空走低置信度分流",
+                        top3.toString().trim(), answer.cites(), abbreviate(answer.note(), 80));
+            }
         }
-        StringBuilder top3 = new StringBuilder();
-        for (RagAnswer.DeptCandidate candidate : answer.top3()) {
-            top3.append(candidate.dept()).append('=').append(candidate.confidence()).append(' ');
-        }
-        log.info("结论解析：判定=出结论｜模型自报置信度={}（校验{}）｜Top3 [{}]｜引用注号 {}｜说明 {}",
-                answer.confidence(), answer.confidenceValid() ? "通过" : "未通过→置空走低置信度分流",
-                top3.toString().trim(), answer.cites(), abbreviate(answer.note(), 80));
     }
 
     /**
@@ -282,6 +324,34 @@ public class ChatService {
         sessionMapper.updateById(session);
         send(emitter, SseEvents.QUESTION, new SseEvents.QuestionEvent(session.getId(), question, nextRound));
         send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(session.getId(), false));
+    }
+
+    /**
+     * 不计入追问预算的追问（规则门槛的**无效输入**专用）：只发事件、只落库，**不动 ask_round**。
+     *
+     * <p>存在的理由：让通用话术吃光预算，末轮就会触发 forceConclusion，而对"患者从未描述过症状"
+     * 的会话强制出结论只能是编造。不计预算 ⇒ 预算永远推不动 ⇒ 永远走不到那一步。
+     */
+    private void askWithoutBudget(SseEmitter emitter, ChatSession session, String question, int askRound) {
+        log.info("追问发出（不计预算）：轮次保持 {}｜内容：{}", askRound, abbreviate(question, 120));
+        send(emitter, SseEvents.QUESTION, new SseEvents.QuestionEvent(session.getId(), question, askRound));
+        send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(session.getId(), false));
+    }
+
+    /**
+     * 资料回答分支（2026-09-30 加）：患者问的是知识库内容而不是描述症状，如实复述片段作答。
+     *
+     * <p>与追问的区别就三条，每一条都有理由：**不推进 ask_round**（它不需要患者补充信息，
+     * 吃追问预算等于偷走分诊的追问机会）、**不改 has_result**（没推荐科室，会话照旧可续聊）、
+     * **事件定性为 info 而不是 question**（前端据此换标签，患者不会把资料读成分诊结论）。
+     */
+    private void answerInfo(ChatSession session, String content, SseEmitter emitter) {
+        String sessionId = session.getId();
+        log.info("资料回答：{} 字｜追问轮次保持 {}/{}｜不产生结论", content.length(),
+                session.getAskRound(), sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3));
+        saveMessage(sessionId, MessageRole.INFO, content);
+        send(emitter, SseEvents.INFO, new SseEvents.InfoEvent(sessionId, content));
+        send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, false));
     }
 
     /**
@@ -337,27 +407,53 @@ public class ChatService {
     }
 
     /**
-     * 规则硬门槛判定：返回 null 表示放行。命中任意一条即模板追问（不调模型、不检索）。
+     * 规则硬门槛判定：返回 null 表示放行，否则带上"是否消耗追问预算"。
      *
-     * <p>① 确定性无效输入（语气词/寒暄/说不出/纯符号）——不区分轮次；
-     * ② 首条主诉过于笼统（过短且未命中术语）——只对自由陈述生效。
+     * <p>① 确定性无效输入（语气词/寒暄/说不出/纯符号）——不区分轮次，且**不计追问预算**；
+     * ② 首条主诉过于笼统（过短且未命中术语）——只对自由陈述生效，**计追问预算**。
      * 应答轮不叠加内容门槛，理由见 {@link SufficiencyRule} 类注释。
+     *
+     * <p><b>两类为什么会走到同一个出口、却必须在预算上分开</b>（2026-09-30 改）：
+     * {@code ask_round} 的语义是"**针对患者这次回答**追问了几次"，而无效输入的模板追问是一句
+     * 通用话术、不针对任何回答，扣预算属于错配。实测后果（用户报的）：连发 5 次「你好」把预算吃光 →
+     * 让路护栏放行 → {@code forceConclusion} 要求模型"必须出结论" → 患者从未描述过症状，模型只能编：
+     * 置信度 0.15、{@code cites} 为空、说明里自己写着"无依据的临时占位建议"，而系统照样给了推荐卡与
+     * 挂号入口，还把这条假记录写进了盲区榜。<b>模板追问不吃预算，"强制出结论"的前提（患者确实描述过
+     * 症状、只是信息不全）才成立。</b>
      *
      * <p><b>护栏</b>：追问预算（ask_max_rounds）用尽后规则一律让路。规则门槛位于
      * forceConclusion 判定之前，若继续拦，askRound 只涨而永远走不到检索分支，
      * forceConclusion 永不触发，会话会卡死在"回答 → 被问同一句 → 再回答"的循环里。
+     * （现在只有 ② 会涨轮次，护栏就是为它留的。）
      */
-    private String ruleGateReason(ChatSession session, String content, int askRound, int askMaxRounds) {
+    private GateHit ruleGate(ChatSession session, String content, int askRound, int askMaxRounds) {
         if (askRound >= askMaxRounds) {
             return null;
         }
         if (sufficiencyRule.noSignal(content)) {
-            return "确定性无效输入";
+            return new GateHit("确定性无效输入", false);
         }
         if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
-            return "首条主诉过于笼统（未命中术语且过短）";
+            return new GateHit("首条主诉过于笼统（未命中术语且过短）", true);
         }
         return null;
+    }
+
+    /** 规则门槛命中结果：原因 + 是否消耗追问预算 */
+    private record GateHit(String reason, boolean consumesRound) {
+    }
+
+    /**
+     * 本会话是否已经回过一次模板追问——决定用第一档还是第二档话术。
+     *
+     * <p>用**消息本身**判断而不是加计数器：计数器要么给 chat_session 加字段（要 ALTER），
+     * 要么存内存（多实例与重启即失真）。这条路径不调模型、不检索，一次 count 可以接受。
+     */
+    private boolean templateQuestionAsked(String sessionId, String template) {
+        return messageMapper.selectCount(Wrappers.<ChatMessage>lambdaQuery()
+                .eq(ChatMessage::getSessionId, sessionId)
+                .eq(ChatMessage::getRole, MessageRole.QUESTION)
+                .eq(ChatMessage::getContent, template)) > 0;
     }
 
     /** 历史消息（不含刚落的当前用户消息），role：question/ai → assistant */

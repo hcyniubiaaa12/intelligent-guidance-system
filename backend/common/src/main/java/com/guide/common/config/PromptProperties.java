@@ -76,6 +76,12 @@ public class PromptProperties {
     public static class Chat {
         /** 规则硬门槛的模板追问（主诉连部位+症状都没有时） */
         private String templateQuestion;
+        /**
+         * 第二档模板追问（本会话已经回过一次模板追问之后改用）：
+         * 连发无效输入时别让患者看到同一句话复读，换成带示例的引导。**必填**——
+         * 缺省会静默退回第一档、复读机照旧，正是这条配置要治的症状。
+         */
+        private String templateQuestionRepeat;
         /** 敏感词拦截话术：固定引导，不道歉不模糊 */
         private String blockedReply;
         /** 敏感词累计触发的警告（不阻断本轮，另起一条气泡） */
@@ -120,6 +126,7 @@ public class PromptProperties {
         require(rewrite.getSystem(), "prompts.rewrite.system", List.of());
         require(rewrite.getUserTemplate(), "prompts.rewrite.user-template", List.of(PLACEHOLDER_DIALOGUE));
         require(chat.getTemplateQuestion(), "prompts.chat.template-question", List.of());
+        require(chat.getTemplateQuestionRepeat(), "prompts.chat.template-question-repeat", List.of());
         require(chat.getBlockedReply(), "prompts.chat.blocked-reply", List.of());
         require(chat.getWarnReply(), "prompts.chat.warn-reply", List.of());
         require(chat.getMuteReply(), "prompts.chat.mute-reply", List.of(PLACEHOLDER_MINUTES));

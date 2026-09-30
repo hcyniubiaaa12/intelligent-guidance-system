@@ -1,7 +1,7 @@
 package com.guide.chat.dto;
 
 /**
- * SSE 事件协议载荷（链路 A）：session → delta → (question | result) → done，异常走 error。
+ * SSE 事件协议载荷（链路 A）：session → delta → (question | info | result) → done，异常走 error。
  * notice（处置提示）可出现在任意位置，不改变主流程形态。
  * 形态见《总体架构与链路设计.md》链路 A 对齐点；前端按事件名分发渲染。
  */
@@ -14,6 +14,7 @@ public final class SseEvents {
     public static final String SESSION = "session";
     public static final String DELTA = "delta";
     public static final String QUESTION = "question";
+    public static final String INFO = "info";
     public static final String RESULT = "result";
     public static final String NOTICE = "notice";
     public static final String DONE = "done";
@@ -29,6 +30,16 @@ public final class SseEvents {
 
     /** 信息不足的追问（不产生 result） */
     public record QuestionEvent(String sessionId, String content, int askRound) {
+    }
+
+    /**
+     * 资料回答（2026-09-30 加）：患者问的是知识库内容而不是描述症状，系统如实复述片段作答。
+     * 它不是追问（不占追问轮次、不推进会话状态），也不是结论（不推荐科室、无 result）。
+     *
+     * <p>与 {@link QuestionEvent} 同构：内容已随 delta 流进气泡，本事件只是「这条气泡属资料回答」
+     * 的定性标记——前端据此换标签，**不重复渲染**。
+     */
+    public record InfoEvent(String sessionId, String content) {
     }
 
     /**

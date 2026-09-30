@@ -75,12 +75,12 @@ public class PromptBuilder {
         return sb.toString().stripTrailing();
     }
 
-    /** 本轮附加约束：追问超限时强制出低置信度结论 */
+    /** 本轮附加约束：追问超限时强制出低置信度结论（verdict 也要相应给 RECOMMEND，否则会被当未声明降级） */
     private String extraBlock(RagRequest request) {
         if (!request.forceConclusion()) {
             return "";
         }
         return "【本轮约束】追问次数已达上限，本轮必须给出结论：即使信息仍不完整也要输出 "
-                + AnswerParser.MARKER + " 与 JSON，并把置信度调低。";
+                + AnswerParser.MARKER + " 与 verdict=RECOMMEND 的 JSON，并把置信度调低。";
     }
 }

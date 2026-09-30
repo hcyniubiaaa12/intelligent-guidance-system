@@ -15,12 +15,14 @@ import static org.mockito.Mockito.when;
 class SufficiencyRuleTest {
 
     private static final String QUESTION = "请补充一下部位、感觉和持续时间。";
+    private static final String QUESTION_REPEAT = "我还是没听到症状相关的信息，可以这样说：胸口闷三天了。";
 
     private final MedicalTermService terms = mock(MedicalTermService.class);
 
     private SufficiencyRule rule() {
         PromptProperties prompts = new PromptProperties();
         prompts.getChat().setTemplateQuestion(QUESTION);
+        prompts.getChat().setTemplateQuestionRepeat(QUESTION_REPEAT);
         return new SufficiencyRule(terms, prompts);
     }
 
@@ -35,6 +37,39 @@ class SufficiencyRuleTest {
         assertThat(rule.noSignal("。。。")).isTrue();
         assertThat(rule.noSignal("   ")).isTrue();
         assertThat(rule.noSignal(null)).isTrue();
+    }
+
+    @Test
+    @DisplayName("英文寒暄同样算无效：大小写、尾部标点、多空格都不影响")
+    void detectsEnglishGreetings() {
+        SufficiencyRule rule = rule();
+        assertThat(rule.noSignal("hello")).isTrue();
+        assertThat(rule.noSignal("Hello")).isTrue();
+        assertThat(rule.noSignal("HELLO!")).isTrue();
+        assertThat(rule.noSignal(" hi ")).isTrue();
+        assertThat(rule.noSignal("hi")).isTrue();
+        assertThat(rule.noSignal("Hey,")).isTrue();
+        assertThat(rule.noSignal("hi there")).isTrue();
+        assertThat(rule.noSignal("hi   there")).isTrue();
+        assertThat(rule.noSignal("good morning")).isTrue();
+    }
+
+    @Test
+    @DisplayName("英文寒暄也是整条精确匹配：夹带症状的句子一律放行")
+    void englishGreetingsMatchWholeMessageOnly() {
+        SufficiencyRule rule = rule();
+        assertThat(rule.noSignal("hello，我胸口疼")).isFalse();
+        assertThat(rule.noSignal("hi doctor, I have a headache")).isFalse();
+    }
+
+    @Test
+    @DisplayName("英文应答不算无效：yes/no/ok/thanks 与中文的\"是的/没有/好的\"同理")
+    void keepsEnglishAnswers() {
+        SufficiencyRule rule = rule();
+        assertThat(rule.noSignal("yes")).isFalse();
+        assertThat(rule.noSignal("no")).isFalse();
+        assertThat(rule.noSignal("ok")).isFalse();
+        assertThat(rule.noSignal("thanks")).isFalse();
     }
 
     @Test
@@ -80,8 +115,10 @@ class SufficiencyRuleTest {
     }
 
     @Test
-    @DisplayName("模板追问话术取自 prompts.yml 配置")
+    @DisplayName("模板追问话术取自 prompts.yml 配置（两档都在）")
     void templateQuestionFromConfig() {
-        assertThat(rule().templateQuestion()).isEqualTo(QUESTION);
+        SufficiencyRule rule = rule();
+        assertThat(rule.templateQuestion()).isEqualTo(QUESTION);
+        assertThat(rule.templateQuestionRepeat()).isEqualTo(QUESTION_REPEAT);
     }
 }
