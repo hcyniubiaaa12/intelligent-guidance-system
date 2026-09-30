@@ -65,7 +65,82 @@ class DocMindLayoutReaderTest {
                 LayoutBlock.BlockType.UNKNOWN, LayoutBlock.BlockType.UNKNOWN);
     }
 
+    @Test
+    @DisplayName("标题族不止 title：heading / header1 也认作标题；type 缺失时回退看 subType")
+    void mapsHeadingFamilyToTitle() {
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "heading", "text", "概述")),
+                block(Map.of("type", "header1", "text", "内科")),
+                block(Map.of("subType", "heading", "text", "呼吸系统"))
+        ));
 
+        assertThat(DocMindLayoutReader.readBlocks(data)).extracting(LayoutBlock::type)
+                .containsExactly(LayoutBlock.BlockType.TITLE, LayoutBlock.BlockType.TITLE,
+                        LayoutBlock.BlockType.TITLE);
+    }
+
+    @Test
+    @DisplayName("版面类型只给 text，但文字是章节编号 → 按编号兜底为标题")
+    void promotesNumberedHeadingFromText() {
+        // 实测形态：「多级标题测试文档」的编号标题全被 DocumentMind 报成 text
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "text", "text", "第一章 概述")),
+                block(Map.of("type", "text", "text", "1.1 编写目的")),
+                block(Map.of("type", "text", "text", "4.2.1.1 四级")),
+                block(Map.of("type", "text", "text", "一、系统名称"))
+        ));
+
+        assertThat(DocMindLayoutReader.readBlocks(data)).extracting(LayoutBlock::type)
+                .containsExactly(LayoutBlock.BlockType.TITLE, LayoutBlock.BlockType.TITLE,
+                        LayoutBlock.BlockType.TITLE, LayoutBlock.BlockType.TITLE);
+    }
+
+    @Test
+    @DisplayName("DocumentMind 的 text 会吃掉编号后的空格，兜底不能靠空白判")
+    void promotesNumberedHeadingWithoutSpace() {
+        // 真实解析结果里就是连着的（`1.1.1.1 术语约定` → `1.1.1.1术语约定`）：
+        // 这两条正是服务端漏判、必须靠兜底救回来的那个四级标题
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "text", "text", "1.1.1.1术语约定")),
+                block(Map.of("type", "text", "text", "4.2.1.1四级"))
+        ));
+
+        assertThat(DocMindLayoutReader.readBlocks(data)).extracting(LayoutBlock::type)
+                .containsExactly(LayoutBlock.BlockType.TITLE, LayoutBlock.BlockType.TITLE);
+    }
+
+    @Test
+    @DisplayName("有序列表项与引导句不误判为标题（编号形态可分：单级编号、括号编号、冒号结尾）")
+    void doesNotPromoteListItemsOrLeadIns() {
+        Map<String, Object> data = Map.of("layouts", List.of(
+                // 单级编号 = 有序列表项，不是章节标题
+                block(Map.of("type", "text", "text", "1. 冻结代码分支，停止合并新的改动。")),
+                block(Map.of("type", "text", "text", "(1) 归档上一版本的应用配置。")),
+                // 冒号结尾的引导句：中文文档里绝大多数是引导句，误提升会让真正的章节标题丢溯源
+                block(Map.of("type", "text", "text", "以下信息必须归为 L4：")),
+                // IP 地址独立成行时与章节编号同形：编号之后没有中文，按"整行是个值"挡掉
+                block(Map.of("type", "text", "text", "10.0.1.1")),
+                block(Map.of("type", "text", "text", "114.114.114.114")),
+                block(Map.of("type", "text", "text", "10.0.1.100/24")),
+                // 规格值同理（现状规则曾误判成标题）
+                block(Map.of("type", "text", "text", "1.2 kg")),
+                // 图注
+                block(Map.of("type", "text", "text", "图 1-1 发布流程示意")),
+                // 带编号但明显是正文（超过编号标题的长度上限）
+                block(Map.of("type", "text", "text", "1.1 本文档用于验证多级标题在文档解析链路中的保留情况，"
+                        + "章节编号与标题层级严格对应，本文所称「章节」指由标题划分的语义单元，"
+                        + "「层级」指标题在文档结构树中的深度，这一段说明已经明显超过长度上限，"
+                        + "应当被当成正文而不是章节标题。"))
+        ));
+
+        // 一个都不许被提升成标题（用 containsOnly + 计数，避免加减用例时数错个数）
+        assertThat(DocMindLayoutReader.readBlocks(data)).extracting(LayoutBlock::type)
+                .hasSize(9)
+                .containsOnly(LayoutBlock.BlockType.TEXT);
+    }
+
+    @Test
+    @DisplayName("表格靠结构字段识别，不靠 type")
     void mapsTableByStructureNotByType() {
         Map<String, Object> table = new LinkedHashMap<>();
         table.put("type", "text");
@@ -82,6 +157,24 @@ class DocMindLayoutReaderTest {
     }
 
     @Test
+    @DisplayName("类型表按参考实现补全：figure/image/formula/code/header/footer 各归其类")
+    void mapsRemainingExternalTypes() {
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "figure", "text", "图 1 发布流程")),
+                block(Map.of("type", "image", "text", "图片文字")),
+                block(Map.of("type", "formula", "text", "E = mc^2")),
+                block(Map.of("type", "code", "text", "print(1)")),
+                block(Map.of("type", "footer", "text", "第 1 页")),
+                block(Map.of("type", "header", "text", "内部资料 · 仅供测试"))
+        ));
+
+        assertThat(DocMindLayoutReader.readBlocks(data)).extracting(LayoutBlock::type)
+                .containsExactly(LayoutBlock.BlockType.FIGURE, LayoutBlock.BlockType.IMAGE,
+                        LayoutBlock.BlockType.FORMULA, LayoutBlock.BlockType.CODE,
+                        LayoutBlock.BlockType.FOOTER, LayoutBlock.BlockType.HEADER);
+    }
+
+    @Test
     @DisplayName("外层键名不认识时按内容扫描，不静默返回 0 块")
     void findsBlocksUnderUnknownKey() {
         Map<String, Object> data = Map.of("somethingElse", List.of(
@@ -89,6 +182,22 @@ class DocMindLayoutReaderTest {
         ));
 
         assertThat(DocMindLayoutReader.readBlocks(data)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("DocumentMind 的 [empty] 哨兵值（印章块）当空块丢弃，不进正文也不打 WARN")
+    void dropsEmptySentinelBlock() {
+        // 实测形态：文字截图 PNG 里 type=stamp 的印章块，text 就是字面量 [empty] —— 它不是空串，
+        // 只判 isBlank() 会把它当正文写进切片（实测确实进过库）
+        Map<String, Object> data = Map.of("layouts", List.of(
+                block(Map.of("type", "stamp", "text", "[empty]\n")),
+                block(Map.of("type", "text", "text", "   ")),
+                block(Map.of("type", "text", "text", "正文"))
+        ));
+
+        List<LayoutBlock> blocks = DocMindLayoutReader.readBlocks(data);
+
+        assertThat(blocks).extracting(LayoutBlock::text).containsExactly("正文");
     }
 
     @Test
