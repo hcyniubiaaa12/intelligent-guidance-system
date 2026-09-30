@@ -23,7 +23,7 @@
         </span>
         <button class="a-btn a-btn--ghost" @click="loadDepts">刷新</button>
       </div>
-      <el-table v-loading="deptLoading" :data="depts" empty-text="还没有科室">
+      <el-table v-loading="deptLoading" :data="deptRows" empty-text="还没有科室">
         <el-table-column prop="name" label="科室" min-width="140" />
         <el-table-column prop="location" label="位置" min-width="150">
           <template #default="{ row }">{{ row.location || '—' }}</template>
@@ -49,6 +49,16 @@
           </template>
         </el-table-column>
       </el-table>
+      <!-- 科室是**全量拉取**（上传表单与筛选下拉都要用整份列表），所以这里只做前端分页 -->
+      <el-pagination
+        v-model:current-page="deptPage.current"
+        :page-size="deptPage.size"
+        :page-sizes="PAGE_SIZES"
+        :total="depts.length"
+        :layout="PAGE_LAYOUT"
+        background
+        @size-change="onDeptSize"
+      />
     </template>
 
     <!-- ============ 文档入库 ============ -->
@@ -64,7 +74,7 @@
         </el-select>
         <el-input
           v-model="docQuery.keyword"
-          placeholder="文档标题"
+          placeholder="请输入文档标题"
           clearable
           style="width: 200px"
           @keyup.enter="searchDocs"
@@ -128,10 +138,12 @@
       <el-pagination
         v-model:current-page="docPage.current"
         :page-size="docPage.size"
+        :page-sizes="PAGE_SIZES"
         :total="docPage.total"
-        layout="total, prev, pager, next"
+        :layout="PAGE_LAYOUT"
         background
         @current-change="loadDocs"
+        @size-change="onDocSize"
       />
     </template>
 
@@ -140,7 +152,7 @@
       <div class="kb-toolbar">
         <el-input
           v-model="mapQuery.keyword"
-          placeholder="症状关键字"
+          placeholder="请输入症状"
           clearable
           style="width: 220px"
           @keyup.enter="searchMappings"
@@ -182,9 +194,12 @@
         <el-pagination
           v-model:current-page="mapPage.current"
           :page-size="mapPage.size"
+          :page-sizes="PAGE_SIZES"
           :total="mapPage.total"
-          layout="prev, pager, next"
+          :layout="PAGE_LAYOUT_NO_TOTAL"
+          background
           @current-change="loadMappings"
+          @size-change="onMapSize"
         />
       </template>
     </template>
@@ -194,7 +209,7 @@
       <div class="kb-toolbar">
         <el-input
           v-model="termQuery.keyword"
-          placeholder="术语"
+          placeholder="请输入术语"
           clearable
           style="width: 180px"
           @keyup.enter="searchTerms"
@@ -239,10 +254,12 @@
       <el-pagination
         v-model:current-page="termPage.current"
         :page-size="termPage.size"
+        :page-sizes="PAGE_SIZES"
         :total="termPage.total"
-        layout="total, prev, pager, next"
+        :layout="PAGE_LAYOUT"
         background
         @current-change="loadTerms"
+        @size-change="onTermSize"
       />
     </template>
 
@@ -343,9 +360,10 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
+import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
   listKbDepts, updateKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
@@ -378,9 +396,20 @@ function fmtDateTime(s) {
 // —— 科室（四个 tab 都要用：上传表单的选项、科室 tab 的行）——
 const depts = ref([])
 const deptLoading = ref(false)
+const deptPage = reactive({ current: 1, size: 10 })
+// 科室做**前端分页**：这份列表还要供上传表单与筛选下拉使用，只能是全量的，
+// 后端 /kb/depts 因此不分页（科室本来就少）
+const deptRows = computed(() =>
+  depts.value.slice((deptPage.current - 1) * deptPage.size, deptPage.current * deptPage.size)
+)
 const deptEditVisible = ref(false)
 const deptSaving = ref(false)
 const deptForm = reactive({ id: '', name: '', location: '', intro: '', enabled: true })
+
+function onDeptSize(size) {
+  deptPage.size = size
+  deptPage.current = 1
+}
 
 async function loadDepts() {
   deptLoading.value = true
@@ -516,6 +545,11 @@ async function loadDocs() {
 function searchDocs() {
   docPage.current = 1
   loadDocs()
+}
+
+/** 切换每页条数：回到第 1 页再拉一次 */
+function onDocSize(size) {
+  applySizeChange(docPage, size, loadDocs)
 }
 
 function resetDocQuery() {
@@ -703,6 +737,10 @@ function searchMappings() {
   loadMappings()
 }
 
+function onMapSize(size) {
+  applySizeChange(mapPage, size, loadMappings)
+}
+
 function sourceLabel(source) {
   if (source === 'feedback') return '回流审核'
   if (source === 'manual') return '人工'
@@ -736,6 +774,10 @@ async function loadTerms() {
 function searchTerms() {
   termPage.current = 1
   loadTerms()
+}
+
+function onTermSize(size) {
+  applySizeChange(termPage, size, loadTerms)
 }
 
 async function onToggleTerm(row) {

@@ -127,11 +127,14 @@
         </el-table-column>
       </el-table>
       <el-pagination
-        layout="prev, pager, next"
+        :layout="PAGE_LAYOUT_NO_TOTAL"
         :current-page="page.current"
         :page-size="page.size"
+        :page-sizes="PAGE_SIZES"
         :total="page.total"
+        background
         @current-change="loadBuckets"
+        @size-change="onBucketSize"
       />
     </template>
 
@@ -159,11 +162,14 @@
         </el-table-column>
       </el-table>
       <el-pagination
-        layout="prev, pager, next"
+        :layout="PAGE_LAYOUT_NO_TOTAL"
         :current-page="terminalPage.current"
         :page-size="terminalPage.size"
+        :page-sizes="PAGE_SIZES"
         :total="terminalPage.total"
+        background
         @current-change="loadTerminal"
+        @size-change="onTerminalSize"
       />
     </template>
   </section>
@@ -172,6 +178,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   aggregateBuckets, pagePendingBuckets, pageTerminalBuckets, getReviewBucket, listRootCauses, listReviewDepts,
   applyBucketCauses, updateRecordCauses, previewSyntheticChunk,
@@ -247,6 +254,15 @@ async function loadTerminal(pageNo = terminalPage.current) {
   } catch (e) {
     ElMessage.error(errText(e))
   }
+}
+
+/** 切换每页条数：回到第 1 页再拉一次（两个列表各一份） */
+function onBucketSize(size) {
+  applySizeChange(page, size, () => loadBuckets(1))
+}
+
+function onTerminalSize(size) {
+  applySizeChange(terminalPage, size, () => loadTerminal(1))
 }
 
 async function reReview(bucket) {

@@ -115,10 +115,12 @@
       <el-pagination
         v-model:current-page="userPage.current"
         :page-size="userPage.size"
+        :page-sizes="PAGE_SIZES"
         :total="userPage.total"
-        layout="total, prev, pager, next"
+        :layout="PAGE_LAYOUT"
         background
         @current-change="loadUsers"
+        @size-change="onUserSize"
       />
     </template>
 
@@ -184,10 +186,12 @@
       <el-pagination
         v-model:current-page="wordPage.current"
         :page-size="wordPage.size"
+        :page-sizes="PAGE_SIZES"
         :total="wordPage.total"
-        layout="total, prev, pager, next"
+        :layout="PAGE_LAYOUT"
         background
         @current-change="loadWords"
+        @size-change="onWordSize"
       />
     </template>
 
@@ -293,6 +297,7 @@
 import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
+import { PAGE_LAYOUT, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageUsers, banUser, unbanUser, unmuteUser, getUserViolations,
   pageWords, addWord, importWords, toggleWord, convertWordToBanned, deleteWord,
@@ -393,6 +398,11 @@ async function loadUsers(pageNo = userPage.current) {
   }
 }
 
+/** 切换每页条数：回到第 1 页再拉一次（账号与词库各一份） */
+function onUserSize(size) {
+  applySizeChange(userPage, size, () => loadUsers(1))
+}
+
 async function toggleBan(u) {
   const banning = u.status === 'normal'
   try {
@@ -486,6 +496,11 @@ async function loadWords(pageNo = wordPage.current) {
   } finally {
     wordLoading.value = false
   }
+}
+
+/** 切换每页条数：回到第 1 页再拉一次 */
+function onWordSize(size) {
+  applySizeChange(wordPage, size, () => loadWords(1))
 }
 
 async function submitAdd() {

@@ -104,11 +104,14 @@
           </tbody>
         </table>
         <el-pagination
-          layout="prev, pager, next"
+          :layout="PAGE_LAYOUT"
           :current-page="page.current"
           :page-size="page.size"
+          :page-sizes="PAGE_SIZES"
           :total="page.total"
+          background
           @current-change="loadRecords"
+          @size-change="onRecordsSize"
         />
       </template>
     </section>
@@ -119,6 +122,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { PAGE_LAYOUT, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import { getDashboardOverview, pageGuideRecords } from '../../api/admin'
 
 // 区间由顶栏的切换按钮决定，状态就在路由 query（`?days=30`）——刷新与分享链接都不丢
@@ -195,6 +199,11 @@ async function loadRecords(pageNo = page.current) {
   } catch (e) {
     ElMessage.error(errText(e))
   }
+}
+
+/** 切换每页条数：回到第 1 页再拉一次 */
+function onRecordsSize(size) {
+  applySizeChange(page, size, () => loadRecords(1))
 }
 
 // 顶栏切区间只改路由 query，数据重取由这里触发（列表与分页不受区间影响）
