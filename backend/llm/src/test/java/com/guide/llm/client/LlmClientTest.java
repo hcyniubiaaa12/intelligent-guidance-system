@@ -23,6 +23,7 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
  * LLM 适配层客户端测试：用 JDK 内置 HttpServer 起桩，验证请求形态与响应解析，不发真实请求。
@@ -48,7 +49,7 @@ class LlmClientTest {
         properties.getDashscope().setRerankModel("gte-rerank-v2");
         properties.getDashscope().setEmbeddingDimension(4);
         properties.getDashscope().setEmbeddingBatchSize(2);
-        httpJson = new HttpJson(new ObjectMapper());
+        httpJson = new HttpJson(new ObjectMapper(), properties);
     }
 
     @AfterEach
@@ -165,14 +166,75 @@ class LlmClientTest {
         assertThat(capturedRequests).isEmpty();
     }
 
-    // —— 桩服务 ——
+    @Test
+    @DisplayName("流式：长时间无新数据（模型挂住）会被静默超时掐断，抛 LLM_CALL_FAILED")
+    void chatStreamAbortsWhenStalled() {
+        // 桩：先吐一个分片再挂住不关流——这正是 2026-09-29 实测撞上的"无限转圈"场景
+        stallAfterFirstChunk("data: {\"choices\":[{\"delta\":{\"content\":\"建议\"}}]}\n\n", 3_000);
+        properties.getHttp().setStreamIdleTimeoutMs(300);
+        properties.getHttp().setStreamTotalTimeoutMs(10_000);
 
+        long startedAt = System.currentTimeMillis();
+        BizException error = catchThrowableOfType(() -> new DeepSeekChatModel(properties, httpJson)
+                .chatStream(List.of(ChatMsg.user("胸口闷")), delta -> { }), BizException.class);
+        long elapsed = System.currentTimeMillis() - startedAt;
+
+        assertThat(error).isNotNull();
+        assertThat(error.getCode()).isEqualTo(ErrorCode.LLM_CALL_FAILED.getCode());
+        assertThat(error.getMessage()).contains("超时");
+        // 服务端要挂 3s：早于它返回就证明是看门狗主动掐断的，不是等服务端断流
+        assertThat(elapsed).isLessThan(2_500);
+    }
+
+    @Test
+    @DisplayName("非流式：超过读取超时即失败，不无限等待")
+    void postJsonTimesOut() {
+        sleepBeforeResponding(600);
+        properties.getHttp().setReadTimeoutMs(200);
+
+        assertThatThrownBy(() -> new DashScopeRerankModel(properties, httpJson)
+                .rerank("胸口闷", List.of("片段A"), 1))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.LLM_CALL_FAILED.getCode());
+    }
+
+    // —— 桩服务 ——
     private String baseUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
     private void stub(String responseBody) {
         stubBody(body -> responseBody);
+    }
+
+    /** 桩：吐一段数据后**不关流、不再吐字节**，模拟模型挂住 */
+    private void stallAfterFirstChunk(String sseText, long stallMillis) {
+        server.createContext("/", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=utf-8");
+            exchange.sendResponseHeaders(200, 0); // 0 = chunked，先把响应头落下去
+            OutputStream out = exchange.getResponseBody();
+            out.write(sseText.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            try {
+                Thread.sleep(stallMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    /** 桩：响应前先睡一会，用于验证读取超时确实会生效 */
+    private void sleepBeforeResponding(long millis) {
+        stubBody(body -> {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "{\"output\":{\"results\":[]}}";
+        });
     }
 
     /** 按请求体动态生成响应；请求体只读取一次并留档 */

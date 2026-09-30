@@ -107,3 +107,11 @@ llm:
     access-key-secret: ${ALIBABA_CLOUD_ACCESS_KEY_SECRET:}
     region-id: ${DOCMIND_REGION:cn-hangzhou}
     endpoint: ${DOCMIND_ENDPOINT:docmind-api.cn-hangzhou.aliyuncs.com}
+  # HTTP 超时（毫秒）：模型调用必须有超时，否则挂住就是患者端无限转圈。
+  # 流式不设整条流的死线，靠 stream-idle-timeout-ms（两行之间的最长静默）判定"挂住了"，
+  # stream-total-timeout-ms 只做总预算兜底。超时按 LLM_CALL_FAILED(7001) 抛，走链路 A 的 error 事件
+  http:
+    connect-timeout-ms: ${LLM_CONNECT_TIMEOUT_MS:10000}
+    read-timeout-ms: ${LLM_READ_TIMEOUT_MS:60000}
+    stream-idle-timeout-ms: ${LLM_STREAM_IDLE_TIMEOUT_MS:60000}
+    stream-total-timeout-ms: ${LLM_STREAM_TOTAL_TIMEOUT_MS:300000}
