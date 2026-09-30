@@ -30,9 +30,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import org.mockito.ArgumentCaptor;
 
 /**
  * 就诊记录回放单测：按天分组与排序、用户问题编号、结论卡从快照重建、越权防护。
@@ -169,6 +174,70 @@ class RecordServiceTest {
         assertThrows(BizException.class, () -> service.sessionDetail(ME, "s1"));
         when(sessionMapper.selectById("nope")).thenReturn(null);
         assertThrows(BizException.class, () -> service.sessionDetail(ME, "nope"));
+    }
+
+    // ---------------------------------------------------------------- 归档（收纳区）
+
+    @Test
+    @DisplayName("归档分流：归档的会话从 days 挪进 archivedDays，主区计数不含它")
+    void archivedSplitFromMainList() {
+        ChatSession active = session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 1);
+        ChatSession foldedNew = session("s2", ME, at(20, 10, 0), SessionStatus.CLOSED, 1);
+        foldedNew.setArchived(1);
+        ChatSession foldedOld = session("s3", ME, at(18, 8, 0), SessionStatus.CLOSED, 1);
+        foldedOld.setArchived(1);
+        when(sessionMapper.selectList(any())).thenReturn(List.of(active, foldedNew, foldedOld));
+
+        RecordDTO.SessionListVO vo = service.listSessions(ME);
+
+        // 归档区**同样按天分组**（口径=会话开始那天 startedAt），天最新在前
+        assertEquals(List.of("2026-09-20", "2026-09-18"),
+                vo.archivedDays().stream().map(RecordDTO.DayGroup::date).toList());
+        assertEquals(List.of("s2"),
+                vo.archivedDays().get(0).sessions().stream().map(RecordDTO.SessionItem::id).toList());
+        assertTrue(vo.archivedDays().stream().flatMap(d -> d.sessions().stream())
+                .allMatch(RecordDTO.SessionItem::archived));
+        List<String> mainIds = vo.days().stream().flatMap(d -> d.sessions().stream())
+                .map(RecordDTO.SessionItem::id).toList();
+        assertEquals(List.of("s1"), mainIds, "归档的不能还留在主区");
+        assertTrue(vo.days().stream().flatMap(d -> d.sessions().stream())
+                .noneMatch(RecordDTO.SessionItem::archived));
+        assertEquals(1, vo.totalSessions(), "主区计数不含归档条目");
+    }
+
+    @Test
+    @DisplayName("归档自己的会话：写入 archived=1")
+    void archivesOwnSession() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 0));
+
+        service.setArchived(ME, "s1", true);
+
+        ArgumentCaptor<ChatSession> captor = ArgumentCaptor.forClass(ChatSession.class);
+        verify(sessionMapper).updateById(captor.capture());
+        assertEquals(1, captor.getValue().getArchived());
+    }
+
+    @Test
+    @DisplayName("归档幂等：已经是目标状态就不再写一次（不无谓刷新 updated_at）")
+    void archiveIsIdempotent() {
+        ChatSession session = session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 0);
+        session.setArchived(1);
+        when(sessionMapper.selectById("s1")).thenReturn(session);
+
+        service.setArchived(ME, "s1", true);
+        service.setArchived(ME, "s1", false);
+
+        // 第一次是"从 0 到 1"的重复请求、第二次才真正落库——只允许写一次
+        verify(sessionMapper, times(1)).updateById(any());
+    }
+
+    @Test
+    @DisplayName("归档别人的会话：按「不存在」处理（不泄露存在性）")
+    void cannotArchiveOthersSession() {
+        when(sessionMapper.selectById("s9")).thenReturn(session("s9", OTHER, at(20, 9, 0), SessionStatus.CLOSED, 0));
+
+        assertThrows(BizException.class, () -> service.setArchived(ME, "s9", true));
+        verify(sessionMapper, never()).updateById(any());
     }
 
     @Test

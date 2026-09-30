@@ -362,6 +362,13 @@ public class ChatService {
         if (StringUtils.hasText(sessionId)) {
             ChatSession existing = sessionMapper.selectById(sessionId);
             if (existing != null && userId.equals(existing.getUserId()) && existing.continuable()) {
+                if (existing.getArchived() != null && existing.getArchived() == 1) {
+                    // 患者又在归档会话里说话了：它立刻不该待在收纳区，自动取回主区。
+                    // 只点开回放不会触发（那条路走 sessionDetail，不发消息），所以「看一眼」不会把归档打散
+                    existing.setArchived(0);
+                    sessionMapper.updateById(existing);
+                    log.info("归档会话续聊，已自动取回主区：sessionId={}", existing.getId());
+                }
                 return new SessionResolution(existing, false);
             }
         }

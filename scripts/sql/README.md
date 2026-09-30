@@ -24,9 +24,9 @@ mysql -uroot -p < mysql_init.sql
 
 ⚠️ 演练前先把脚本第 8 / 10 行的库名改掉：那里写死了 `CREATE DATABASE IF NOT EXISTS \`guide\`` + `USE \`guide\``，**直接 `mysql 临时库 < mysql_init.sql` 会灌到线上库去**（语句都幂等，不会损坏数据，但"临时库"是空的、结论全错）。
 
-### 已知需要单独 ALTER 的两处
+### 已知需要单独 ALTER 的三处
 
-本机 2026-09-29 已执行；别的环境照抄（都在 `guide` 库上）：
+本机 2026-09-29（前两处）与 2026-09-30（第三处）已执行；别的环境照抄（都在 `guide` 库上）：
 
 ```sql
 -- 审核任务的主科室列改过名：旧库是 result_dept_id
@@ -35,6 +35,10 @@ ALTER TABLE review_task RENAME COLUMN result_dept_id TO main_dept_id;
 -- 台账键 (symptom, main_dept_id) 的唯一键是后加的：旧库只有普通索引 idx_dm_symptom，
 -- 不补的话同键会静默堆出重复行（approve 的 upsert 是"先查后插"，没有唯一键兜不住并发）
 ALTER TABLE dept_mapping DROP INDEX idx_dm_symptom, ADD UNIQUE KEY uk_dm_symptom_main (symptom, main_dept_id);
+
+-- 会话归档（患者端「收纳」）：旧库没有 archived 列
+ALTER TABLE chat_session ADD COLUMN archived TINYINT NOT NULL DEFAULT 0
+    COMMENT '0/1 患者把这条会话收进「已归档」（只是收纳，非删除）' AFTER has_result;
 ```
 
 若某条索引在库里不存在，`DROP INDEX` 会报 `Can't DROP ... check that column/key exists`——把该子句去掉再执行即可。

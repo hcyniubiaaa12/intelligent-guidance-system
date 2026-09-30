@@ -1,14 +1,19 @@
 package com.guide.chat.dto;
 
+import jakarta.validation.constraints.NotNull;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 患者端「就诊记录」出入参（只读回放）。
+ * 患者端「就诊记录」出入参。
  *
  * <p>这一页是对既有事实的回顾，不是新数据：会话列表来自 {@code chat_session}，
  * 对话正文来自 {@code chat_message}，结论卡从 {@code guide_record} 的 rec_top3 / evidence
  * 两份<b>只写快照</b>重建——历史不回改，回放看到的就是当时落库的那份。
+ *
+ * <p>唯一的写操作是**归档**（{@link ArchiveReq}）：患者把自己的会话收进收纳区，
+ * 不是删除——归档后仍可只读回放，也随时可取回。
  *
  * <p>「全部对话」与「挂号历史」共用同一份列表，只是前端过滤口径不同（挂过号的 / 全部），
  * 所以接口不分成两个。
@@ -36,7 +41,9 @@ public class RecordDTO {
             boolean lowConfidence,
             /** 是否挂过号（guide_record.actual_dept_id 非空） */
             boolean booked,
-            String actualDept) {
+            String actualDept,
+            /** 是否被患者收进了「已归档」（收纳区，不是删除：仍可回放、可取回） */
+            boolean archived) {
     }
 
     /** 一天一组（天头 + 天内会话，最新在前） */
@@ -44,10 +51,23 @@ public class RecordDTO {
     }
 
     /**
-     * 会话列表。「全部对话」用 days 全量；「挂号历史」用 days 里 booked=true 的条目
-     * （前端过滤即可——一个人的会话量级很小，不值得为省这点数据多一个接口）。
+     * 会话列表。
+     *
+     * <p>{@code days} 只含**未归档**会话（主区，按天分组）；{@code archivedDays} 是归档区（收纳区），
+     * **同样按天分组**、天最新在前——分组口径与主区一致：按 {@code startedAt}（会话开始那天）算。
+     * **在后端就分开、而不是给条目标记让前端过滤**：主区的天头要显示"这天几次"，
+     * 前端过滤会让每个计数都重算一遍，分开返回口径只有一处。
+     * {@code totalSessions}/{@code totalBooked} 同样是主区口径（与 days 一致），归档区条数自己数。
+     *
+     * <p>「全部对话」与「挂号历史」仍共用这一份，只是前端换过滤口径（挂过号的 / 全部）——
+     * 归档区跟着同一口径过滤。
      */
-    public record SessionListVO(List<DayGroup> days, int totalSessions, int totalBooked) {
+    public record SessionListVO(List<DayGroup> days, List<DayGroup> archivedDays,
+                                int totalSessions, int totalBooked) {
+    }
+
+    /** 归档 / 取回请求：archived=true 收进收纳区，false 取回主区 */
+    public record ArchiveReq(@NotNull(message = "请指定 archived") Boolean archived) {
     }
 
     /** 一条消息（只读回放）；questionNo 仅 role=user 有值，对应书签序号从 1 起 */

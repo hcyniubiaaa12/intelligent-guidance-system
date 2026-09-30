@@ -215,6 +215,22 @@ class ChatServiceTest {
         assertEquals(TEMPLATE, questions().get(0));
     }
 
+    @Test
+    @DisplayName("在归档会话里续聊：自动取回主区（它不该还待在收纳区）")
+    void resumingArchivedSessionUnarchives() {
+        // 只点开回放不会触发（那条路不发消息）；真正的续聊才会把它带回主区
+        ChatSession archived = ongoingSession(0);
+        archived.setArchived(1);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(archived);
+        modelReturns(RAW_INFO);
+
+        chatService.stream("u1", req("P1事故要记录什么", "s1234567890"));
+
+        ArgumentCaptor<ChatSession> captor = ArgumentCaptor.forClass(ChatSession.class);
+        verify(sessionMapper).updateById(captor.capture());
+        assertEquals(0, captor.getValue().getArchived(), "续聊必须把归档标记清掉");
+    }
+
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */
     @SuppressWarnings("unchecked")
     private void modelReturns(String raw) {

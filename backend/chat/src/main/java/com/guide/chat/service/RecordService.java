@@ -67,13 +67,15 @@ public class RecordService {
     private final ChunkTextProvider chunkTextProvider;
     private final ObjectMapper objectMapper;
 
-    /** 我的会话列表（按天分组，天与会话都最新在前） */
+    /** 我的会话列表（主区按天分组 + 归档区平铺，天与会话都最新在前） */
     public RecordDTO.SessionListVO listSessions(String userId) {
+        // 归档的会话**照样查出来**（它们仍在列表数据里，只是归收纳区）——归档不是删除，
+        // 这也是它与 deleted 的分工：deleted 由 @TableLogic 自动过滤掉，archived 由这里手工分流
         List<ChatSession> sessions = sessionMapper.selectList(Wrappers.<ChatSession>lambdaQuery()
                 .eq(ChatSession::getUserId, userId)
                 .orderByDesc(ChatSession::getCreatedAt));
         if (sessions.isEmpty()) {
-            return new RecordDTO.SessionListVO(List.of(), 0, 0);
+            return new RecordDTO.SessionListVO(List.of(), List.of(), 0, 0);
         }
 
         List<String> sessionIds = sessions.stream().map(ChatSession::getId).toList();
@@ -87,9 +89,37 @@ public class RecordService {
                     latestRecord.get(session.getId()), deptCache));
         }
 
-        long booked = items.stream().filter(RecordDTO.SessionItem::booked).count();
-        log.debug("就诊记录：用户 {} 会话 {} 条（已挂号 {} 条）", userId, items.size(), booked);
-        return new RecordDTO.SessionListVO(groupByDay(items), items.size(), (int) booked);
+        // 主区与收纳区分开：主区的天头要显示"这天几次"，混着归档条目每个计数都得重算。
+        // 归档区**同样按天分组**（口径与主区一致：按 startedAt，会话开始那天算）
+        List<RecordDTO.SessionItem> active = items.stream().filter(item -> !item.archived()).toList();
+        List<RecordDTO.SessionItem> archivedItems = items.stream().filter(RecordDTO.SessionItem::archived).toList();
+        long booked = active.stream().filter(RecordDTO.SessionItem::booked).count();
+        log.debug("就诊记录：用户 {} 会话 {} 条（主区 {}、已归档 {}；主区已挂号 {} 条）",
+                userId, items.size(), active.size(), archivedItems.size(), booked);
+        return new RecordDTO.SessionListVO(groupByDay(active), groupByDay(archivedItems),
+                active.size(), (int) booked);
+    }
+
+    /**
+     * 归档 / 取回一条会话——患者对**自己的列表**做整理，不是删除：
+     * 归档后仍可只读回放（详情与回放不看 archived），随时可取回，也不影响任何统计口径。
+     *
+     * <p>归属校验同 {@link #sessionDetail}：不是自己的会话按**不存在**处理——
+     * 返回"无权访问"等于告诉调用方这条会话存在，等于给了个探测器。
+     */
+    public void setArchived(String userId, String sessionId, boolean archived) {
+        ChatSession session = sessionMapper.selectById(sessionId);
+        if (session == null || !userId.equals(session.getUserId())) {
+            throw new BizException(ErrorCode.RECORD_NOT_FOUND);
+        }
+        int target = archived ? 1 : 0;
+        Integer current = session.getArchived();
+        if (current != null && current == target) {
+            return; // 幂等：已经是这个状态就不再写一次 updated_at
+        }
+        session.setArchived(target);
+        sessionMapper.updateById(session);
+        log.info("会话归档状态变更：sessionId={} archived={}", sessionId, target);
     }
 
     /** 一条会话的完整回放（正文 + 用户问题书签 + 结论卡）；不是自己的会话按不存在处理 */
@@ -154,7 +184,8 @@ public class RecordService {
         return new RecordDTO.SessionItem(session.getId(), firstComplaint, startedAt, endedAt,
                 statusCode(session.getStatus()), session.getAskRound() == null ? 0 : session.getAskRound(),
                 session.getHasResult() != null && session.getHasResult() == 1,
-                userMessages.size(), recDept, confidence, lowConfidence, booked, actualDept);
+                userMessages.size(), recDept, confidence, lowConfidence, booked, actualDept,
+                session.getArchived() != null && session.getArchived() == 1);
     }
 
     /** 结论卡：从 rec_top3 与 evidence 两份只写快照重建，语义与 result 事件载荷一致 */

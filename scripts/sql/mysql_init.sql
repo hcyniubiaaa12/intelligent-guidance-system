@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS `chat_session` (
     `status`     VARCHAR(32) NOT NULL DEFAULT 'ongoing' COMMENT '枚举：ongoing/closed；register_success 即置 closed',
     `ask_round`  INT         NOT NULL DEFAULT 0 COMMENT '追问轮次 0–3',
     `has_result` TINYINT     NOT NULL DEFAULT 0 COMMENT '0/1 已出导诊结论（新主诉判定双信号之一）',
+    `archived`   TINYINT     NOT NULL DEFAULT 0 COMMENT '0/1 患者把这条会话收进「已归档」（只是收纳，非删除；不参与列表主区，可随时取回）',
     `deleted`    TINYINT     NOT NULL DEFAULT 0,
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
