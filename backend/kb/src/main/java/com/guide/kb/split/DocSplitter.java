@@ -52,7 +52,10 @@ public class DocSplitter {
     public List<ChunkInput> split(List<LayoutBlock> blocks, SplitParams params, String docTitle) {
         List<ChunkInput> chunks = new ArrayList<>();
         for (Piece piece : structureSplit(blocks)) {
-            if (piece.table()) {
+            // 表格与标题**整块入片、不再切**：两者都是一整个语义单元（一行症状→科室是一条知识；
+            // 一个标题就是一个小节名）。标题再被递归切会把"标题片 = 标题"这个不变量破坏掉，
+            // 超长标题（> 上限）本来就属异常数据，宁可它一片偏长，也不要变成两片都不是标题
+            if (piece.table() || piece.type() == LayoutBlock.BlockType.TITLE) {
                 chunks.add(toChunk(piece.title(), piece.text(), docTitle, piece.type()));
                 continue;
             }
@@ -70,8 +73,15 @@ public class DocSplitter {
      * 切分只需要边界、不需要层级：字号确实推得出层级（实测 H1=15 / H2=14 / 正文=12），
      * 但那是"能不能"不是"要不要"，而猜层级猜错只会把内容切得更碎。
      *
-     * <p>标题块的文字**不进正文**：它进 title，而向量化文本是「标题 + 正文」（见
-     * {@code ChunkIndexService.embeddingText}），信息一点没少，正文里再留一份只是重复。
+     * <p><b>标题自己也是一条切片</b>（2026-09-30 改，用户定案）：外部组件既然认出这是标题，
+     * 这份识别结果就该落进切片里（`chunk_type=title`），而不是只当边界用掉。三个理由：
+     * <ol>
+     *   <li>**可查**：否则"标题有没有被认出来"在库里查不到——每片的 `chunk_type` 都是它正文的来源类型</li>
+     *   <li>**可检索**：标题本身是完整语义单元（"四、响应等级表"这种），患者主诉可能直接命中它</li>
+     *   <li>**不丢字**：标题文字只存在一处（这一片里），不必再靠"没人承接就补一块"的兜底去救</li>
+     * </ol>
+     * `title` 列继续负责**归属**：其后的正文片带着它（`resolveTitle`），但正文里**不再重复**
+     * 这段标题文字——向量化文本本来就是「标题 + 正文」，正文里再留一份只是重复。
      */
     private List<Piece> structureSplit(List<LayoutBlock> blocks) {
         List<Piece> pieces = new ArrayList<>();
@@ -85,7 +95,12 @@ public class DocSplitter {
             switch (block.type()) {
                 case TITLE -> {
                     flush(pieces, currentTitle, buffer, bufferType);
-                    currentTitle = block.text().strip();
+                    String title = block.text().strip();
+                    if (!title.isEmpty()) {
+                        // 标题片：标题即正文（内容与 title 列同值，语义上"这一片就是这个小节标题"）
+                        pieces.add(new Piece(title, title, false, LayoutBlock.BlockType.TITLE));
+                    }
+                    currentTitle = title;
                     bufferType = LayoutBlock.BlockType.UNKNOWN;
                 }
                 case TABLE -> {
@@ -96,7 +111,11 @@ public class DocSplitter {
                         pieces.add(new Piece(currentTitle, markdown, true, LayoutBlock.BlockType.TABLE));
                     }
                 }
-                case TEXT, UNKNOWN -> {
+                // 除标题与表格外**一律进正文**：TEXT / UNKNOWN，以及 figure / image / formula /
+                // code / header / footer 这六类"有专门识别、但不改变切分行为"的类型。
+                // 它们**必须逐一点名**而不是写 default——枚举加了新值而这里没跟上时，
+                // switch 语句不会报错，那块内容会被静默丢掉
+                case TEXT, UNKNOWN, FIGURE, IMAGE, FORMULA, CODE, HEADER, FOOTER -> {
                     if (!block.text().isBlank()) {
                         if (bufferType != block.type()) {
                             bufferType = block.type();

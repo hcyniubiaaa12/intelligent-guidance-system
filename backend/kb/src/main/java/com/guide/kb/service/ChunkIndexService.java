@@ -131,9 +131,18 @@ public class ChunkIndexService {
         chunkMapper.deleteById(chunkId);
     }
 
-    /** 向量化文本：标题 + 正文（标题也在语义里，提升召回质量） */
+    /**
+     * 向量化文本：标题 + 正文（标题也在语义里，提升召回质量）。
+     *
+     * <p>**标题片不重复拼**（2026-09-30）：标题片的 content 就是标题本身，再拼一遍会得到
+     * 「标题。标题」，白占 token 还稀释了语义。
+     */
     private String embeddingText(ChunkInput input) {
         String title = input.title() == null ? "" : input.title();
-        return title.isEmpty() ? input.content() : title + "。" + input.content();
+        String content = input.content() == null ? "" : input.content();
+        if (title.isEmpty() || content.startsWith(title)) {
+            return content;
+        }
+        return title + "。" + content;
     }
 }
