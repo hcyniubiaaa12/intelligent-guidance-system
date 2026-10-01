@@ -85,6 +85,46 @@ class DeptServiceTest {
         verify(deptMapper, never()).updateById(any());
     }
 
+    // ---------------------------------------------------------------- 新增科室
+
+    @Test
+    @DisplayName("新增：名字去空格、空白位置/简介存 NULL、默认启用，插入而不是更新")
+    void createsWithTrimmedFields() {
+        when(deptMapper.selectOne(any())).thenReturn(null);
+
+        service.create("  血液内科 ", "  ", " 贫血、白血病诊治 ", true);
+
+        ArgumentCaptor<Dept> captor = ArgumentCaptor.forClass(Dept.class);
+        verify(deptMapper).insert(captor.capture());
+        Dept saved = captor.getValue();
+        assertThat(saved.getName()).isEqualTo("血液内科");
+        assertThat(saved.getLocation()).isNull();
+        assertThat(saved.getIntro()).isEqualTo("贫血、白血病诊治");
+        assertThat(saved.getEnabled()).isEqualTo(1);
+        verify(deptMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("新增重名：拒绝且不写库——重名会让按名字回填实体变成看运气")
+    void rejectsCreatingDuplicateName() {
+        when(deptMapper.selectOne(any())).thenReturn(dept("d-old", "神经内科", 1));
+
+        assertThatThrownBy(() -> service.create("神经内科", null, null, true))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.DEPT_NAME_EXISTS.getCode());
+        verify(deptMapper, never()).insert(any());
+    }
+
+    @Test
+    @DisplayName("新增名字为空：拒绝")
+    void rejectsCreatingBlankName() {
+        assertThatThrownBy(() -> service.create("   ", null, null, true))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("科室名不能为空");
+        verify(deptMapper, never()).insert(any());
+    }
+
     private Dept dept(String id, String name, int enabled) {
         Dept dept = new Dept();
         dept.setId(id);

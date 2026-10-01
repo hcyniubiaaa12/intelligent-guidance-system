@@ -91,7 +91,7 @@ public final class KbAdminDTO {
         private Long chunkCount;
     }
 
-    /** 科室蓝本编辑：改名 / 位置 / 简介 / 启停。name 必填且全库唯一（模型按名字回填科室） */
+    /** 科室蓝本**新增/编辑共用**：改名 / 位置 / 简介 / 启停。name 必填且全库唯一（模型按名字回填科室） */
     @Getter
     @Setter
     public static class DeptUpdateReq {

@@ -178,6 +178,12 @@ public class KbAdminService {
                 !Boolean.FALSE.equals(req.getEnabled()));
     }
 
+    /** 新增科室蓝本（此前只有编辑）：规则同编辑归 kb，缺省启用 */
+    public void createDept(KbAdminDTO.DeptUpdateReq req) {
+        deptService.create(req.getName(), req.getLocation(), req.getIntro(),
+                !Boolean.FALSE.equals(req.getEnabled()));
+    }
+
     /** 映射台账分页（只读展示：科室 id 换成名字） */
     public KbAdminDTO.PageVO<KbAdminDTO.MappingVO> mappings(String keyword, long pageNum, long pageSize) {
         IPage<DeptMapping> page = deptMappingService.page(keyword, Math.max(1, pageNum), clamp(pageSize));

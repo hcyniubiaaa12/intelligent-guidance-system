@@ -6,6 +6,7 @@ import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.mapper.DeptMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.List;
  * 科室蓝本服务（链路 B）。
  * 停用仅入口生效：挂号页只列 enabled=1；推荐校验按 enabled 过滤（见链路 A 对齐点）。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeptService {
@@ -47,6 +49,32 @@ public class DeptService {
         return deptMapper.selectOne(Wrappers.<Dept>lambdaQuery()
                 .eq(Dept::getName, name.trim())
                 .last("LIMIT 1"));
+    }
+
+    /**
+     * 新增科室蓝本（管理端「增加科室」）：与 {@link #update} 同一条铁律——**科室名全库唯一**
+     * （模型输出的是科室名字符串，写库与推荐校验都靠 {@link #findByName} 按名字回填实体）。
+     *
+     * <p>新建即启用/停用由管理员当场选，其余**零连带**：挂号页与候选科室清单读
+     * {@link #listEnabled()} 自带新科室；「回流补充 · XX科」容器在首次回流时懒创建，
+     * 不需要为空科室预建任何东西。
+     */
+    public Dept create(String name, String location, String intro, boolean enabled) {
+        String trimmed = name == null ? "" : name.strip();
+        if (trimmed.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "科室名不能为空");
+        }
+        if (findByName(trimmed) != null) {
+            throw new BizException(ErrorCode.DEPT_NAME_EXISTS.getCode(), "科室名「" + trimmed + "」已被占用");
+        }
+        Dept dept = new Dept();
+        dept.setName(trimmed);
+        dept.setLocation(blankToNull(location));
+        dept.setIntro(blankToNull(intro));
+        dept.setEnabled(enabled ? 1 : 0);
+        deptMapper.insert(dept);
+        log.info("新增科室：{}（{}）｜id={}", trimmed, enabled ? "启用" : "停用", dept.getId());
+        return dept;
     }
 
     /**

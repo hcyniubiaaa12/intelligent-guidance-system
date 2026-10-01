@@ -88,6 +88,13 @@ public class KbAdminController {
     }
 
     /** 编辑科室蓝本：改名 / 位置 / 简介 / 启停（科室名全库唯一，模型按名字回填科室实体） */
+    /** 新增科室蓝本（此前只有编辑）：新建即出现在挂号页与模型候选清单，启停随时可改 */
+    @PostMapping("/depts")
+    public Result<Void> createDept(@Valid @RequestBody KbAdminDTO.DeptUpdateReq request) {
+        kbAdminService.createDept(request);
+        return Result.ok();
+    }
+
     @PutMapping("/depts/{deptId}")
     public Result<Void> updateDept(@PathVariable String deptId,
                                    @Valid @RequestBody KbAdminDTO.DeptUpdateReq request) {
