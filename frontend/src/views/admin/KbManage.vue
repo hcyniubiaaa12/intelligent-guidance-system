@@ -22,6 +22,7 @@
           停用只在导诊入口生效：挂号页不列、推荐校验过滤；切片与历史记录原样保留
         </span>
         <button class="a-btn a-btn--ghost" @click="loadDepts">刷新</button>
+        <button class="a-btn" @click="openDeptCreate">新 增 科 室</button>
       </div>
       <el-table v-loading="deptLoading" :data="deptRows" empty-text="还没有科室">
         <el-table-column prop="name" label="科室" min-width="140" />
@@ -286,13 +287,27 @@
             drag
             :auto-upload="false"
             :limit="1"
+            :show-file-list="false"
             :accept="ACCEPT"
             :on-change="onFileChange"
-            :on-remove="onFileRemove"
             :on-exceed="onFileExceed"
           >
-            <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-            <div class="el-upload__text">把文件拖到这里，或<em>点击选择</em></div>
+            <!-- 选中后文件卡片**画在拖拽框里**（不是下面另起一列）：
+                 文件名超长省略号截断（全名看 title），点 ✕ 移除重选；
+                 拖拽框本身仍可点击/拖入——limit=1 时走 onFileExceed 替换逻辑 -->
+            <template v-if="uploadFile">
+              <div class="a-upload__file" :title="uploadFile.name">
+                <el-icon class="a-upload__file-icon"><document /></el-icon>
+                <span class="a-upload__file-name">{{ uploadFile.name }}</span>
+                <span class="a-upload__file-size">{{ uploadFileSize }}</span>
+                <el-icon class="a-upload__file-remove" title="移除，重新选择" @click.stop="removeUploadFile"><close /></el-icon>
+              </div>
+              <div class="a-upload__swap">再点这里或拖入新文件即可替换</div>
+            </template>
+            <template v-else>
+              <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+              <div class="el-upload__text">把文件拖到这里，或<em>点击选择</em></div>
+            </template>
             <template #tip>
               <div class="el-upload__tip">
                 支持 pdf / docx / png（走 DocumentMind 解析，按量计费）、txt / md / html（本地读），
@@ -316,13 +331,34 @@
     </el-dialog>
 
     <!-- 科室编辑弹窗 -->
-    <el-dialog v-model="deptEditVisible" title="编辑科室" width="460px">
+    <el-dialog v-model="deptEditVisible" :title="deptForm.id ? '编辑科室' : '新增科室'" width="460px">
       <el-form label-width="80px">
         <el-form-item label="科室名">
-          <el-input v-model="deptForm.name" placeholder="如：心血管内科" />
+          <!-- 下拉给常见科室，但**允许手输**（allow-create）：硬编码列表是快捷方式不是白名单，
+               做成死列表将来加一个名单外的科室就得改前端 -->
+          <el-select
+            v-model="deptForm.name"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="选择常见科室，或直接输入"
+            style="width: 100%"
+          >
+            <el-option v-for="n in COMMON_DEPTS" :key="n" :label="n" :value="n" />
+          </el-select>
         </el-form-item>
         <el-form-item label="位置">
-          <el-input v-model="deptForm.location" placeholder="如：门诊楼 3F 东区" />
+          <el-select
+            v-model="deptForm.location"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="选择常见位置，或直接输入（选填）"
+            style="width: 100%"
+          >
+            <el-option v-for="n in COMMON_LOCATIONS" :key="n" :label="n" :value="n" />
+          </el-select>
         </el-form-item>
         <el-form-item label="简介">
           <el-input v-model="deptForm.intro" type="textarea" :rows="3" placeholder="选填" />
@@ -362,11 +398,11 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { Close, Document, UploadFilled } from '@element-plus/icons-vue'
 import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
-  listKbDepts, updateKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
+  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
 } from '../../api/admin'
 
 const tabs = [
@@ -406,6 +442,19 @@ const deptEditVisible = ref(false)
 const deptSaving = ref(false)
 const deptForm = reactive({ id: '', name: '', location: '', intro: '', enabled: true })
 
+// 新增/编辑科室的快捷选项：前端硬编码的常见值，配合 allow-create 仍可手输名单外的
+const COMMON_DEPTS = [
+  '心血管内科', '呼吸内科', '消化内科', '神经内科', '内分泌科', '肾内科',
+  '普外科', '骨科', '泌尿外科', '皮肤科', '眼科', '耳鼻喉科',
+  '口腔科', '妇科', '产科', '儿科', '急诊科', '肿瘤科',
+  '感染科', '精神心理科', '康复医学科', '中医科'
+]
+const COMMON_LOCATIONS = [
+  '门诊楼 1F 东区', '门诊楼 1F 西区', '门诊楼 2F 东区', '门诊楼 2F 西区',
+  '门诊楼 3F 东区', '门诊楼 3F 西区', '门诊楼 4F 东区', '门诊楼 4F 西区',
+  '急诊楼 1F', '医技楼 1F'
+]
+
 function onDeptSize(size) {
   deptPage.size = size
   deptPage.current = 1
@@ -433,17 +482,34 @@ function openDeptEdit(row) {
   deptEditVisible.value = true
 }
 
+/** 新增：空表单、默认启用；id 为空时 submitDept 走 create 分支 */
+function openDeptCreate() {
+  Object.assign(deptForm, { id: '', name: '', location: '', intro: '', enabled: true })
+  deptEditVisible.value = true
+}
+
 async function submitDept() {
   deptSaving.value = true
   try {
-    await updateKbDept(deptForm.id, {
+    const payload = {
       name: deptForm.name,
       location: deptForm.location,
       intro: deptForm.intro,
       enabled: deptForm.enabled
-    })
-    deptEditVisible.value = false
-    ElMessage.success('科室已保存')
+    }
+    if (deptForm.id) {
+      await updateKbDept(deptForm.id, payload)
+      deptEditVisible.value = false
+      ElMessage.success('科室已保存')
+    } else {
+      await createKbDept(payload)
+      deptEditVisible.value = false
+      ElMessage.success(`科室「${deptForm.name}」已创建，挂号页与候选科室清单立即生效`)
+      await loadDepts()
+      // listAll 按 created_at 升序，新科室排在**最后一页**：翻过去让它露脸，否则像没创建上
+      deptPage.current = Math.max(1, Math.ceil(depts.value.length / deptPage.size))
+      return
+    }
     await loadDepts()
   } catch (e) {
     ElMessage.error(errText(e))
@@ -616,8 +682,18 @@ function onFileChange(file) {
   }
 }
 
-function onFileRemove() {
+/** 选中文件的大小（画在拖拽框内的文件卡片上）；小于 1MB 用 KB，别显示成"0.0 MB" */
+const uploadFileSize = computed(() => {
+  const file = uploadFile.value
+  if (!file) return ''
+  const mb = file.size / 1024 / 1024
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`
+})
+
+/** 自己维护的移除（show-file-list 关了，el-upload 的 onRemove 不会再触发） */
+function removeUploadFile() {
   uploadFile.value = null
+  uploadRef.value?.clearFiles()
 }
 
 /** limit=1 时再选一个文件会被拦下，改成**替换**：选错文件后第一反应是重选，不是先删 */
@@ -810,6 +886,45 @@ onUnmounted(() => {
 .kb-fail {
   color: var(--err);
 }
+/* 选中文件画进拖拽框：长文件名省略号截断（全名 title），✕ 移除重选 */
+/* EP 的 .el-upload 是 inline-flex 收缩布局、无宽度约束——不钉死它，拖拽框和提示
+   会按内容撑到比弹窗还宽（真踩过：长文件名把卡片顶出边框、大小被挤出屏幕） */
+.a-upload { display: block; width: 100%; }
+.a-upload :deep(.el-upload) {
+  display: block;
+  width: 100%;
+}
+.a-upload :deep(.el-upload-dragger) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 28px 16px;
+}
+.a-upload__file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+}
+.a-upload__file-icon { flex: none; color: var(--el-color-primary); }
+.a-upload__file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.a-upload__file-size { flex: none; font-size: 11px; color: var(--el-text-color-secondary); }
+.a-upload__file-remove {
+  flex: none;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+}
+.a-upload__file-remove:hover { color: var(--el-color-danger); }
+.a-upload__swap { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 8px; }
 .kb-chunks {
   display: flex;
   flex-direction: column;

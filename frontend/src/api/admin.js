@@ -126,6 +126,11 @@ export function updateKbDept(deptId, data) {
   return http.put(`/admin/kb/depts/${deptId}`, data)
 }
 
+// 新增科室：name 必填且全库唯一（模型按名字回填科室）；新建即出现在挂号页与候选清单
+export function createKbDept(data) {
+  return http.post('/admin/kb/depts', data)
+}
+
 // 映射台账（只读：台账是审核事实的留痕）
 export function pageKbMappings(params) {
   return http.get('/admin/kb/mappings', { params })
