@@ -70,7 +70,32 @@ public final class KbAdminDTO {
         private String id;
         private String title;
         private String content;
+        /**
+         * 版面类型（枚举编码值：{@code title} / {@code text} / {@code table} / {@code figure} /
+         * {@code image} / {@code formula} / {@code code} / {@code header} / {@code footer} /
+         * {@code unknown}）。
+         *
+         * <p>**不是新采集的数据**：{@code kb_chunk.chunk_type} 一直有，只是此前没往这个 VO 上传，
+         * 于是抽屉里"哪片是标题、哪片是表格"只能靠 {@code title == content} 猜——而标题片的正文
+         * 与 title 列**就是同一个字符串**，两行长得一模一样，看起来像重复入库。
+         */
+        private String chunkType;
+
         private Integer seq;
+
+        /**
+         * 「这是本标题下第几块」——**派生数据，不落库**（2026-10-01 定案）。
+         *
+         * <p>{@code seq} 已给出文档内位置、{@code chunk_type} 已标出标题边界，一趟扫就能算出来，
+         * 不值得为它加列、再同步 pgvector、再回填全部存量文档。
+         *
+         * <p>只有 {@code text} 片有值；标题片（它是节名本身）与表格片（它是整块语义单元）不占号，
+         * 一律 null —— 前端见 null 就不显示。
+         */
+        private Integer noInSection;
+
+        /** 所在节里 text 片的**总数**，与 {@link #noInSection} 配成「第 k 块 / 共 N 块」 */
+        private Integer sectionTotal;
     }
 
     /**

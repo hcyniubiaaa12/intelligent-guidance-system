@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.async.service.IngestPipeline;
 import com.guide.async.service.IngestTaskService;
+import com.guide.common.model.LayoutBlock;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.entity.DeptMapping;
+import com.guide.kb.entity.KbChunk;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.MappingSource;
 import com.guide.kb.enums.TermSource;
@@ -121,6 +123,51 @@ class KbAdminServiceTest {
         assertThat(vo.getEnabled()).isEqualTo(1);
         assertThat(vo.getType()).isEqualTo("symptom");
         assertThat(vo.getSource()).isEqualTo("manual");
+    }
+
+    @Test
+    @DisplayName("查看切片：标「本标题下第几块」——遇新标题重置、只数 text 片、表格与标题不占号")
+    void chunksNumberWithinSection() {
+        when(kbDocService.listChunks("doc1")).thenReturn(List.of(
+                chunk("c1", 1, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),     // 开头无标题片，自成一段
+                chunk("c2", 2, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),
+                chunk("c3", 3, LayoutBlock.BlockType.TITLE, "注意事项"),        // 标题一
+                chunk("c4", 4, LayoutBlock.BlockType.TEXT, "注意事项"),
+                chunk("c5", 5, LayoutBlock.BlockType.TABLE, "注意事项"),        // 表格不占号，也不打断计数
+                chunk("c6", 6, LayoutBlock.BlockType.TEXT, "注意事项"),
+                chunk("c7", 7, LayoutBlock.BlockType.TITLE, "注意事项"),        // 同名标题——仍是新的一节
+                chunk("c8", 8, LayoutBlock.BlockType.TEXT, "注意事项")));
+
+        List<KbAdminDTO.ChunkVO> vos = service.chunks("doc1");
+
+        assertThat(vos).hasSize(8);
+        assertThat(vos.get(0).getNoInSection()).isEqualTo(1);
+        assertThat(vos.get(0).getSectionTotal()).isEqualTo(2);
+        // 标题片是节名本身、表格片是整块语义单元——都不占号，前端见 null 就不显示
+        assertThat(vos.get(2).getNoInSection()).isNull();
+        assertThat(vos.get(4).getNoInSection()).isNull();
+        assertThat(vos.get(4).getSectionTotal()).isNull();
+        // 表格被跳过，正文接上第 2 块；这一节共 2 块 text
+        assertThat(vos.get(5).getNoInSection()).isEqualTo(2);
+        assertThat(vos.get(5).getSectionTotal()).isEqualTo(2);
+        // 重置点：c7 与 c3 的标题**文字相同**，但它们是两个结构上独立的节。
+        // 若有人改成"按 title 文字分组"，这里会算成 3 —— 这正是本用例要钉住的口径
+        assertThat(vos.get(7).getNoInSection()).isEqualTo(1);
+        assertThat(vos.get(7).getSectionTotal()).isEqualTo(1);
+        // 类型原样透出（枚举编码值）：标题片的 content 与 title 是同一个字符串，没有这个字段
+        // 管理端只能靠"两行长得一样"去猜，看起来像重复入库
+        assertThat(vos.get(0).getChunkType()).isEqualTo("text");
+        assertThat(vos.get(2).getChunkType()).isEqualTo("title");
+        assertThat(vos.get(4).getChunkType()).isEqualTo("table");
+    }
+
+    private KbChunk chunk(String id, int seq, LayoutBlock.BlockType type, String title) {
+        KbChunk chunk = new KbChunk();
+        chunk.setId(id);
+        chunk.setSeq(seq);
+        chunk.setChunkType(type);
+        chunk.setTitle(title);
+        return chunk;
     }
 
     private Dept dept(String id, String name, int enabled) {

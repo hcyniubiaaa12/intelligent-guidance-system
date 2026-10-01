@@ -385,10 +385,20 @@
         <div v-for="c in chunks" :key="c.id" class="kb-chunk">
           <div class="kb-chunk__head">
             <span class="kb-chunk__seq">#{{ c.seq }}</span>
-            <span class="kb-chunk__title">{{ c.title }}</span>
-            <span class="a-panel__hint">{{ (c.content || '').length }} 字</span>
+            <span class="a-tag" :class="chunkTagClass(c.chunkType)">
+              {{ chunkTypeText(c.chunkType) }}
+            </span>
+            <span class="kb-chunk__title">{{ c.title || '（无标题）' }}</span>
+            <!-- 本标题下第几块：只在正文片上有值（标题片是节名本身、表格片是整块语义单元，都不占号） -->
+            <span v-if="c.noInSection" class="kb-chunk__no">
+              第 {{ c.noInSection }} 块 / 共 {{ c.sectionTotal }} 块
+            </span>
+            <span v-if="!isTitleChunk(c)" class="a-panel__hint">
+              {{ (c.content || '').length }} 字
+            </span>
           </div>
-          <pre class="kb-chunk__body">{{ c.content }}</pre>
+          <!-- 标题片的正文与 title 列**是同一个字符串**，再渲染一遍 body 就是两行一模一样 -->
+          <pre v-if="!isTitleChunk(c)" class="kb-chunk__body">{{ c.content }}</pre>
         </div>
       </div>
     </el-drawer>
@@ -771,6 +781,38 @@ const chunksLoading = ref(false)
 const chunks = ref([])
 const chunksTitle = ref('切片')
 
+/** 片类型展示文案：后端给的是枚举编码值（小写），文案只在这里映射一次 */
+const CHUNK_TYPE_TEXT = {
+  title: '标题',
+  text: '正文',
+  table: '表格',
+  figure: '图表',
+  image: '图片',
+  formula: '公式',
+  code: '代码',
+  header: '页眉',
+  footer: '页脚',
+  unknown: '未识别'
+}
+// 页眉 / 页脚 / 未识别是**正常不该出现**的类型（needHeaderFooter=false；unknown = 类型表没映射上）：
+// 用醒目的珊瑚色 tag，看到即是信号——这比"靠肉眼看内容像不像页眉"可靠得多
+const ANOMALY_TYPES = new Set(['header', 'footer', 'unknown'])
+
+function chunkTypeText(type) {
+  return CHUNK_TYPE_TEXT[type] || CHUNK_TYPE_TEXT.unknown
+}
+
+function chunkTagClass(type) {
+  if (!type || type === 'title') return '' // 标题：默认蓝底
+  if (type === 'table') return 'a-tag--ok'
+  if (ANOMALY_TYPES.has(type)) return 'a-tag--warn'
+  return 'a-tag--plain' // 正文 / 图片 / 公式 / 代码：安静的灰底
+}
+
+function isTitleChunk(c) {
+  return (c.chunkType || '') === 'title'
+}
+
 async function openChunks(row) {
   chunksTitle.value = `${row.title} · 切片`
   chunks.value = []
@@ -925,6 +967,8 @@ onUnmounted(() => {
 }
 .a-upload__file-remove:hover { color: var(--el-color-danger); }
 .a-upload__swap { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 8px; }
+/* 切片卡片：**沿用原有样式**（2026-10-01 曾擅自改成"大纲+左竖条"被否——
+   用户只要换块内的文字展示，不是换整套布局）。以下只保留块内新增的两处：类型 tag 与块号 */
 .kb-chunks {
   display: flex;
   flex-direction: column;
@@ -950,6 +994,10 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--ink);
   font-weight: 700;
+}
+.kb-chunk__no {
+  font-size: 11px;
+  color: var(--ink-2);
 }
 .kb-chunk__body {
   margin: 0;

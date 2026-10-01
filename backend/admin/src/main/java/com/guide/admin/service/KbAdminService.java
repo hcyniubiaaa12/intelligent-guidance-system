@@ -9,6 +9,7 @@ import com.guide.async.service.IngestPipeline;
 import com.guide.async.service.IngestTaskService;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
+import com.guide.common.model.LayoutBlock;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.entity.DeptMapping;
 import com.guide.kb.entity.KbChunk;
@@ -138,16 +139,51 @@ public class KbAdminService {
         return toTaskVO(ingestTaskService.require(taskId));
     }
 
-    /** 查看切片：切片正文的事实源在 MySQL，pgvector 里那份只是排查用的副本 */
+    /**
+     * 查看切片：切片正文的事实源在 MySQL，pgvector 里那份只是排查用的副本。
+     *
+     * <p>顺带算出「本标题下第几块」（{@code noInSection}）——**派生数据，不落库**（2026-10-01 定案）：
+     * {@code seq} 已经给出文档内位置、{@code chunk_type} 已经标出标题边界，一趟扫就有的东西，
+     * 不值得为它加一列、再往 pgvector 同步一份、再回填全部存量文档。
+     *
+     * <p>两条计数口径都是定过的：**遇到新的标题片就重新计数**（节是**位置**不是**文字**——
+     * 两处都叫「注意事项」的标题是两个节，按 title 文字分组会把它们并成一个计数器）；
+     * **只统计 text 片**（标题片就是节名本身、表格片是整块语义单元，都不占号）。
+     * 文档开头那批没有前置标题片的正文自成一段，同样从 1 起。
+     */
     public List<KbAdminDTO.ChunkVO> chunks(String docId) {
         kbDocService.require(docId);
-        List<KbAdminDTO.ChunkVO> result = new ArrayList<>();
-        for (KbChunk chunk : kbDocService.listChunks(docId)) {
+        List<KbChunk> chunks = kbDocService.listChunks(docId);
+
+        // 一节 = 一个标题片 + 它之后的块，到下一个标题片为止
+        Map<String, Integer> noInSection = new HashMap<>();
+        Map<String, Integer> sectionTotal = new HashMap<>();
+        int start = 0;
+        while (start < chunks.size()) {
+            int end = start + 1;
+            while (end < chunks.size() && chunks.get(end).getChunkType() != LayoutBlock.BlockType.TITLE) {
+                end++;
+            }
+            List<KbChunk> texts = chunks.subList(start, end).stream()
+                    .filter(chunk -> chunk.getChunkType() == LayoutBlock.BlockType.TEXT)
+                    .toList();
+            for (int i = 0; i < texts.size(); i++) {
+                noInSection.put(texts.get(i).getId(), i + 1);
+                sectionTotal.put(texts.get(i).getId(), texts.size());
+            }
+            start = end;
+        }
+
+        List<KbAdminDTO.ChunkVO> result = new ArrayList<>(chunks.size());
+        for (KbChunk chunk : chunks) {
             KbAdminDTO.ChunkVO vo = new KbAdminDTO.ChunkVO();
             vo.setId(chunk.getId());
             vo.setTitle(chunk.getTitle());
             vo.setContent(chunk.getContent());
             vo.setSeq(chunk.getSeq());
+            vo.setChunkType(chunk.getChunkType() == null ? null : chunk.getChunkType().getCode());
+            vo.setNoInSection(noInSection.get(chunk.getId()));
+            vo.setSectionTotal(sectionTotal.get(chunk.getId()));
             result.add(vo);
         }
         return result;
