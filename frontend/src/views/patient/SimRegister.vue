@@ -41,13 +41,15 @@
           <button v-else class="p-error__retry" @click="backToChat">返回对话页</button>
         </div>
 
-        <div class="p-eyebrow" style="margin-bottom: 10px">科 室 列 表 · 全 部 启 用</div>
+        <div class="p-eyebrow" style="margin-bottom: 10px">
+          {{ orderedDepts.length ? sectionEyebrow : '科 室 列 表 · 全 部 启 用' }}
+        </div>
 
         <p v-if="loading" class="p-empty">正在加载科室…</p>
         <p v-else-if="!depts.length" class="p-empty">暂无可挂号科室，请稍后重试</p>
         <div v-else class="p-deptlist">
           <button
-            v-for="d in depts"
+            v-for="d in orderedDepts"
             :key="d.id"
             class="p-dept"
             :class="{ 'p-dept--rec': d.id === recDeptId, 'p-dept--on': d.id === selected?.id }"
@@ -58,6 +60,7 @@
               <span class="p-cite p-dept__loc">{{ d.location }}</span>
             </span>
             <span v-if="d.id === recDeptId" class="p-dept__hint">推 荐</span>
+            <span v-else-if="recRank(d.id)" class="p-dept__hint p-dept__hint--alt">备选 {{ recRank(d.id) }}</span>
           </button>
         </div>
 
@@ -88,7 +91,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listDepts, confirmRegister } from '../../api/chat'
 import { track } from '../../utils/track'
@@ -109,6 +112,37 @@ const submitting = ref(false)
 const booked = ref(null)
 const done = ref(false)
 const error = ref(null) // { message, action: 'reload' | '' }
+
+// Top3 推荐科室的 id（按推荐次序，逗号分隔，对话页结论卡带过来）。
+// 只有 top1 的 id 是权威 rec_dept；整串用于**排序**——推荐科室要排在列表最前，
+// 其余科室仍按后端给的原序（创建时间序）跟在其后
+const recOrder = computed(() => {
+  const raw = route.query.rec
+  return (typeof raw === 'string' ? raw.split(',') : [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+})
+
+/** 某科室是 Top3 的第几位（0 = 不在 Top3 里，即非推荐科室；1 = top1 走「推 荐」不显示数字） */
+function recRank(deptId) {
+  const i = recOrder.value.indexOf(deptId)
+  return i > 0 ? i + 1 : 0
+}
+
+/** 推荐科室按推荐次序提到最前，其余保持后端原序 */
+const orderedDepts = computed(() => {
+  const rank = (d) => {
+    const i = recOrder.value.indexOf(d.id)
+    return i === -1 ? recOrder.value.length : i
+  }
+  // 稳定排序：同 rank（都是非推荐科室）保持后端返回的先后
+  return depts.value.map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map((x) => x.d)
+})
+
+// 列表顶部小标题：有推荐科室时说明「推荐在前、其余在后」，否则沿用原来的「全部启用」
+const sectionEyebrow = computed(() =>
+  recOrder.value.length ? '系 统 推 荐 在 前 · 其 余 科 室 在 下' : '科 室 列 表 · 全 部 启 用'
+)
 
 // sim_register 触点：同一次访问里每个科室只上报一次，反复切换不刷量
 const trackedDeptIds = new Set()

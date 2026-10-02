@@ -252,11 +252,12 @@
                   <!-- 置信度条列表 Top3 -->
                   <div class="p-bars">
                     <div
-                      v-for="(c, k) in m.card.top3"
-                      :key="c.name"
+                      v-for="(c, k) in rankedTop3(m.card)"
+                      :key="c.deptId || c.name"
                       class="p-bar"
                       :class="{ 'p-bar--top': k === 0 }"
                     >
+                      <span class="p-bar__rank">{{ k + 1 }}</span>
                       <span class="p-bar__name">{{ c.name }}</span>
                       <span class="p-bar__track"><span class="p-bar__fill" :style="{ width: (c.pct ?? 0) + '%' }" /></span>
                       <span class="p-bar__pct">{{ c.pct == null ? '—' : c.pct + '%' }}</span>
@@ -493,7 +494,7 @@ async function copyText(key, text) {
 function cardText(card) {
   const lines = [`分诊结论：${card.dept}（参考置信度 ${confText(card.confidence)}）`]
   if (card.top3?.length) {
-    lines.push('候选科室：' + card.top3.map((c) => `${c.name}${c.pct == null ? '' : ' ' + c.pct + '%'}`).join('，'))
+    lines.push('候选科室：' + rankedTop3(card).map((c, k) => `${k + 1}. ${c.name}${c.pct == null ? '' : ' ' + c.pct + '%'}`).join('，'))
   }
   if (card.note) lines.push(card.note)
   if (card.cites?.length) {
@@ -731,6 +732,25 @@ function isLow(card) {
   return card.lowConfidence === true || typeof card.confidence !== 'number'
 }
 
+/**
+ * Top3 展示顺序：**结论主体（card.dept）钉在第 1 位，其余按 pct 降序、null 垫底**。
+ *
+ * 后端 rag 层已归一化过顺序（首位 = 顶层 dept），这里是同一口径的防御性渲染：
+ * ① 2026-10-02 之前落库的 rec_top3 快照里顺序是乱的，回放时那批记录仍要显示正确；
+ * ② 万一后端顺序又出问题，第一位也不能是备选科室——它得跟卡片顶部的大科室名一致。
+ * 纯展示层重排，不改任何数据。
+ */
+function rankedTop3(card) {
+  const list = Array.isArray(card.top3) ? [...card.top3] : []
+  const rank = (c) => (typeof c.pct === 'number' && Number.isFinite(c.pct) ? c.pct : -1)
+  // 稳定排序：pct 相同时保持后端给的先后（Array.prototype.sort 在现代引擎上稳定）
+  list.sort((a, b) => rank(b) - rank(a))
+  const top = list.findIndex((c) => c.name === card.dept)
+  // 找到就钉到首位；找不到（老快照里科室名对不上）就保持降序——此时 pct 最高的那条就是 top1
+  if (top > 0) list.unshift(...list.splice(top, 1))
+  return list
+}
+
 let scrollScheduled = false
 function scrollToBottom() {
   if (scrollScheduled) return
@@ -870,9 +890,16 @@ function retry(entry) {
 }
 
 function goRegister(cardEntry) {
+  // 把 Top3 的科室 id 按推荐次序一并带过去（逗号分隔）：挂号页据此把推荐科室提到列表最前，
+  // 否则整份列表只能按创建时间序排，推荐科室夹在中间（患者要自己找哪条是「推 荐」）
+  const rec = rankedTop3(cardEntry.card).map((c) => c.deptId).filter(Boolean)
   router.push({
     path: '/register',
-    query: { recordId: cardEntry.recordId, deptId: cardEntry.card.deptId }
+    query: {
+      recordId: cardEntry.recordId,
+      deptId: cardEntry.card.deptId,
+      ...(rec.length ? { rec: rec.join(',') } : {})
+    }
   })
 }
 

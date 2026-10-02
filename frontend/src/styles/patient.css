@@ -219,6 +219,21 @@
   align-items: center;
   gap: 8px;
 }
+/* 名次：细无衬线数字，备选行用 ink-2 弱化；Top1 用 teal（2026-10-02 加，
+   此前 Top1 只靠「实心条 + 科室名加粗」区分，顺序一旦乱了患者看不出哪条是首选） */
+.p-bar__rank {
+  flex: none;
+  width: 10px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  line-height: 1;
+  text-align: right;
+  color: var(--ink-2);
+}
+.p-bar--top .p-bar__rank {
+  color: var(--teal);
+  font-weight: 600;
+}
 .p-bar__name {
   width: 92px; /* 科室名列宽 92px */
   flex: none;
@@ -430,6 +445,8 @@
   color: var(--teal);
 }
 .p-dept--on .p-dept__hint { color: #fff; }
+/* 备选（Top2/Top3）：比「推 荐」弱一档，排在推荐科室之后 */
+.p-dept__hint--alt { color: var(--ink-2); }
 
 /* ---------- 空状态 ---------- */
 .p-empty {
