@@ -35,8 +35,16 @@ public class ChatDTO {
     public record DeptVO(String id, String name, String location, String intro) {
     }
 
-    /** 推荐卡 Top3 置信度条；pct 为 null 表示模型未给出合法置信度（前端显示「—」） */
-    public record Top3Item(String name, Integer pct) {
+    /**
+     * 推荐卡 Top3 的一行。
+     *
+     * @param deptId 科室 id；**2026-10-02 新增**。此前只有科室名，挂号页拿不到 id 就无法把 top2/top3
+     *               与科室列表对上、也没法按推荐次序重排（列表只能整体按创建时间序，推荐科室夹在中间）。
+     *               2026-10-02 之前的快照没有这个字段，回放时为 null，前端按「无名次」处理、不参与提序
+     * @param name   科室名（展示用）
+     * @param pct    置信度百分比；null 表示模型未给出合法置信度（前端显示「—」而不是 0%）
+     */
+    public record Top3Item(String deptId, String name, Integer pct) {
     }
 
     /** 结论溯源引用（注号对应证据快照 retrieved 顺序） */

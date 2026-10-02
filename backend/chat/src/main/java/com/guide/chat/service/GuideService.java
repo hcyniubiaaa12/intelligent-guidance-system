@@ -217,7 +217,8 @@ public class GuideService {
     private ChatDTO.ResultVO resultPayload(String sessionId, GuideRecord record, List<Candidate> kept,
                                            RagAnswer answer, RagContext context, boolean lowConfidence) {
         List<ChatDTO.Top3Item> top3 = kept.stream()
-                .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getName(), percent(candidate.confidence())))
+                .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getId(),
+                        candidate.dept().getName(), percent(candidate.confidence())))
                 .toList();
         // 判断依据脚注：注号 = 证据快照 retrieved 顺序（与 Prompt 中的「注N」一致），
         // **只列模型真正引用的那些**，并带上原文——依据要能自证，光有标题不足以

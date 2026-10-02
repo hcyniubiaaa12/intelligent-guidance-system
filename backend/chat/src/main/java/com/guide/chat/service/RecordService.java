@@ -205,7 +205,10 @@ public class RecordService {
             if (array != null) {
                 for (JsonNode node : array) {
                     JsonNode conf = node.get("confidence");
-                    top3.add(new ChatDTO.Top3Item(node.path("dept").asText(),
+                    // deptId 是 2026-10-02 起才写进快照的，老记录这一项为 null：
+                    // 前端按「无名次」处理（不参与挂号页提序），不影响其余字段的回放
+                    top3.add(new ChatDTO.Top3Item(node.path("deptId").asText(null),
+                            node.path("dept").asText(),
                             conf == null || conf.isNull() ? null : (int) Math.round(conf.asDouble() * 100)));
                 }
             }
