@@ -7,10 +7,11 @@ import java.util.List;
  *
  * @param verdict        模型判定（**由模型显式声明**，四个取值见 {@link Verdict}）
  * @param reply          给患者的自然语言回复（流式内容）
- * @param top3           候选科室与置信度（降序；ask 时为空）
+ * @param top3           候选科室与置信度（**已归一化**：首位 = 顶层 dept，其后按置信度降序、null 垫底；
+ *                       ask 时为空。模型给的原始顺序不可信，见 {@code AnswerParser.normalizeTop3}）
  * @param note           一句话结论说明
  * @param cites          引用注号（对应 RagContext.chunks 下标 + 1）
- * @param confidence     模型自报 top1 置信度；非法或缺失为 null
+ * @param confidence     模型自报 top1 置信度；非法或缺失为 null（取归一化后首位那条的值）
  * @param confidenceValid 置信度是否通过校验（0–1 区间、Top3 单调递减）
  */
 public record RagAnswer(

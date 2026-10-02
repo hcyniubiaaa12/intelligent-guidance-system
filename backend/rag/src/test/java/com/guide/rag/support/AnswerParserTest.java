@@ -179,4 +179,107 @@ class AnswerParserTest {
 
         assertThat(answer.top3()).hasSize(3);
     }
+
+    // —— Top3 归一化（2026-10-02）——
+    // 此前直接照抄模型给的数组顺序，模型不按提示词递减输出时 top1 会落到末尾，
+    // 且顶层 confidence 会被 set(0) 安到数组第 0 条而非顶层 dept 上
+
+    @Test
+    @DisplayName("归一化①：模型把候选乱序给出时，按置信度重排，top1 不再落末尾")
+    void sortsTop3ByConfidence() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"心血管内科\",\"confidence\":0.82,\"top3\":["
+                + "{\"dept\":\"呼吸内科\",\"confidence\":0.11},"
+                + "{\"dept\":\"心血管内科\",\"confidence\":0.82},"
+                + "{\"dept\":\"消化内科\",\"confidence\":0.07}]}");
+
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::dept)
+                .containsExactly("心血管内科", "呼吸内科", "消化内科");
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::confidence)
+                .containsExactly(0.82, 0.11, 0.07);
+    }
+
+    @Test
+    @DisplayName("归一化②：顶层 confidence 只落在顶层 dept 上，不被安到数组第 0 条")
+    void topConfidenceStaysOnPrimaryDept() {
+        // 模型把呼吸内科放在候选第 0 位、顶层 dept 却是心血管内科：
+        // 顶层 confidence=0.82 必须属于心血管内科，不能被写到呼吸内科头上
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"心血管内科\",\"confidence\":0.82,\"top3\":["
+                + "{\"dept\":\"呼吸内科\",\"confidence\":0.11}]}");
+
+        assertThat(answer.top3().get(0).dept()).isEqualTo("心血管内科");
+        assertThat(answer.top3().get(0).confidence()).isEqualTo(0.82);
+        assertThat(answer.top3().get(1).dept()).isEqualTo("呼吸内科");
+        assertThat(answer.top3().get(1).confidence())
+                .as("呼吸内科保留自己的 0.11，不被顶层的 0.82 覆盖")
+                .isEqualTo(0.11);
+        assertThat(answer.confidence()).isEqualTo(0.82);
+    }
+
+    @Test
+    @DisplayName("归一化③：顶层 dept 没进候选数组时补到首位")
+    void primaryDeptMissingFromTop3GetsAdded() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"心血管内科\",\"confidence\":0.82,\"top3\":["
+                + "{\"dept\":\"呼吸内科\",\"confidence\":0.11}]}");
+
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::dept)
+                .containsExactly("心血管内科", "呼吸内科");
+    }
+
+    @Test
+    @DisplayName("归一化④：候选里同一科室写两遍时去重")
+    void dedupesSameDept() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"confidence\":0.6,\"top3\":["
+                + "{\"dept\":\"神经内科\",\"confidence\":0.3},"
+                + "{\"dept\":\"骨科\",\"confidence\":0.6},"
+                + "{\"dept\":\"神经内科\",\"confidence\":0.25}]}");
+
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::dept)
+                .containsExactly("骨科", "神经内科");
+    }
+
+    @Test
+    @DisplayName("归一化⑤：置信度为 null 的候选排最后，不占 top1 位")
+    void nullConfidenceSinksToLast() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"confidence\":0.6,\"top3\":["
+                + "{\"dept\":\"神经内科\",\"confidence\":null},"
+                + "{\"dept\":\"骨科\",\"confidence\":0.6},"
+                + "{\"dept\":\"康复科\",\"confidence\":0.2}]}");
+
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::dept)
+                .containsExactly("骨科", "康复科", "神经内科");
+        assertThat(answer.confidenceValid())
+                .as("含 null 置信度仍整体判为不可信，走低置信度分流")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("归一化⑥：顶层没给 confidence 时回落用候选里自带的那条")
+    void fallsBackToCandidateConfidence() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"top3\":[{\"dept\":\"骨科\",\"confidence\":0.6},"
+                + "{\"dept\":\"神经内科\",\"confidence\":0.3}]}");
+
+        assertThat(answer.confidence()).isEqualTo(0.6);
+        assertThat(answer.top3().get(0).confidence()).isEqualTo(0.6);
+        assertThat(answer.confidenceValid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("归一化⑦：归一化后顺序合法，原非递减的输出不再被误判为不可信")
+    void normalizationRepairsNonMonotonicOrder() {
+        // 模型乱序给出（神经内科 0.8 排在前面），归一化后首位仍是顶层 dept，顺序变为合法递减
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"confidence\":0.8,\"top3\":["
+                + "{\"dept\":\"神经内科\",\"confidence\":0.7},"
+                + "{\"dept\":\"骨科\",\"confidence\":0.8}]}");
+
+        assertThat(answer.top3()).extracting(RagAnswer.DeptCandidate::dept)
+                .containsExactly("骨科", "神经内科");
+        assertThat(answer.confidenceValid()).isTrue();
+    }
 }

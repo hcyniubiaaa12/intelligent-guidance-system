@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -22,6 +23,10 @@ import java.util.List;
  * {@link RagAnswer.Verdict#UNKNOWN}（当普通回答 + 上层 WARN），异常回到异常的样子。
  *
  * <p>容错：JSON 前后多余文字按花括号配对截取；置信度非法（越界/非递减）置 null 并按低置信度分流。
+ *
+ * <p><b>Top3 一律经 {@link #normalizeTop3} 归一化</b>（2026-10-02）：模型给的候选顺序不保证递减、
+ * 也可能把别的科室放在首位，直接照抄会让推荐卡 top1 落到末尾、且顶层 confidence 被安到错误科室上。
+ * 归一化后「首位 = 顶层声明的 dept，其后按置信度降序」，前端按下标取 top1 才是可靠的。
  */
 @Slf4j
 @Component
@@ -92,29 +97,103 @@ public class AnswerParser {
             return RagAnswer.unknown(reply);
         }
 
-        List<RagAnswer.DeptCandidate> top3 = new ArrayList<>();
-        Double firstConfidence = raw.confidence();
-        if (raw.top3() != null) {
-            for (RawDept item : raw.top3()) {
+        // 归一化后再校验：模型给的顺序与「顶层 confidence 属于顶层 dept」都不能直接信
+        List<RagAnswer.DeptCandidate> top3 = normalizeTop3(raw.dept().trim(), raw.confidence(), raw.top3());
+        String note = raw.note() == null ? "" : raw.note().trim();
+        return new RagAnswer(RagAnswer.Verdict.RECOMMEND, reply, top3, note,
+                parseCites(raw.cites()), firstConfidence(top3), confidenceValid(top3));
+    }
+
+    /**
+     * Top3 归一化：把模型可能乱序、可能重复、可能没把推荐科室放在首位的候选列表，
+     * 整理成「首位 = 顶层声明的 dept，其后按置信度降序」的稳定顺序。
+     *
+     * <p><b>为什么必须归一化（2026-10-02）</b>：此前这里直接照抄模型给的数组顺序，于是
+     * ① 提示词写了「按置信度递减」但模型偶尔不遵守时，<b>top1 会落到列表末尾</b>，
+     * 推荐卡第一根条显示的是备选科室（前端按数组下标取 first，前端无从判断）；
+     * ② 更糟的是「以顶层 confidence 为准」那行用 {@code top3.set(0, ...)} 写死了下标 0——
+     * 顶层 {@code dept} 是心血管内科、模型却把呼吸内科放在数组第 0 位时，
+     * 顶层 confidence 会被安到呼吸内科头上，<b>结论卡的科室名与百分比对不上</b>。
+     *
+     * <p>归一化规则（都是展示层口径，不改模型给出的数值本身）：
+     * <ol>
+     *   <li><b>首位锚定 {@code primary}（顶层 dept）</b>：顶层 dept 是结论主体（rec_dept 的来源），
+     *       候选数组的排列不能推翻它；它不在候选里时补进来。</li>
+     *   <li><b>其余按置信度降序</b>：{@code null} 排最后（模型没给值的不能因为位置靠前就排到真候选前面）；
+     *       排序稳定，同值保持模型给出的先后。</li>
+     *   <li><b>同名去重</b>：模型偶发把同一科室写两遍，重复项会让推荐卡出现两行同名科室。</li>
+     *   <li><b>截断到 {@value #MAX_TOP3} 条</b>。</li>
+     * </ol>
+     *
+     * <p>顶层 confidence 优先落在首位那条（顶层 dept 上）；顶层没给时用候选里自带的值。
+     * 两者都没有则该条 confidence 为 null，由 {@link #confidenceValid} 判为不可信、按低置信度分流。
+     */
+    private List<RagAnswer.DeptCandidate> normalizeTop3(String primary, Double primaryConfidence,
+                                                         List<RawDept> rawTop3) {
+        // 1) 收集候选：跳过空名项，跳过与首位同名的（首位由 primary 独占），同名只留第一次出现的。
+        //    先收全再排序——先截断后排序会把排在数组尾部但置信度更高的候选误删
+        List<RagAnswer.DeptCandidate> rest = new ArrayList<>();
+        boolean primarySeen = false;
+        if (rawTop3 != null) {
+            for (RawDept item : rawTop3) {
                 if (item == null || !StringUtils.hasText(item.dept())) {
                     continue;
                 }
-                top3.add(new RagAnswer.DeptCandidate(item.dept().trim(), item.confidence()));
-                if (top3.size() == MAX_TOP3) {
-                    break;
+                String dept = item.dept().trim();
+                if (dept.equals(primary)) {
+                    primarySeen = true;
+                    continue;
+                }
+                if (rest.stream().anyMatch(c -> c.dept().equals(dept))) {
+                    continue;
+                }
+                rest.add(new RagAnswer.DeptCandidate(dept, item.confidence()));
+            }
+        }
+
+        // 2) 其余按置信度降序；null 垫底。stable：同值保持模型给出的先后，不做无谓的抖动
+        rest.sort(Comparator.comparing(RagAnswer.DeptCandidate::confidence,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+
+        // 3) 首位锚定顶层 dept：模型没把它放进候选、或放进来了但顶层 confidence 更大，都以顶层为准；
+        //    首位占一个名额，其余按序补足 MAX_TOP3
+        List<RagAnswer.DeptCandidate> top3 = new ArrayList<>();
+        top3.add(new RagAnswer.DeptCandidate(primary, firstConfidence(primary, primaryConfidence, rawTop3, primarySeen)));
+        for (RagAnswer.DeptCandidate candidate : rest) {
+            if (top3.size() == MAX_TOP3) {
+                break;
+            }
+            top3.add(candidate);
+        }
+        return top3;
+    }
+
+    /**
+     * 首位科室的置信度：顶层 confidence 优先（顶层 dept 才是结论主体，两者同源）；
+     * 顶层没给时回落到候选数组里那一条自带的值。
+     *
+     * @param primarySeen primary 是否出现在候选数组中（用于区分「候选里有同名项」与「候选里没有」，
+     *                    前者才有回落来源）
+     */
+    private Double firstConfidence(String primary, Double primaryConfidence, List<RawDept> rawTop3,
+                                   boolean primarySeen) {
+        if (primaryConfidence != null) {
+            return primaryConfidence;
+        }
+        if (primarySeen && rawTop3 != null) {
+            for (RawDept item : rawTop3) {
+                if (item != null && primary.equals(item.dept() == null ? null : item.dept().trim())
+                        && item.confidence() != null) {
+                    return item.confidence();
                 }
             }
         }
-        if (top3.isEmpty()) {
-            top3.add(new RagAnswer.DeptCandidate(raw.dept().trim(), firstConfidence));
-        }
-        // 模型可能只在顶层给 confidence：以顶层为准，保证与推荐科室一致
-        if (firstConfidence != null && !top3.isEmpty()) {
-            top3.set(0, new RagAnswer.DeptCandidate(top3.get(0).dept(), firstConfidence));
-        }
-        String note = raw.note() == null ? "" : raw.note().trim();
-        return new RagAnswer(RagAnswer.Verdict.RECOMMEND, reply, top3, note,
-                parseCites(raw.cites()), firstConfidence, confidenceValid(top3));
+        return null;
+    }
+
+    /** 归一化后首位的置信度（rec_dept 的把握程度；首位无值则为 null） */
+    private Double firstConfidence(List<RagAnswer.DeptCandidate> top3) {
+        return top3.isEmpty() ? null : top3.get(0).confidence();
     }
 
     /**
