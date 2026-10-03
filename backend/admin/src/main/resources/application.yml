@@ -67,7 +67,7 @@ logging:
 # 链路 B 上传流水线就绪后置 false
 guide:
   seed:
-    enabled: ${GUIDE_SEED_ENABLED:true}
+    enabled: ${GUIDE_SEED_ENABLED:false}
   # 离线入库（链路 B）：扫描节拍固定，轮询间隔与解析总超时走 sys_config（运行时可调）
   ingest:
     scan-interval-ms: ${GUIDE_INGEST_SCAN_MS:5000}
