@@ -457,9 +457,9 @@
                     class="p-prof__input"
                     type="text"
                     :placeholder="grp.placeholder"
-                    :maxlength="profileLimits.textMax"
+                    :maxlength="textFieldMax(grp.other)"
                   />
-                  <span class="p-prof__left">{{ profileLimits.textMax - (profileForm[grp.other]?.length || 0) }} 字</span>
+                  <span class="p-prof__left">{{ textFieldRemaining(grp.other) }} 字</span>
                 </div>
               </section>
 
@@ -1011,9 +1011,12 @@ const profileSaving = ref(false)
 const profileError = ref('')
 const profileTags = ref([])
 // 上限来自后端受管参数；这里的默认值只在前端首次渲染、尚未拿到响应时兜底
-const profileLimits = ref({ tagMax: 10, textMax: 50 })
+const profileLimits = ref({ tagMax: 10, textMax: 50, textTotalMax: 120 })
 const profileOptions = ref({ genders: [], ageRanges: [] })
 const profileForm = ref(emptyProfile())
+
+// 三个自由文本框共用一条合计额度：写满一个，另外两个的可写空间随之收窄
+const OTHER_FIELDS = ['historyOther', 'medicationOther', 'allergyOther']
 
 function emptyProfile() {
   return {
@@ -1053,7 +1056,8 @@ async function loadProfile() {
     profileTags.value = tags || []
     profileLimits.value = {
       tagMax: data.limits?.tagMax ?? 10,
-      textMax: data.limits?.textMax ?? 50
+      textMax: data.limits?.textMax ?? 50,
+      textTotalMax: data.limits?.textTotalMax ?? 120
     }
     profileOptions.value = data.options || { genders: [], ageRanges: [] }
     profileForm.value = {
@@ -1088,6 +1092,21 @@ function toggleTag(field, term) {
   }
   profileError.value = ''
   list.push(term)
+}
+
+/**
+ * 单框可写上限 = min(单框上限, 合计上限 − 另外两框已写字数)。
+ * 作为 input 的 maxlength ⇒ 到额度就**写不进**（浏览器拦截），与后端二次校验口径一致，不静默裁剪。
+ */
+function textFieldMax(field) {
+  const others = OTHER_FIELDS.filter((f) => f !== field)
+    .reduce((n, f) => n + (profileForm.value[f]?.length || 0), 0)
+  return Math.max(0, Math.min(profileLimits.value.textMax, profileLimits.value.textTotalMax - others))
+}
+
+/** 本框还剩多少字（同时反映单框与三框合计两条额度） */
+function textFieldRemaining(field) {
+  return Math.max(0, textFieldMax(field) - (profileForm.value[field]?.length || 0))
 }
 
 async function saveProfile() {
@@ -1985,7 +2004,7 @@ onBeforeUnmount(() => {
 }
 .p-prof__close {
   flex: none;
-  min-height: 36px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 6px 12px;
   border: 1px solid var(--line);
   background: none;
@@ -2027,7 +2046,7 @@ onBeforeUnmount(() => {
 }
 .p-prof__select {
   flex: 1;
-  min-height: 40px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 0;
@@ -2069,7 +2088,7 @@ onBeforeUnmount(() => {
 .p-prof__chip {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 0;
@@ -2095,7 +2114,7 @@ onBeforeUnmount(() => {
 }
 .p-prof__input {
   flex: 1;
-  min-height: 40px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 0;

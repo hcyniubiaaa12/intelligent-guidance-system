@@ -9,7 +9,7 @@ import http from './http'
  * resolve = {
  *   gender, ageRange, historyTags, historyOther,
  *   medicationTags, medicationOther, allergyTags, allergyOther,
- *   limits: { tagMax, textMax },
+ *   limits: { tagMax, textMax, textTotalMax },
  *   options: { genders: [{ value, label }], ageRanges: [{ value, label }] }
  * }
  * limits 与 options 一并下发：页面不会出现「按旧上限拦人、被后端按新上限拒绝」的错位。
