@@ -57,6 +57,8 @@ public final class HealthProfileDTO {
         private int tagMax;
         /** 每个「其他」自由文本框最多字数 */
         private int textMax;
+        /** 三个「其他」自由文本框合计最多字数（每框上限之外的总量闸） */
+        private int textTotalMax;
     }
 
     /** 下拉选项 */

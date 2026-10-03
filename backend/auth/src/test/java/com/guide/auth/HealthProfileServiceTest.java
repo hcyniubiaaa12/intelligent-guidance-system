@@ -89,6 +89,7 @@ class HealthProfileServiceTest {
         assertThat(vo.getAgeRange()).isNull();
         assertThat(vo.getLimits().getTagMax()).isEqualTo(10);
         assertThat(vo.getLimits().getTextMax()).isEqualTo(50);
+        assertThat(vo.getLimits().getTextTotalMax()).isEqualTo(120);
         assertThat(vo.getOptions().getGenders()).extracting(HealthProfileDTO.Option::getValue)
                 .containsExactly("male", "female");
         assertThat(vo.getOptions().getAgeRanges()).extracting(HealthProfileDTO.Option::getValue)
@@ -120,6 +121,37 @@ class HealthProfileServiceTest {
         assertEquals(1001, e.getCode());
         assertTrue(e.getMessage().contains("最多 50 字"));
         verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+    }
+
+    @Test
+    @DisplayName("三框合计超上限：每框都不超、合计仍超时拒绝且不写库（不静默裁剪）")
+    void rejectsTextOverTotalLimit() {
+        // 单框 50 字合法（= 单框上限），三框 150 字 > 合计上限 120
+        HealthProfileDTO.ProfileSaveReq request = req();
+        request.setHistoryOther("字".repeat(50));
+        request.setMedicationOther("药".repeat(50));
+        request.setAllergyOther("过".repeat(50));
+
+        BizException e = assertThrows(BizException.class, () -> service.saveProfile("u1", request));
+
+        assertEquals(1001, e.getCode());
+        assertTrue(e.getMessage().contains("合计最多 120 字"));
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+        verify(profileMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("三框合计恰好等于上限：放行（合计闸是上界）")
+    void acceptsTextAtTotalLimit() {
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(0);
+        HealthProfileDTO.ProfileSaveReq request = req();
+        request.setHistoryOther("字".repeat(50));
+        request.setMedicationOther("药".repeat(50));
+        request.setAllergyOther("过".repeat(20)); // 50 + 50 + 20 = 120
+
+        service.saveProfile("u1", request);
+
+        verify(profileMapper).insert(any(UserHealthProfile.class));
     }
 
     @Test

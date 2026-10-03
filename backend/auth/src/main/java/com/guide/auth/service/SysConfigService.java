@@ -55,6 +55,8 @@ public class SysConfigService {
     public static final String KEY_PROFILE_TAG_MAX = "profile.tag.max";
     /** 健康档案：每个「其他」自由文本框最多字数 */
     public static final String KEY_PROFILE_TEXT_MAX = "profile.text.max";
+    /** 健康档案：三个「其他」自由文本框合计最多字数（每框上限之外再加一道总量闸） */
+    public static final String KEY_PROFILE_TEXT_TOTAL_MAX = "profile.text.total.max";
 
     /**
      * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
@@ -74,6 +76,8 @@ public class SysConfigService {
     /** 健康档案上限的代码侧默认值 */
     public static final int DEFAULT_PROFILE_TAG_MAX = 10;
     public static final int DEFAULT_PROFILE_TEXT_MAX = 50;
+    /** 三框合计上限 < 3 × 单框上限，否则这道闸永远不生效（默认 120 < 150） */
+    public static final int DEFAULT_PROFILE_TEXT_TOTAL_MAX = 120;
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;

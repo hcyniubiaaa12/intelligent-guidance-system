@@ -85,6 +85,7 @@ public class HealthProfileService {
         String historyOther = normalizeText(req.getHistoryOther(), HealthTagType.CHRONIC.getLabel() + "补充", textMax);
         String medicationOther = normalizeText(req.getMedicationOther(), HealthTagType.MEDICATION.getLabel() + "补充", textMax);
         String allergyOther = normalizeText(req.getAllergyOther(), HealthTagType.ALLERGY.getLabel() + "补充", textMax);
+        checkTextTotal(historyOther, medicationOther, allergyOther);
 
         // 判存在按物理行判（唯一键认物理行，不认 deleted）；没建过档就插一行
         if (profileMapper.countIncludingDeleted(userId) == 0) {
@@ -223,6 +224,7 @@ public class HealthProfileService {
         HealthProfileDTO.Limits limits = new HealthProfileDTO.Limits();
         limits.setTagMax(tagMax());
         limits.setTextMax(textMax());
+        limits.setTextTotalMax(textTotalMax());
         return limits;
     }
 
@@ -234,6 +236,25 @@ public class HealthProfileService {
     private int textMax() {
         return sysConfigService.getInt(SysConfigService.KEY_PROFILE_TEXT_MAX,
                 SysConfigService.DEFAULT_PROFILE_TEXT_MAX);
+    }
+
+    private int textTotalMax() {
+        return sysConfigService.getInt(SysConfigService.KEY_PROFILE_TEXT_TOTAL_MAX,
+                SysConfigService.DEFAULT_PROFILE_TEXT_TOTAL_MAX);
+    }
+
+    /** 三框合计校验：每框都不超时不代表合计不超——总量闸单独一道，超限拒绝、绝不静默裁剪 */
+    private void checkTextTotal(String historyOther, String medicationOther, String allergyOther) {
+        int total = textLength(historyOther) + textLength(medicationOther) + textLength(allergyOther);
+        int max = textTotalMax();
+        if (total > max) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "三框自由文本合计最多 " + max + " 字（当前 " + total + " 字）");
+        }
+    }
+
+    private int textLength(String text) {
+        return text == null ? 0 : text.length();
     }
 
     private HealthProfileDTO.Options options() {
