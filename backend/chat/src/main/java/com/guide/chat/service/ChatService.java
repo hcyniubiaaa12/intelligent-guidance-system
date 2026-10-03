@@ -212,19 +212,22 @@ public class ChatService {
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
             boolean forceConclusion = askRound >= askMaxRounds;
-            // 健康档案由 chat 读档组装成"待注入文本"再传进 rag（rag 不感知业务状态，不查档案）。
+            // 健康档案由 chat 读档组装成两段文本再传进 rag（rag 不感知业务状态，不查档案）：
+            //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileAssembler.Assembly profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.text().isBlank() ? null : profile.text();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}",
+            String profileQuery = profile.query().isBlank() ? null : profile.query();
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}（召回串 {}）",
                     askRound, askMaxRounds, forceConclusion, deptOptions().size(),
-                    profileText == null ? "无" : profileText.length() + " 字");
+                    profileText == null ? "无" : profileText.length() + " 字",
+                    profileQuery == null ? "无" : profileQuery.length() + " 字");
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(),
                     askRound, forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText);
+                    profileText, profileQuery);
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
