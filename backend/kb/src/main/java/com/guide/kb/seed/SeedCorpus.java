@@ -113,7 +113,7 @@ public final class SeedCorpus {
             new SeedDept("妇科", "门诊楼 3 层 D 区",
                     "诊治妇科炎症、月经异常、盆腔疾病。", List.of()),
             new SeedDept("风湿免疫科", "门诊楼 4 层 B 区",
-                    "诊治类风湿关节炎、强直性脊柱炎、痛风等自身免疫与代谢性关节病。", List.of()),
+                    "诊治类风湿关节炎、强直性脊柱炎等自身免疫性与慢性关节疾病。", List.of()),
             new SeedDept("老年医学科", "门诊楼 1 层 A 区",
                     "老年多病共存的综合评估与连续性管理。", List.of())
     );
