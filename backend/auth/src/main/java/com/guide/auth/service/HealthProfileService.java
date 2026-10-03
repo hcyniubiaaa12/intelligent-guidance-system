@@ -10,6 +10,7 @@ import com.guide.auth.enums.AgeRange;
 import com.guide.auth.enums.Gender;
 import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
+import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 患者健康档案（auth）：读取自己那份、整份覆盖写、加载标签词表。
@@ -133,6 +135,56 @@ public class HealthProfileService {
         }
         return result;
     }
+
+    /**
+     * 为导诊链路组装档案两段文本（单据 02 只接上"待注入文本"这一半；检索用串留给 03）。
+     *
+     * <p>读档案 + 启用词表 → 纯函数 {@link HealthProfileAssembler#assemble}。档案不存在 / 全空 ⇒
+     * 两段均为空串（上层据此不拼 prompt 段、不加推荐卡行，链路行为与无档案时完全一致）。
+     *
+     * <p>待注入文本超 350 字天花板时**记 WARN 告警、不裁剪**——超出不是患者的问题，
+     * 是配置或词表出了问题，要能在源头被发现（与链路 B「丢字零容忍」同一态度）。
+     */
+    public HealthProfileAssembler.Assembly assembleForChat(String userId) {
+        UserHealthProfile row = profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
+                .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
+        if (row == null) {
+            // 无档案（大多数用户）：直接给空组装结果，连词表都不查
+            return HealthProfileAssembler.assemble(emptyProfileInput(), Set.of());
+        }
+        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
+                row.getGender() == null ? null : row.getGender().getCode(),
+                row.getAgeRange(),
+                parseTags(row.getHistoryTags()), row.getHistoryOther(),
+                parseTags(row.getMedicationTags()), row.getMedicationOther(),
+                parseTags(row.getAllergyTags()), row.getAllergyOther());
+        HealthProfileAssembler.Assembly assembly =
+                HealthProfileAssembler.assemble(profile, enabledTagTerms());
+        if (assembly.textOverflow()) {
+            log.warn("健康档案提示文本超 {} 字天花板（当前 {} 字）：非患者额度，属配置/词表异常，不裁剪、请检查",
+                    HealthProfileAssembler.TEXT_MAX, assembly.text().length());
+        }
+        return assembly;
+    }
+
+    private HealthProfileAssembler.Profile emptyProfileInput() {
+        return new HealthProfileAssembler.Profile(
+                null, null, List.of(), null, List.of(), null, List.of(), null);
+    }
+
+    /** 启用词表（慢病 / 用药 / 过敏的 term 合集）：自由文本命中判定用，也是后续档案召回串的原料 */
+    private Set<String> enabledTagTerms() {
+        List<HealthTag> rows = healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
+                .eq(HealthTag::getEnabled, 1));
+        Set<String> terms = new LinkedHashSet<>();
+        for (HealthTag tag : rows) {
+            if (tag.getTerm() != null && !tag.getTerm().isBlank()) {
+                terms.add(tag.getTerm().trim());
+            }
+        }
+        return terms;
+    }
+
 
     private HealthProfileDTO.Limits limits() {
         HealthProfileDTO.Limits limits = new HealthProfileDTO.Limits();
