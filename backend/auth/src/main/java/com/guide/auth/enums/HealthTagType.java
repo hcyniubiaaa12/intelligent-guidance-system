@@ -15,15 +15,21 @@ import lombok.RequiredArgsConstructor;
 public enum HealthTagType {
 
     /** 慢病（既往病史） */
-    CHRONIC("chronic"),
+    CHRONIC("chronic", "既往病史"),
 
     /** 长期用药 */
-    MEDICATION("medication"),
+    MEDICATION("medication", "长期用药"),
 
     /** 过敏史类别 */
-    ALLERGY("allergy");
+    ALLERGY("allergy", "过敏史");
 
     /** 入库编码值（英文小写，见《数据库设计.md》§0） */
     @EnumValue
     private final String code;
+
+    /**
+     * 档案分组展示名（既往病史 / 长期用药 / 过敏史）——错误提示、前端分组、词表类别共用同一份口径。
+     * 患者端的可读文案在前端另有一份（跨语言边界），此处是**后端唯一出处**。
+     */
+    private final String label;
 }

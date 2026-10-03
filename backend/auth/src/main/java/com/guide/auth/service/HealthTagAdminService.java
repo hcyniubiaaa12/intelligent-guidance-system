@@ -5,6 +5,7 @@ import com.guide.auth.dto.HealthTagAdminDTO;
 import com.guide.auth.entity.HealthTag;
 import com.guide.auth.enums.HealthTagType;
 import com.guide.auth.mapper.HealthTagMapper;
+import com.guide.auth.support.HealthTagView;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +46,7 @@ public class HealthTagAdminService {
                 .orderByAsc(HealthTag::getTerm));
         List<HealthTagAdminDTO.TagVO> result = new ArrayList<>(rows.size());
         for (HealthTag tag : rows) {
-            result.add(toVO(tag));
+            result.add(HealthTagView.adminRow(tag));
         }
         return result;
     }
@@ -73,7 +74,7 @@ public class HealthTagAdminService {
             throw new BizException(ErrorCode.HEALTH_TAG_EXISTS);
         }
         log.info("健康档案标签新增：{}（{}）", term, type.getCode());
-        return toVO(entity);
+        return HealthTagView.adminRow(entity);
     }
 
     /**
@@ -90,16 +91,7 @@ public class HealthTagAdminService {
         tag.setEnabled(enabled ? 1 : 0);
         healthTagMapper.updateById(tag);
         log.info("健康档案标签「{}」已{}", tag.getTerm(), enabled ? "启用" : "停用");
-        return toVO(tag);
-    }
-
-    private HealthTagAdminDTO.TagVO toVO(HealthTag tag) {
-        HealthTagAdminDTO.TagVO vo = new HealthTagAdminDTO.TagVO();
-        vo.setId(tag.getId());
-        vo.setTerm(tag.getTerm());
-        vo.setType(tag.getType().getCode());
-        vo.setEnabled(tag.getEnabled());
-        return vo;
+        return HealthTagView.adminRow(tag);
     }
 
     /** 类别校验：只认 chronic/medication/allergy 编码值（不信任前端，缺省即拒绝） */

@@ -8,9 +8,11 @@ import com.guide.auth.entity.HealthTag;
 import com.guide.auth.entity.UserHealthProfile;
 import com.guide.auth.enums.AgeRange;
 import com.guide.auth.enums.Gender;
+import com.guide.auth.enums.HealthTagType;
 import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
 import com.guide.auth.support.HealthProfileAssembler;
+import com.guide.auth.support.HealthTagView;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
@@ -51,23 +53,17 @@ public class HealthProfileService {
 
     /** 读自己那份档案（不存在返回空档案，不建行） */
     public HealthProfileDTO.ProfileVO getProfile(String userId) {
-        UserHealthProfile row = profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
-                .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
+        UserHealthProfile row = loadRow(userId);
+        HealthProfileAssembler.Profile profile = row == null ? emptyProfileInput() : toProfile(row);
         HealthProfileDTO.ProfileVO vo = new HealthProfileDTO.ProfileVO();
-        if (row == null) {
-            vo.setHistoryTags(List.of());
-            vo.setMedicationTags(List.of());
-            vo.setAllergyTags(List.of());
-        } else {
-            vo.setGender(row.getGender() == null ? null : row.getGender().getCode());
-            vo.setAgeRange(row.getAgeRange());
-            vo.setHistoryTags(parseTags(row.getHistoryTags()));
-            vo.setHistoryOther(row.getHistoryOther());
-            vo.setMedicationTags(parseTags(row.getMedicationTags()));
-            vo.setMedicationOther(row.getMedicationOther());
-            vo.setAllergyTags(parseTags(row.getAllergyTags()));
-            vo.setAllergyOther(row.getAllergyOther());
-        }
+        vo.setGender(profile.genderCode());
+        vo.setAgeRange(profile.ageRangeCode());
+        vo.setHistoryTags(profile.historyTags());
+        vo.setHistoryOther(profile.historyOther());
+        vo.setMedicationTags(profile.medicationTags());
+        vo.setMedicationOther(profile.medicationOther());
+        vo.setAllergyTags(profile.allergyTags());
+        vo.setAllergyOther(profile.allergyOther());
         vo.setLimits(limits());
         vo.setOptions(options());
         return vo;
@@ -83,12 +79,12 @@ public class HealthProfileService {
 
         Gender gender = parseGender(req.getGender());
         String ageRange = parseAgeRange(req.getAgeRange());
-        List<String> historyTags = normalizeTags(req.getHistoryTags(), "既往病史", tagMax);
-        List<String> medicationTags = normalizeTags(req.getMedicationTags(), "长期用药", tagMax);
-        List<String> allergyTags = normalizeTags(req.getAllergyTags(), "过敏史", tagMax);
-        String historyOther = normalizeText(req.getHistoryOther(), "既往病史补充", textMax);
-        String medicationOther = normalizeText(req.getMedicationOther(), "长期用药补充", textMax);
-        String allergyOther = normalizeText(req.getAllergyOther(), "过敏史补充", textMax);
+        List<String> historyTags = normalizeTags(req.getHistoryTags(), HealthTagType.CHRONIC.getLabel(), tagMax);
+        List<String> medicationTags = normalizeTags(req.getMedicationTags(), HealthTagType.MEDICATION.getLabel(), tagMax);
+        List<String> allergyTags = normalizeTags(req.getAllergyTags(), HealthTagType.ALLERGY.getLabel(), tagMax);
+        String historyOther = normalizeText(req.getHistoryOther(), HealthTagType.CHRONIC.getLabel() + "补充", textMax);
+        String medicationOther = normalizeText(req.getMedicationOther(), HealthTagType.MEDICATION.getLabel() + "补充", textMax);
+        String allergyOther = normalizeText(req.getAllergyOther(), HealthTagType.ALLERGY.getLabel() + "补充", textMax);
 
         // 判存在按物理行判（唯一键认物理行，不认 deleted）；没建过档就插一行
         if (profileMapper.countIncludingDeleted(userId) == 0) {
@@ -127,19 +123,20 @@ public class HealthProfileService {
      * （组装召回串走 {@link #allTagTerms()} 全量词表）。
      */
     public List<HealthProfileDTO.TagVO> listEnabledTags() {
-        List<HealthTag> rows = healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
+        List<HealthTag> rows = selectEnabledTags();
+        List<HealthProfileDTO.TagVO> result = new ArrayList<>(rows.size());
+        for (HealthTag tag : rows) {
+            result.add(HealthTagView.option(tag));
+        }
+        return result;
+    }
+
+    /** 启用标签（词表类别序 + 词序）：患者端选项与召回匹配词表的共用查询 */
+    private List<HealthTag> selectEnabledTags() {
+        return healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
                 .eq(HealthTag::getEnabled, 1)
                 .orderByAsc(HealthTag::getType)
                 .orderByAsc(HealthTag::getTerm));
-        List<HealthProfileDTO.TagVO> result = new ArrayList<>(rows.size());
-        for (HealthTag tag : rows) {
-            HealthProfileDTO.TagVO vo = new HealthProfileDTO.TagVO();
-            vo.setId(tag.getId());
-            vo.setTerm(tag.getTerm());
-            vo.setType(tag.getType().getCode());
-            result.add(vo);
-        }
-        return result;
     }
 
     /**
@@ -154,18 +151,12 @@ public class HealthProfileService {
      * 是配置或词表出了问题，要能在源头被发现（与链路 B「丢字零容忍」同一态度）。
      */
     public ChatProfile assembleForChat(String userId) {
-        UserHealthProfile row = profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
-                .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
+        UserHealthProfile row = loadRow(userId);
         if (row == null) {
             // 无档案（大多数用户）：直接给空组装结果，连词表都不查
             return new ChatProfile(HealthProfileAssembler.assemble(emptyProfileInput(), Set.of()), null);
         }
-        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
-                row.getGender() == null ? null : row.getGender().getCode(),
-                row.getAgeRange(),
-                parseTags(row.getHistoryTags()), row.getHistoryOther(),
-                parseTags(row.getMedicationTags()), row.getMedicationOther(),
-                parseTags(row.getAllergyTags()), row.getAllergyOther());
+        HealthProfileAssembler.Profile profile = toProfile(row);
         HealthProfileAssembler.Assembly assembly =
                 HealthProfileAssembler.assemble(profile, allTagTerms());
         if (assembly.textOverflow()) {
@@ -184,6 +175,22 @@ public class HealthProfileService {
      */
     public record ChatProfile(HealthProfileAssembler.Assembly assembly,
                               HealthProfileAssembler.Profile structure) {
+    }
+
+    /** 读档案物理行（不存在返回 null）：读接口与导诊链路共用的唯一入口 */
+    private UserHealthProfile loadRow(String userId) {
+        return profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
+                .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
+    }
+
+    /** 档案行 → 结构化档案（纯数据）：读接口、导诊链路、召回组装共用，避免各写一遍映射 */
+    private HealthProfileAssembler.Profile toProfile(UserHealthProfile row) {
+        return new HealthProfileAssembler.Profile(
+                row.getGender() == null ? null : row.getGender().getCode(),
+                row.getAgeRange(),
+                parseTags(row.getHistoryTags()), row.getHistoryOther(),
+                parseTags(row.getMedicationTags()), row.getMedicationOther(),
+                parseTags(row.getAllergyTags()), row.getAllergyOther());
     }
 
     private HealthProfileAssembler.Profile emptyProfileInput() {
