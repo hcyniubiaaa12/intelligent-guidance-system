@@ -16,6 +16,9 @@ import java.util.List;
  * @param profileText     患者健康档案的**待注入文本**（可选背景，非检索语料）；为空即无档案。
  *                        它是患者自述，**不是医学证据**，不进注号体系、不参与排序——
  *                        由 chat 读档组装好传进来，rag 不感知业务状态（单据 02）
+ * @param profileQuery    患者健康档案的**检索用串**（性别 + 年龄段 + 命中词表的标签与词）；为空即无档案。
+ *                        <b>只用于扩容召回</b>：非空时多开两路召回（向量 + 关键词），与主诉两路一起进 RRF，
+ *                        精排 query 仍是主诉改写串——档案没有排序话语权（单据 03）
  */
 public record RagRequest(
         String query,
@@ -25,7 +28,8 @@ public record RagRequest(
         boolean forceConclusion,
         int topK,
         int topN,
-        String profileText) {
+        String profileText,
+        String profileQuery) {
 
     public static final int DEFAULT_TOP_K = 20;
     public static final int DEFAULT_TOP_N = 5;
