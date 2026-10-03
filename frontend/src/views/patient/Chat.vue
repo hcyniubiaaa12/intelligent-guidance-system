@@ -115,11 +115,12 @@
             </template>
           </div>
 
-          <!-- 底部用户区（桌面才有；手机在顶栏） -->
+          <!-- 底部用户区（桌面常驻；手机在「会话」抽屉里） -->
           <div class="p-chat__user">
             <button class="p-chat__unick" title="看我的挂号历史" @click="openBooked">
               {{ user.nickname || '我 的 就 诊' }}
             </button>
+            <button class="p-chat__uprof" title="填写健康档案（选填）" @click="openProfile">健 康 档 案</button>
             <button class="p-chat__uout" @click="onLogout">退 出</button>
           </div>
         </div>
@@ -396,6 +397,78 @@
           </div>
         </div>
       </nav>
+
+      <!-- ---------- 健康档案（选填）：覆盖层抽屉，纸感方案 A ----------
+           复用既有覆盖层模式（手机端会话抽屉那套），不引入任何组件库。
+           上限直接在源头挡住：标签多选到顶写不进、自由文本走 maxlength，并显示剩余额度 -->
+      <Transition name="p-fade">
+        <div v-if="profileOpen" class="p-prof" @click.self="closeProfile">
+          <div class="p-prof__box" role="dialog" aria-label="我的健康档案">
+            <header class="p-prof__hd">
+              <div>
+                <div class="p-eyebrow">健 康 档 案</div>
+                <p class="p-prof__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
+              </div>
+              <button class="p-prof__close" aria-label="关闭健康档案" @click="closeProfile">关 闭</button>
+            </header>
+
+            <div v-if="profileLoading" class="p-prof__loading">正在加载…</div>
+
+            <div v-else class="p-prof__body">
+              <div class="p-prof__row">
+                <label class="p-prof__label">性　别</label>
+                <select v-model="profileForm.gender" class="p-prof__select">
+                  <option value="">不填</option>
+                  <option v-for="g in profileOptions.genders" :key="g.value" :value="g.value">{{ g.label }}</option>
+                </select>
+              </div>
+              <div class="p-prof__row">
+                <label class="p-prof__label">年 龄 段</label>
+                <select v-model="profileForm.ageRange" class="p-prof__select">
+                  <option value="">不填</option>
+                  <option v-for="a in profileOptions.ageRanges" :key="a.value" :value="a.value">{{ a.label }}</option>
+                </select>
+              </div>
+
+              <section v-for="grp in profileGroups" :key="grp.key" class="p-prof__group">
+                <div class="p-prof__ghead">
+                  <span class="p-prof__glabel">{{ grp.label }}</span>
+                  <span class="p-prof__quota">已选 {{ profileForm[grp.tags].length }} / 最多 {{ profileLimits.tagMax }} 项</span>
+                </div>
+                <div class="p-prof__chips">
+                  <button
+                    v-for="t in grp.options"
+                    :key="t.id"
+                    type="button"
+                    class="p-prof__chip"
+                    :class="{ 'is-on': profileForm[grp.tags].includes(t.term) }"
+                    @click="toggleTag(grp.tags, t.term)"
+                  >{{ t.term }}</button>
+                  <p v-if="!grp.options.length" class="p-prof__none">词表暂无可选项，可在下方自由填写</p>
+                </div>
+                <div class="p-prof__other">
+                  <input
+                    v-model="profileForm[grp.other]"
+                    class="p-prof__input"
+                    type="text"
+                    :placeholder="grp.placeholder"
+                    :maxlength="profileLimits.textMax"
+                  />
+                  <span class="p-prof__left">{{ profileLimits.textMax - (profileForm[grp.other]?.length || 0) }} 字</span>
+                </div>
+              </section>
+
+              <p v-if="profileError" class="p-prof__err">{{ profileError }}</p>
+            </div>
+
+            <footer class="p-prof__ft">
+              <button class="p-btn" :disabled="profileLoading || profileSaving" @click="saveProfile">
+                {{ profileSaving ? '保 存 中…' : '保 存 档 案' }}
+              </button>
+            </footer>
+          </div>
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -407,6 +480,7 @@ import { useUserStore } from '../../stores/user'
 import { useChatStore } from '../../stores/chat'
 import { logout as apiLogout } from '../../api/auth'
 import { listSessions, sessionDetail, archiveSession } from '../../api/records'
+import { getHealthProfile, saveHealthProfile, listHealthTags } from '../../api/profile'
 import { streamChat } from '../../utils/sse'
 import { track } from '../../utils/track'
 import '../../styles/patient.css'
@@ -920,6 +994,108 @@ async function onLogout() {
 function openBooked() {
   tab.value = 'booked'
   sideOpen.value = true
+}
+
+// ---------------------------------------------------------------- 健康档案（选填）
+
+const profileOpen = ref(false)
+const profileLoading = ref(false)
+const profileSaving = ref(false)
+const profileError = ref('')
+const profileTags = ref([])
+// 上限来自后端受管参数；这里的默认值只在前端首次渲染、尚未拿到响应时兜底
+const profileLimits = ref({ tagMax: 10, textMax: 50 })
+const profileOptions = ref({ genders: [], ageRanges: [] })
+const profileForm = ref(emptyProfile())
+
+function emptyProfile() {
+  return {
+    gender: '',
+    ageRange: '',
+    historyTags: [],
+    historyOther: '',
+    medicationTags: [],
+    medicationOther: '',
+    allergyTags: [],
+    allergyOther: ''
+  }
+}
+
+/** 三组「多选标签 + 其他自由文本」：标签按 type 从词表过滤 */
+const profileGroups = computed(() => [
+  { key: 'history', label: '既 往 病 史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
+  { key: 'medication', label: '长 期 用 药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
+  { key: 'allergy', label: '过 敏 史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' }
+].map((g) => ({ ...g, options: profileTags.value.filter((t) => t.type === g.type) })))
+
+function openProfile() {
+  profileOpen.value = true
+  sideOpen.value = false
+  loadProfile()
+}
+
+function closeProfile() {
+  profileOpen.value = false
+}
+
+async function loadProfile() {
+  profileLoading.value = true
+  profileError.value = ''
+  try {
+    const [data, tags] = await Promise.all([getHealthProfile(), listHealthTags()])
+    profileTags.value = tags || []
+    profileLimits.value = {
+      tagMax: data.limits?.tagMax ?? 10,
+      textMax: data.limits?.textMax ?? 50
+    }
+    profileOptions.value = data.options || { genders: [], ageRanges: [] }
+    profileForm.value = {
+      gender: data.gender || '',
+      ageRange: data.ageRange || '',
+      historyTags: data.historyTags || [],
+      medicationTags: data.medicationTags || [],
+      allergyTags: data.allergyTags || [],
+      historyOther: data.historyOther || '',
+      medicationOther: data.medicationOther || '',
+      allergyOther: data.allergyOther || ''
+    }
+  } catch (e) {
+    console.error('[chat] 健康档案加载失败', e)
+    profileError.value = e.message || '档案加载失败，请稍后重试'
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+/** 多选标签：超上限**当场写不进**（后端仍会二次校验，前端只是即时提示） */
+function toggleTag(field, term) {
+  const list = profileForm.value[field]
+  const idx = list.indexOf(term)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+    return
+  }
+  if (list.length >= profileLimits.value.tagMax) {
+    profileError.value = `每类最多选 ${profileLimits.value.tagMax} 项，先取消一项再选`
+    return
+  }
+  profileError.value = ''
+  list.push(term)
+}
+
+async function saveProfile() {
+  if (profileSaving.value) return
+  profileError.value = ''
+  profileSaving.value = true
+  try {
+    await saveHealthProfile(profileForm.value)
+    profileOpen.value = false
+  } catch (e) {
+    // 后端二次校验拒绝（超条数 / 超字数）会给可展示的 message
+    profileError.value = e.message || '保存失败，请稍后重试'
+  } finally {
+    profileSaving.value = false
+  }
 }
 
 // ---------------------------------------------------------------- 展示
@@ -1749,4 +1925,201 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .p-chat * { transition: none !important; }
 }
+
+/* ---------- 健康档案：入口 + 覆盖层抽屉（纸感方案 A，直角/细线/无组件库） ---------- */
+.p-chat__uprof {
+  flex: none;
+  border: none;
+  border-bottom: 1px dashed var(--ink-2);
+  background: none;
+  padding: 0 0 1px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  color: var(--ink-2);
+  transition: color .18s ease, border-color .18s ease;
+}
+.p-chat__uprof:hover { color: var(--teal); border-bottom-color: var(--teal); }
+
+.p-prof {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px 16px;
+  background: rgba(28, 43, 40, .28);
+}
+.p-prof__box {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.p-prof__hd {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.p-prof__sub {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.p-prof__close {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  color: var(--ink-2);
+  transition: color .18s ease, border-color .18s ease;
+}
+.p-prof__close:hover { color: var(--err); border-color: var(--err); }
+.p-prof__loading {
+  padding: 32px 16px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: .1em;
+  color: var(--ink-2);
+}
+.p-prof__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 8px;
+}
+.p-prof__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.p-prof__label {
+  flex: none;
+  width: 64px;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: var(--ink-2);
+}
+.p-prof__select {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--card);
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+}
+.p-prof__select:focus { outline: none; border-color: var(--teal); }
+.p-prof__group {
+  padding: 14px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.p-prof__group:last-of-type { border-bottom: none; }
+.p-prof__ghead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.p-prof__glabel {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.p-prof__quota {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--ink-2);
+}
+.p-prof__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.p-prof__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--card);
+  font-family: var(--serif);
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+.p-prof__chip:hover { border-color: var(--teal); color: var(--teal); }
+.p-prof__chip.is-on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.p-prof__none {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.p-prof__other {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.p-prof__input {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--card);
+  font-family: var(--serif);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.p-prof__input:focus { outline: none; border-color: var(--teal); }
+.p-prof__left {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--ink-2);
+}
+.p-prof__err {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--err);
+  background: var(--card);
+  color: var(--err);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.p-prof__ft {
+  flex: none;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.p-fade-enter-active,
+.p-fade-leave-active { transition: opacity .18s ease; }
+.p-fade-enter-from,
+.p-fade-leave-to { opacity: 0; }
 </style>
