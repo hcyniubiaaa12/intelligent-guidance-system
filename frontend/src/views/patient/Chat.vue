@@ -278,8 +278,8 @@
                   </div>
 
                   <!-- 健康档案：患者自述，不是医学证据。单独一行、标成「健康档案」，与「判断依据」分开 -->
-                  <p v-if="m.card.profileRef" class="p-card__profile">
-                    已参考您的健康档案：{{ m.card.profileRef }}
+                  <p v-if="m.card.profileText" class="p-card__profile">
+                    已参考您的健康档案：{{ m.card.profileText }}
                   </p>
 
                   <p v-if="isLow(m.card)" class="p-card__lowhint">
@@ -580,7 +580,7 @@ function cardText(card) {
     lines.push('判断依据：')
     card.cites.forEach((c) => lines.push(`  注${c.no}　${c.title}\n    ${c.content}`))
   }
-  if (card.profileRef) lines.push(`已参考您的健康档案：${card.profileRef}`)
+  if (card.profileText) lines.push(`已参考您的健康档案：${card.profileText}`)
   lines.push('（分诊建议，不能替代医生诊断）')
   return lines.join('\n')
 }
@@ -926,7 +926,7 @@ async function runTurn(content) {
               note: data.note,
               cites: data.cites || [],
               lowConfidence: data.lowConfidence,
-              profileRef: data.profileRef || ''
+              profileText: data.profileText || ''
             }
           })
           // 推荐卡渲染完成 = result_view 触点（旁路上报，失败静默）

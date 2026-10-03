@@ -216,7 +216,7 @@ public class GuideService {
         evidence.put("retrieved_query", context.rewrittenQuery());
         ArrayNode cited = evidence.putArray("model_cited");
         answer.cites().forEach(cited::add);
-        if (profile == null || isBlank(profile.text())) {
+        if (profile == null || isBlank(profile.profileText())) {
             // 无档案：与今天除多一个空节点外无差异（回放解析用 path() 取值，null 节点不炸）
             evidence.putNull("profile");
         } else {
@@ -234,11 +234,14 @@ public class GuideService {
      *
      * <p>三样都要，缺一不可：
      * <ul>
-     *   <li>{@code text} —— 待注入模型的档案文本（模型实际看到的背景）；</li>
-     *   <li>{@code query} —— 档案检索用串（检索实际用到的那段）；</li>
+     *   <li>{@code text} —— 档案提示文本（模型实际看到的背景）；</li>
+     *   <li>{@code query} —— 档案召回串（检索实际用到的那段）；</li>
      *   <li>{@code content} —— 患者当时填的**结构化档案**（编码 + 标签 + 自由文本）：
      *       只存加工后的文本，审核时就看不出患者当初勾了什么、写了什么。</li>
      * </ul>
+     *
+     * <p>节点里的 {@code text}/{@code query} 键是**证据快照的持久化字段名**（词表「档案快照」即以此命名），
+     * 而 Java 记录组件用 {@code profileText}/{@code recallQuery} 消歧（{@code query} 易与主诉串混淆）。
      *
      * <p><b>只写不读</b>：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——
      * 档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，
@@ -246,8 +249,8 @@ public class GuideService {
      */
     private ObjectNode profileNode(ProfileSnapshot profile) {
         ObjectNode node = objectMapper.createObjectNode();
-        node.put("text", profile.text());
-        node.put("query", profile.query());
+        node.put("text", profile.profileText());
+        node.put("query", profile.recallQuery());
         HealthProfileAssembler.Profile structure = profile.structure();
         if (structure == null) {
             node.putNull("content");
@@ -294,7 +297,7 @@ public class GuideService {
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
-                cites, lowConfidence, blankToNull(profile == null ? null : profile.text()));
+                cites, lowConfidence, blankToNull(profile == null ? null : profile.profileText()));
     }
 
     /** 空白档案文本归一为 null：前端据此判断"无档案行"，不渲染一个空标签 */
@@ -371,11 +374,12 @@ public class GuideService {
     /**
      * 本轮档案快照输入（证据快照 profile 节点用，单据 04）。
      *
-     * @param text      待注入模型上下文的档案文本（= 推荐卡「已参考健康档案」行）；空 = 本轮无档案
-     * @param query     档案检索用串（03 起进检索扩容）；空 = 无
-     * @param structure 患者当时填的结构化档案（编码 + 标签 + 自由文本）；未建档为 null
+     * @param profileText 档案提示文本（= 推荐卡「已参考健康档案」行）；空 = 本轮无档案
+     * @param recallQuery 档案召回串（03 起进检索扩容）；空 = 无
+     * @param structure   患者当时填的结构化档案（编码 + 标签 + 自由文本）；未建档为 null
      */
-    public record ProfileSnapshot(String text, String query, HealthProfileAssembler.Profile structure) {
+    public record ProfileSnapshot(String profileText, String recallQuery,
+                                  HealthProfileAssembler.Profile structure) {
     }
 
     /** 通过校验的候选科室 */

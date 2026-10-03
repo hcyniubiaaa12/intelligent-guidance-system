@@ -200,7 +200,7 @@ public class RecordService {
         List<ChatDTO.Top3Item> top3 = new ArrayList<>();
         List<ChatDTO.Cite> cites = new ArrayList<>();
         String note = null;
-        String profileRef = null;
+        String profileText = null;
         try {
             JsonNode array = record.getRecTop3() == null ? null : objectMapper.readTree(record.getRecTop3());
             if (array != null) {
@@ -247,7 +247,7 @@ public class RecordService {
                 JsonNode profile = evidence.path("profile");
                 if (profile.isObject()) {
                     String text = profile.path("text").asText("");
-                    profileRef = text.isBlank() ? null : text;
+                    profileText = text.isBlank() ? null : text;
                 }
             }
         } catch (Exception e) {
@@ -257,7 +257,7 @@ public class RecordService {
                 rec == null ? null : rec.getName(), record.getConfidence(), top3, note, cites,
                 record.getLowConfidence() != null && record.getLowConfidence() == 1,
                 booked, actual == null ? null : actual.getName(),
-                actual == null ? null : actual.getLocation(), profileRef);
+                actual == null ? null : actual.getLocation(), profileText);
     }
 
     /**

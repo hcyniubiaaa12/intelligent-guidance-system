@@ -272,8 +272,8 @@ class ChatServiceTest {
         ArgumentCaptor<GuideService.ProfileSnapshot> snapshot =
                 ArgumentCaptor.forClass(GuideService.ProfileSnapshot.class);
         verify(guideService).saveConclusion(any(), any(), any(), any(), snapshot.capture());
-        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().text(), "推荐卡档案行来自后端读到的档案");
-        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().query(), "检索用串一并进快照");
+        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().profileText(), "推荐卡档案行来自后端读到的档案");
+        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().recallQuery(), "检索用串一并进快照");
         assertEquals(structure, snapshot.getValue().structure(), "结构化档案一并进快照");
     }
 

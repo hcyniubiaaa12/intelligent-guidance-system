@@ -62,9 +62,9 @@ public class ChatDTO {
     /**
      * result 事件载荷（渲染推荐卡的完整数据）。
      *
-     * @param profileRef 患者健康档案的**待注入文本**（后端读档组装，非模型输出）；为空 = 本轮无档案，
-     *                   前端据此不渲染「已参考您的健康档案」行。它与 cites 分开呈现——档案是患者自述，
-     *                   **不是医学证据、不进注号体系**（单据 02）
+     * @param profileText 患者健康档案的**档案提示文本**（后端读档组装，非模型输出）；为空 = 本轮无档案，
+     *                    前端据此不渲染「已参考您的健康档案」行。它与 cites 分开呈现——档案是患者自述，
+     *                    **不是医学证据、不进注号体系**（单据 02）
      */
     public record ResultVO(
             String sessionId,
@@ -76,7 +76,7 @@ public class ChatDTO {
             String note,
             List<Cite> cites,
             boolean lowConfidence,
-            String profileRef) {
+            String profileText) {
     }
 
     /** 挂号确认结果 */

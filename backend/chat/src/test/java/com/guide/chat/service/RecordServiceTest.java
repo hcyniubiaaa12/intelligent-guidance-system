@@ -381,7 +381,7 @@ class RecordServiceTest {
 
         RecordDTO.CardVO card = service.sessionDetail(ME, "s1").card();
 
-        assertEquals("男、45-59岁、2型糖尿病", card.profileRef());
+        assertEquals("男、45-59岁、2型糖尿病", card.profileText());
     }
 
     @Test
@@ -394,14 +394,14 @@ class RecordServiceTest {
         noNode.setRecDeptId("d-neuro");
         noNode.setEvidence("{\"retrieved\":[]}"); // 单据 04 之前的老快照：没有 profile 节点
         when(recordMapper.selectList(any())).thenReturn(List.of(noNode));
-        assertNull(service.sessionDetail(ME, "s1").card().profileRef(), "缺节点 → 空，不炸");
+        assertNull(service.sessionDetail(ME, "s1").card().profileText(), "缺节点 → 空，不炸");
 
         GuideRecord nullNode = new GuideRecord();
         nullNode.setSessionId("s1");
         nullNode.setRecDeptId("d-neuro");
         nullNode.setEvidence("{\"retrieved\":[],\"profile\":null}"); // 无档案记录：节点为 null
         when(recordMapper.selectList(any())).thenReturn(List.of(nullNode));
-        assertNull(service.sessionDetail(ME, "s1").card().profileRef(), "null 节点 → 空，不炸");
+        assertNull(service.sessionDetail(ME, "s1").card().profileText(), "null 节点 → 空，不炸");
     }
 
     // ---------------------------------------------------------------- 夹具
