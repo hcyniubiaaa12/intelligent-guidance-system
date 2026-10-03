@@ -235,12 +235,36 @@ class HealthProfileServiceTest {
     }
 
     @Test
-    @DisplayName("停用不妨碍已保存档案的召回：组装召回串用全量词表（查询不按 enabled 过滤）")
-    void recallVocabularyIncludesDisabledTags() {
-        // 患者档案的自由文本写了「我对青霉素类过敏」；该标签随后被停用（enabled=0）
+    @DisplayName("停用的标签不再作为自由文本的召回锚点（自由文本匹配改用仅启用词表）")
+    void disabledTagIsNotAFreeTextAnchor() {
+        // 患者自由文本写了「我对青霉素类过敏」，但该标签已停用 ⇒ 启用词表查询不返回它
         UserHealthProfile row = new UserHealthProfile();
         row.setUserId("u1");
         row.setAllergyOther("我对青霉素类过敏");
+        when(profileMapper.selectOne(any())).thenReturn(row);
+        // 模拟「按 enabled 过滤」的查询结果：停用的青霉素类不在结果里
+        HealthTag enabledTag = new HealthTag();
+        enabledTag.setId("t1");
+        enabledTag.setTerm("高血压");
+        enabledTag.setType(HealthTagType.CHRONIC);
+        enabledTag.setEnabled(1);
+        when(healthTagMapper.selectList(any())).thenReturn(List.of(enabledTag));
+
+        HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
+
+        // 自由文本未命中任何启用词 ⇒ 不进检索串（停用词不再当锚点）
+        assertThat(chat.assembly().query()).isEmpty();
+        // 且加载词表的查询确实按 enabled 过滤——停用词被 SQL 挡在匹配词表之外
+        assertThat(capturedTagQuery().getSqlSegment()).contains("enabled");
+    }
+
+    @Test
+    @DisplayName("已保存的该标签仍在召回串里：停用不改动已勾选标签的召回")
+    void savedDisabledTagStillInRecall() {
+        // 患者保存档案时勾选了「青霉素类」；该标签随后被停用（enabled=0）
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setAllergyTags("[\"青霉素类\"]");
         when(profileMapper.selectOne(any())).thenReturn(row);
         HealthTag disabled = new HealthTag();
         disabled.setId("t9");
@@ -251,10 +275,8 @@ class HealthProfileServiceTest {
 
         HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
 
-        // 已保存档案的自由文本照常进检索串——停用没有让已填内容失效
-        assertThat(chat.assembly().query()).contains("我对青霉素类过敏");
-        // 且加载词表的查询没有 enabled 过滤：否则真实库会漏掉停用词，等于停用回改了历史档案
-        assertThat(capturedTagQuery().getSqlSegment()).doesNotContain("enabled");
+        // 已勾选标签无条件进召回串——停用没有让已填内容失效
+        assertThat(chat.assembly().query()).contains("青霉素类");
     }
 
     @SuppressWarnings("unchecked")

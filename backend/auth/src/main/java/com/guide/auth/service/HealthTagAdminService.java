@@ -23,9 +23,9 @@ import java.util.List;
  * <ul>
  *   <li>患者端选项加载（{@link HealthProfileService#listEnabledTags()}）**只列启用项**；
  *       停用后该标签不再出现在可选列表里；</li>
- *   <li>但**已保存档案**里的标签照常参与「档案召回串」——组装召回串用**全量**词表
- *       （见 {@link HealthProfileService#assembleForChat}，不做 enabled 过滤）。
- *       停用只是"以后不能再选"，不是"已经选过的失效"；</li>
+ *   <li>停用词也**不再充当自由文本的召回锚点**（自由文本匹配用仅启用词表）；但**已保存档案里
+ *       已勾选的**该标签无条件进召回串——停用只是"以后不能再选"，不是"已经选过的失效"，
+ *       更不回改任何档案行；</li>
  *   <li>启用 / 停用只翻转 {@code health_tag.enabled} 一列，**不触碰任何档案行、不回改历史导诊记录**。</li>
  * </ul>
  *
