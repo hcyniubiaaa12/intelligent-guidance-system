@@ -111,17 +111,22 @@ public class PgVectorUtil {
      * 向量召回：余弦相似度 Top-K。停用科室不做过滤——chunk 留库可召回，
      * 但绝不入推荐（科室校验在 chat 层按 enabled 拦截，见链路 A 对齐点）。
      *
+     * <p><b>标题片不进召回</b>（{@link ChunkRetrievalFilter}，2026-10-03 实测）：
+     * 标题片的正文等于标题本身、语义已被正文片的 title 列携带，还会挤占 Top-K。
+     *
      * <p>只返回 id / 科室 / 分数：切片正文在 MySQL（管事实），跨库不能 JOIN，
      * 由 rag 层融合后经 ChunkTextProvider 端口批量回填标题与正文。
      */
     public List<ChunkHit> searchChunks(float[] queryVector, int topK) {
         String literal = toLiteral(queryVector);
-        return jdbcTemplate.query("""
-                        SELECT chunk_id, dept_id, 1 - (embedding <=> CAST(? AS vector)) AS score
-                        FROM kb_chunk_vec
-                        ORDER BY embedding <=> CAST(? AS vector)
-                        LIMIT ?
-                        """,
+        String sql = """
+                SELECT chunk_id, dept_id, 1 - (embedding <=> CAST(? AS vector)) AS score
+                FROM kb_chunk_vec
+                WHERE %s
+                ORDER BY embedding <=> CAST(? AS vector)
+                LIMIT ?
+                """.formatted(ChunkRetrievalFilter.sqlPredicate());
+        return jdbcTemplate.query(sql,
                 (rs, rowNum) -> new ChunkHit(
                         rs.getString("chunk_id"),
                         rs.getString("dept_id"),

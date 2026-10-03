@@ -123,7 +123,12 @@ public class EsChunkUtil {
             var response = client.search(s -> s
                             .index(properties.getChunkIndex())
                             .size(topK)
-                            .query(q -> q.multiMatch(m -> m.query(query).fields("title^2", "content"))),
+                            // 标题片不进召回（ChunkRetrievalFilter）：正文等于标题本身、语义已由正文片的
+                            // title 列携带，且会在 BM25 上挤占 Top-K（2026-10-03 实测 46% 的 Top1 是标题片）
+                            .query(q -> q.bool(b -> b
+                                    .must(m -> m.multiMatch(mm -> mm.query(query).fields("title^2", "content")))
+                                    .mustNot(mn -> mn.term(t -> t.field("chunk_type")
+                                            .value(ChunkRetrievalFilter.excludedCode()))))),
                     ChunkDoc.class);
             List<ChunkHit> hits = new ArrayList<>();
             for (Hit<ChunkDoc> hit : response.hits().hits()) {
