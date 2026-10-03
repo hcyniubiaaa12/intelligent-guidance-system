@@ -3,6 +3,8 @@ package com.guide.admin;
 import com.baomidou.mybatisplus.annotation.EnumValue;
 import com.guide.async.enums.IngestStage;
 import com.guide.async.enums.IngestStatus;
+import com.guide.auth.enums.Gender;
+import com.guide.auth.enums.HealthTagType;
 import com.guide.auth.enums.SensitiveWordType;
 import com.guide.auth.enums.UserRole;
 import com.guide.auth.enums.UserStatus;
@@ -41,6 +43,10 @@ class EnumConventionTest {
             DocStatus.class, DocFailType.class, MappingSource.class, TermType.class, TermSource.class,
             TrackStage.class, FilterAction.class, BucketStatus.class, ReviewStatus.class,
             IngestStage.class, IngestStatus.class,
+            // 健康档案：性别入库（male/female）、标签词表类别（chronic/medication/allergy）。
+            // AgeRange 刻意不在列——年龄段编码天然含数字与连字符（0-3 / 60+），不满足本约定的
+            // "全小写字母+下划线"，故按受控字符串处理（见 AgeRange 类注释）。
+            Gender.class, HealthTagType.class,
             // 块类型落在 kb_chunk.chunk_type（VARCHAR），新加的 figure/image/formula/code/header/footer
             // 也必须遵守"编码值 = 常量名小写"这条约定，否则库里会出现两套写法的同一个类型
             LayoutBlock.BlockType.class

@@ -51,6 +51,11 @@ public class SysConfigService {
     /** 单次解析的总超时（分钟）：超了标 failed(retryable)，不无限等下去 */
     public static final String KEY_INGEST_PARSE_TIMEOUT_MINUTES = "ingest.parse.timeout.minutes";
 
+    /** 健康档案：每类标签（既往病史 / 长期用药 / 过敏史）最多可选条数 */
+    public static final String KEY_PROFILE_TAG_MAX = "profile.tag.max";
+    /** 健康档案：每个「其他」自由文本框最多字数 */
+    public static final String KEY_PROFILE_TEXT_MAX = "profile.text.max";
+
     /**
      * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
      * 与 SysConfigAdminService 白名单里的 ParamSpec 同源——改这里就够，别再散落第二份字面量。
@@ -65,6 +70,10 @@ public class SysConfigService {
     /** 入库轮询的代码侧默认值 */
     public static final int DEFAULT_INGEST_POLL_INTERVAL_SECONDS = 10;
     public static final int DEFAULT_INGEST_PARSE_TIMEOUT_MINUTES = 30;
+
+    /** 健康档案上限的代码侧默认值 */
+    public static final int DEFAULT_PROFILE_TAG_MAX = 10;
+    public static final int DEFAULT_PROFILE_TEXT_MAX = 50;
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
