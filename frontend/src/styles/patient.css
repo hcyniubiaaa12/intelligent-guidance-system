@@ -320,6 +320,16 @@
   color: var(--err);
 }
 
+/* 健康档案：患者自述、不是证据——实线上边框（「判断依据」用虚线），与知识片段分开呈现 */
+.p-card__profile {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
 /* ---------- 按钮 ---------- */
 .p-btn {
   display: block;
