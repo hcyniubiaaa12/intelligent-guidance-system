@@ -216,8 +216,8 @@ public class ChatService {
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
-            String profileText = profile.assembly().text().isBlank() ? null : profile.assembly().text();
-            String profileQuery = profile.assembly().query().isBlank() ? null : profile.assembly().query();
+            String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
+            String profileQuery = profile.assembly().recallQuery().isBlank() ? null : profile.assembly().recallQuery();
             log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}（召回串 {}）",
                     askRound, askMaxRounds, forceConclusion, deptOptions().size(),
                     profileText == null ? "无" : profileText.length() + " 字",

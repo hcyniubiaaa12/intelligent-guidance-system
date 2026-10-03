@@ -253,7 +253,7 @@ class HealthProfileServiceTest {
         HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
 
         // 自由文本未命中任何启用词 ⇒ 不进检索串（停用词不再当锚点）
-        assertThat(chat.assembly().query()).isEmpty();
+        assertThat(chat.assembly().recallQuery()).isEmpty();
         // 且加载词表的查询确实按 enabled 过滤——停用词被 SQL 挡在匹配词表之外
         assertThat(capturedTagQuery().getSqlSegment()).contains("enabled");
     }
@@ -276,7 +276,7 @@ class HealthProfileServiceTest {
         HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
 
         // 已勾选标签无条件进召回串——停用没有让已填内容失效
-        assertThat(chat.assembly().query()).contains("青霉素类");
+        assertThat(chat.assembly().recallQuery()).contains("青霉素类");
     }
 
     @SuppressWarnings("unchecked")

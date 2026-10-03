@@ -58,12 +58,13 @@ public final class HealthProfileAssembler {
     /**
      * 组装结果。
      *
-     * @param text         待注入文本：按「性别 / 年龄段 / 既往病史 / 长期用药 / 过敏史」顺序拼接，
+     * @param profileText  **档案提示文本**：按「性别 / 年龄段 / 既往病史 / 长期用药 / 过敏史」顺序拼接，
      *                     段内不含任何指令性文字；全空档案时为空串（上层据此退回原链路、不拼 prompt 段）
-     * @param query        检索用串：性别 + 年龄段 + 标签 + 命中词表的自由文本；全空时为空串（03 接入）
-     * @param textOverflow 待注入文本是否超 {@link #TEXT_MAX} 字天花板（超限不裁剪，由调用方告警）
+     * @param recallQuery  **档案召回串**：性别 + 年龄段 + 标签 + 命中词表的自由文本；全空时为空串（03 接入）。
+     *                     与 {@code RagRequest.query}（主诉串）同名异义，故用词表名「召回串」而非泛名 query
+     * @param textOverflow 档案提示文本是否超 {@link #TEXT_MAX} 字天花板（超限不裁剪，由调用方告警）
      */
-    public record Assembly(String text, String query, boolean textOverflow) {
+    public record Assembly(String profileText, String recallQuery, boolean textOverflow) {
     }
 
     /**
@@ -89,9 +90,9 @@ public final class HealthProfileAssembler {
         addCategory(profile.medicationTags(), profile.medicationOther(), vocab, textParts, queryParts);
         addCategory(profile.allergyTags(), profile.allergyOther(), vocab, textParts, queryParts);
 
-        String text = String.join(SEPARATOR, textParts);
-        String query = String.join(SEPARATOR, queryParts);
-        return new Assembly(text, query, text.length() > TEXT_MAX);
+        String profileText = String.join(SEPARATOR, textParts);
+        String recallQuery = String.join(SEPARATOR, queryParts);
+        return new Assembly(profileText, recallQuery, profileText.length() > TEXT_MAX);
     }
 
     /** 一个类别（既往病史 / 长期用药 / 过敏史）：标签全进两段；自由文本命中词表才进检索串 */

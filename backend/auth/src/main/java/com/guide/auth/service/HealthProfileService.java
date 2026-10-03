@@ -162,7 +162,7 @@ public class HealthProfileService {
                 HealthProfileAssembler.assemble(profile, enabledTagTerms());
         if (assembly.textOverflow()) {
             log.warn("健康档案提示文本超 {} 字天花板（当前 {} 字）：非患者额度，属配置/词表异常，不裁剪、请检查",
-                    HealthProfileAssembler.TEXT_MAX, assembly.text().length());
+                    HealthProfileAssembler.TEXT_MAX, assembly.profileText().length());
         }
         return new ChatProfile(assembly, profile);
     }

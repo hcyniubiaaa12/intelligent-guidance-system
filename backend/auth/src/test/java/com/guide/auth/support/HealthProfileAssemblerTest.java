@@ -25,8 +25,8 @@ class HealthProfileAssemblerTest {
     void emptyProfileYieldsEmptyBoth() {
         Assembly assembly = HealthProfileAssembler.assemble(empty(), VOCAB);
 
-        assertThat(assembly.text()).isEmpty();
-        assertThat(assembly.query()).isEmpty();
+        assertThat(assembly.profileText()).isEmpty();
+        assertThat(assembly.recallQuery()).isEmpty();
         assertThat(assembly.textOverflow()).isFalse();
     }
 
@@ -40,8 +40,8 @@ class HealthProfileAssemblerTest {
 
         Assembly assembly = HealthProfileAssembler.assemble(profile, VOCAB);
 
-        assertThat(assembly.text()).isEqualTo("男、45-59岁、高血压、2型糖尿病、二甲双胍、青霉素类");
-        assertThat(assembly.query()).isEqualTo("男、45-59岁、高血压、2型糖尿病、二甲双胍、青霉素类");
+        assertThat(assembly.profileText()).isEqualTo("男、45-59岁、高血压、2型糖尿病、二甲双胍、青霉素类");
+        assertThat(assembly.recallQuery()).isEqualTo("男、45-59岁、高血压、2型糖尿病、二甲双胍、青霉素类");
     }
 
     @Test
@@ -54,10 +54,10 @@ class HealthProfileAssemblerTest {
 
         Assembly assembly = HealthProfileAssembler.assemble(profile, VOCAB);
 
-        assertThat(assembly.text()).isEqualTo("高血压、血糖有点高、我对青霉素类过敏");
+        assertThat(assembly.profileText()).isEqualTo("高血压、血糖有点高、我对青霉素类过敏");
         // 检索串：标签「高血压」+ 命中的自由文本；口语"血糖有点高"被丢在检索串之外
-        assertThat(assembly.query()).isEqualTo("高血压、我对青霉素类过敏");
-        assertThat(assembly.query()).doesNotContain("血糖有点高");
+        assertThat(assembly.recallQuery()).isEqualTo("高血压、我对青霉素类过敏");
+        assertThat(assembly.recallQuery()).doesNotContain("血糖有点高");
     }
 
     @Test
@@ -68,8 +68,8 @@ class HealthProfileAssemblerTest {
 
         Assembly assembly = HealthProfileAssembler.assemble(profile, Set.of());
 
-        assertThat(assembly.text()).isEqualTo("血糖有点高、海鲜过敏");
-        assertThat(assembly.query()).isEmpty();
+        assertThat(assembly.profileText()).isEqualTo("血糖有点高、海鲜过敏");
+        assertThat(assembly.recallQuery()).isEmpty();
     }
 
     @Test
@@ -81,8 +81,8 @@ class HealthProfileAssemblerTest {
         Assembly assembly = HealthProfileAssembler.assemble(profile, VOCAB);
 
         assertThat(assembly.textOverflow()).isTrue();
-        assertThat(assembly.text()).hasSize(HealthProfileAssembler.TEXT_MAX + 1);
-        assertThat(assembly.text()).isEqualTo(longText);
+        assertThat(assembly.profileText()).hasSize(HealthProfileAssembler.TEXT_MAX + 1);
+        assertThat(assembly.profileText()).isEqualTo(longText);
     }
 
     @Test
@@ -105,8 +105,8 @@ class HealthProfileAssemblerTest {
 
         Assembly assembly = HealthProfileAssembler.assemble(profile, VOCAB);
 
-        assertThat(assembly.text()).isEqualTo("高血压");
-        assertThat(assembly.query()).isEqualTo("高血压");
+        assertThat(assembly.profileText()).isEqualTo("高血压");
+        assertThat(assembly.recallQuery()).isEqualTo("高血压");
     }
 
     private Profile empty() {
