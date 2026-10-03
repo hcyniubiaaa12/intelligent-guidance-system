@@ -82,3 +82,17 @@ scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / asy
 - 进度：功能完成后立即更新 `进度.md`（完成内容、耗时、困难点与解法、新待办）
 - 术语：新增/变更领域概念时同步更新 `CONTEXT.md`
 - 校验：功能修改后检查 `.claude/rules/` 下全部文档（数据库设计.md、前端设计方案.md）是否过时，CLAUDE.md 本身同样校验；过时即同步更新
+
+## Agent skills
+
+### Issue tracker
+
+issue 与 spec 以本地 Markdown 形式存放在 `.scratch/<feature-slug>/`。See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+五个角色标签沿用默认词表（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）。See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context：`CONTEXT.md`（领域词汇表）在仓库根。See `docs/agents/domain.md`.
