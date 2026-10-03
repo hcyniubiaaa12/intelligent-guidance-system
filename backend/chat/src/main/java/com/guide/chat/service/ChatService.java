@@ -13,6 +13,7 @@ import com.guide.chat.enums.MessageRole;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatMessageMapper;
 import com.guide.chat.mapper.ChatSessionMapper;
+import com.guide.chat.support.RecommendableDepts;
 import com.guide.chat.support.StreamGate;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
@@ -69,6 +70,7 @@ public class ChatService {
     private final SensitiveGuard sensitiveGuard;
     private final SufficiencyRule sufficiencyRule;
     private final DeptService deptService;
+    private final RecommendableDepts recommendableDepts;
     private final SysConfigService sysConfigService;
     private final HealthProfileService healthProfileService;
     private final ObjectMapper objectMapper;
@@ -78,8 +80,8 @@ public class ChatService {
                        GuideService guideService, RagService ragService,
                        AnswerParser answerParser, SensitiveGuard sensitiveGuard,
                        SufficiencyRule sufficiencyRule, DeptService deptService,
-                       SysConfigService sysConfigService, HealthProfileService healthProfileService,
-                       ObjectMapper objectMapper,
+                       RecommendableDepts recommendableDepts, SysConfigService sysConfigService,
+                       HealthProfileService healthProfileService, ObjectMapper objectMapper,
                        @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
@@ -89,6 +91,7 @@ public class ChatService {
         this.sensitiveGuard = sensitiveGuard;
         this.sufficiencyRule = sufficiencyRule;
         this.deptService = deptService;
+        this.recommendableDepts = recommendableDepts;
         this.sysConfigService = sysConfigService;
         this.healthProfileService = healthProfileService;
         this.objectMapper = objectMapper;
@@ -118,7 +121,13 @@ public class ChatService {
         return emitter;
     }
 
-    /** 挂号科室范围（患者端挂号页） */
+    /**
+     * 挂号科室范围（患者端挂号页）：**全部启用科室（含零切片科室）**。
+     *
+     * <p>挂号与「系统有把握推荐」是两件事——新建、语料待上传的科室患者照样能挂号，
+     * 只是系统此刻不会主动推荐它。故这里读 {@link DeptService#listEnabled()}，
+     * **不**收敛到可推荐科室（候选清单见 {@link #deptOptions(List)}）。
+     */
     public List<ChatDTO.DeptVO> listDepts() {
         List<ChatDTO.DeptVO> result = new ArrayList<>();
         for (Dept dept : deptService.listEnabled()) {
@@ -218,11 +227,14 @@ public class ChatService {
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
             String profileQuery = profile.assembly().recallQuery().isBlank() ? null : profile.assembly().recallQuery();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}（召回串 {}）",
-                    askRound, askMaxRounds, forceConclusion, deptOptions().size(),
+            // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
+            RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}（召回串 {}）",
+                    askRound, askMaxRounds, forceConclusion, depts.recommendableCount(),
+                    depts.enabledCount(), depts.recommendableCount(), depts.filtered(),
                     profileText == null ? "无" : profileText.length() + " 字",
                     profileQuery == null ? "无" : profileQuery.length() + " 字");
-            RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(),
+            RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
                     askRound, forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
@@ -494,10 +506,16 @@ public class ChatService {
         return history;
     }
 
-    private List<DeptOption> deptOptions() {
+    /**
+     * 候选科室清单（= 推荐校验白名单）：**只含可推荐科室**（启用且有切片），带科室简介供 prompt 展示。
+     *
+     * <p>清单与 {@link GuideService#saveConclusion} 的校验白名单同源（都取自 {@link RecommendableDepts}）：
+     * 模型能推荐的 ⇔ 校验能通过的，不出现"推荐了但依据无从展示"的科室。
+     */
+    private List<DeptOption> deptOptions(List<Dept> depts) {
         List<DeptOption> options = new ArrayList<>();
-        for (Dept dept : deptService.listEnabled()) {
-            options.add(new DeptOption(dept.getId(), dept.getName()));
+        for (Dept dept : depts) {
+            options.add(new DeptOption(dept.getId(), dept.getName(), dept.getIntro()));
         }
         return options;
     }

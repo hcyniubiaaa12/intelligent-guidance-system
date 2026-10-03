@@ -83,14 +83,21 @@ public class PromptBuilder {
         return "\n\n【患者健康档案】\n" + profileText;
     }
 
-    /** 候选科室：模型只能从这里选（停用科室已在 chat 层过滤，不进入本清单） */
+    /**
+     * 候选科室：模型只能从这里选。清单由 chat 层收敛为**可推荐科室**（启用且有切片）后传入，
+     * 本层不感知业务状态；带简介则渲染「- 名称：简介」，**简介为空只渲染「- 名称」**（不出现孤零零的冒号）。
+     */
     private String deptBlock(RagRequest request) {
         if (request.deptOptions().isEmpty()) {
             return "（无可用科室）";
         }
         StringBuilder sb = new StringBuilder();
         for (DeptOption dept : request.deptOptions()) {
-            sb.append("- ").append(dept.name()).append('\n');
+            sb.append("- ").append(dept.name());
+            if (dept.intro() != null && !dept.intro().isBlank()) {
+                sb.append('：').append(dept.intro().strip());
+            }
+            sb.append('\n');
         }
         return sb.toString().stripTrailing();
     }

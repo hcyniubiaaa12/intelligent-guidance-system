@@ -9,6 +9,8 @@ import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
+import com.guide.chat.support.RecommendableDepts;
+import com.guide.common.model.ChunkHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
@@ -41,24 +43,25 @@ import static org.mockito.Mockito.when;
 class GuideServiceTest {
 
     private GuideRecordMapper guideRecordMapper;
+    private DeptService deptService;
+    private RecommendableDepts recommendableDepts;
     private GuideService service;
 
     @BeforeEach
     void setUp() {
         guideRecordMapper = mock(GuideRecordMapper.class);
         ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
-        DeptService deptService = mock(DeptService.class);
+        deptService = mock(DeptService.class);
+        recommendableDepts = mock(RecommendableDepts.class);
         SysConfigService sysConfigService = mock(SysConfigService.class);
 
-        Dept dept = new Dept();
-        dept.setId("d-cardio");
-        dept.setName("心血管内科");
-        dept.setEnabled(1);
+        Dept dept = dept("d-cardio", "心血管内科");
+        when(recommendableDepts.list()).thenReturn(List.of(dept));
         when(deptService.listEnabled()).thenReturn(List.of(dept));
         when(sysConfigService.getDouble(anyString(), anyDouble())).thenReturn(0.5);
 
         service = new GuideService(guideRecordMapper, sessionMapper, deptService,
-                sysConfigService, new ObjectMapper());
+                recommendableDepts, sysConfigService, new ObjectMapper());
     }
 
     @Test
@@ -119,11 +122,58 @@ class GuideServiceTest {
                 .isEqualTo("高血压");
     }
 
+    @Test
+    @DisplayName("推荐校验只接受可推荐科室：模型输出的零切片科室被过滤，可推荐科室保留")
+    void zeroChunkDeptIsFiltered() {
+        RagAnswer answer = new RagAnswer(RagAnswer.Verdict.RECOMMEND, "建议先到心血管内科。",
+                List.of(new RagAnswer.DeptCandidate("老年医学科", 0.7),
+                        new RagAnswer.DeptCandidate("心血管内科", 0.6)),
+                "老年多病共存", List.of(), 0.7, true);
+
+        service.saveConclusion(session("s1"), answer, context(), "raw-output",
+                new GuideService.ProfileSnapshot(null, null, null));
+
+        GuideRecord record = capturedRecord(1);
+        assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
+        assertThat(record.getRecTop3()).doesNotContain("老年医学科").contains("心血管内科");
+    }
+
+    @Test
+    @DisplayName("Top3 被滤光（全为零切片科室）⇒ 走既有兜底路径：回落检索片段所属科室、低置信度")
+    void allFilteredFallsBackToChunkDept() {
+        RagAnswer answer = new RagAnswer(RagAnswer.Verdict.RECOMMEND, "建议先到老年医学科。",
+                List.of(new RagAnswer.DeptCandidate("老年医学科", 0.7)),
+                "老年多病共存", List.of(), 0.7, true);
+        when(deptService.getById("d-cardio")).thenReturn(dept("d-cardio", "心血管内科"));
+
+        service.saveConclusion(session("s1"), answer, contextWithCardioChunk(), "raw-output",
+                new GuideService.ProfileSnapshot(null, null, null));
+
+        GuideRecord record = capturedRecord(1);
+        assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
+        assertThat(record.getConfidence()).isNull();        // 兜底科室无置信度
+        assertThat(record.getLowConfidence()).isEqualTo(1); // 分流进盲区榜
+    }
+
     // ---------------------------------------------------------------- 夹具
 
     private HealthProfileAssembler.Profile structure(String historyTag) {
         return new HealthProfileAssembler.Profile(
                 null, null, List.of(historyTag), null, List.of(), null, List.of(), null);
+    }
+
+    private Dept dept(String id, String name) {
+        Dept dept = new Dept();
+        dept.setId(id);
+        dept.setName(name);
+        dept.setEnabled(1);
+        return dept;
+    }
+
+    private GuideRecord capturedRecord(int inserts) {
+        ArgumentCaptor<GuideRecord> captor = ArgumentCaptor.forClass(GuideRecord.class);
+        verify(guideRecordMapper, times(inserts)).insert(captor.capture());
+        return captor.getAllValues().get(inserts - 1);
     }
 
     private ChatSession session(String id) {
@@ -144,6 +194,12 @@ class GuideServiceTest {
 
     private RagContext context() {
         return new RagContext("胸口闷", "胸口闷", List.of(), 0, 0);
+    }
+
+    /** 召回片段挂在心血管内科下：兜底选科据此回落 */
+    private RagContext contextWithCardioChunk() {
+        return new RagContext("胸口闷", "胸口闷",
+                List.of(new ChunkHit("c1", "d-cardio", "胸痛鉴别", "活动后胸闷需排查心脏来源", 0.9)), 1, 1);
     }
 
     private JsonNode capturedEvidence(int inserts) {

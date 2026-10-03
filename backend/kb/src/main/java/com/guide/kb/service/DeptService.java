@@ -13,7 +13,7 @@ import java.util.List;
 
 /**
  * 科室蓝本服务（链路 B）。
- * 停用仅入口生效：挂号页只列 enabled=1；推荐校验按 enabled 过滤（见链路 A 对齐点）。
+ * 停用仅入口生效：挂号页只列 enabled=1；推荐校验按**可推荐科室**（启用且有切片）过滤（见链路 A 对齐点）。
  */
 @Slf4j
 @Service
@@ -22,7 +22,13 @@ public class DeptService {
 
     private final DeptMapper deptMapper;
 
-    /** 启用科室（挂号科室范围 / 推荐候选范围） */
+    /**
+     * 启用科室（**挂号科室范围**）。
+     *
+     * <p>⚠️ **不再是推荐候选范围**：候选科室 = **可推荐科室**（启用**且已有切片**），
+     * 由 chat 的 {@code RecommendableDepts} 在启用科室基础上再按切片数过滤。仅建蓝本、语料待上传的
+     * 新科室在此列表中（患者可挂号），但不进候选清单（系统不推荐知识库里零内容的科室）。
+     */
     public List<Dept> listEnabled() {
         return deptMapper.selectList(Wrappers.<Dept>lambdaQuery()
                 .eq(Dept::getEnabled, 1)
@@ -55,8 +61,9 @@ public class DeptService {
      * 新增科室蓝本（管理端「增加科室」）：与 {@link #update} 同一条铁律——**科室名全库唯一**
      * （模型输出的是科室名字符串，写库与推荐校验都靠 {@link #findByName} 按名字回填实体）。
      *
-     * <p>新建即启用/停用由管理员当场选，其余**零连带**：挂号页与候选科室清单读
-     * {@link #listEnabled()} 自带新科室；「回流补充 · XX科」容器在首次回流时懒创建，
+     * <p>新建即启用/停用由管理员当场选，其余**零连带**：挂号页读 {@link #listEnabled()} 自带新科室；
+     * 但**候选科室清单此刻不含新科室**——它零切片，要等语料上传（切片数 ≥ 1）后由
+     * {@code RecommendableDepts} 自动纳入。「回流补充 · XX科」容器在首次回流时懒创建，
      * 不需要为空科室预建任何东西。
      */
     public Dept create(String name, String location, String intro, boolean enabled) {

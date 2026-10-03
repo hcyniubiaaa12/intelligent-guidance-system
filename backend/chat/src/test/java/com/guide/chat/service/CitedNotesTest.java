@@ -22,6 +22,7 @@ class CitedNotesTest {
             mock(com.guide.chat.mapper.GuideRecordMapper.class),
             mock(com.guide.chat.mapper.ChatSessionMapper.class),
             mock(com.guide.kb.service.DeptService.class),
+            mock(com.guide.chat.support.RecommendableDepts.class),
             mock(com.guide.auth.service.SysConfigService.class),
             new ObjectMapper());
 

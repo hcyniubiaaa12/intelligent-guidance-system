@@ -165,7 +165,7 @@ class RagServiceTest {
     }
 
     private RagRequest request(String query, String profileQuery) {
-        return new RagRequest(query, List.of(), List.of(new DeptOption("d1", "心血管内科")),
+        return new RagRequest(query, List.of(), List.of(new DeptOption("d1", "心血管内科", "诊治心脏与血管疾病。")),
                 0, false, TOP_K, 3, profileQuery, profileQuery);
     }
 

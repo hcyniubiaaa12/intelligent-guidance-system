@@ -12,6 +12,7 @@ import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
+import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.common.util.TextUtil;
@@ -35,7 +36,7 @@ import java.util.stream.IntStream;
 
 /**
  * 导诊记录服务（链路 A 第 ⑥⑦ 步 + 链路 C 前半的挂号确认）。
- * 职责：科室校验（停用仅入口生效）→ 导诊记录落库（rec_top3 / evidence 只写快照）→
+ * 职责：科室校验（只接受可推荐科室：启用且有切片）→ 导诊记录落库（rec_top3 / evidence 只写快照）→
  * 挂号确认时同事务写入 actual_dept 与 top1_hit / top3_hit 并置会话 closed。
  * 历史不回改：结论一旦落库即为事实，回流只前向修正知识库。
  */
@@ -56,6 +57,7 @@ public class GuideService {
     private final GuideRecordMapper guideRecordMapper;
     private final ChatSessionMapper sessionMapper;
     private final DeptService deptService;
+    private final RecommendableDepts recommendableDepts;
     private final SysConfigService sysConfigService;
     private final ObjectMapper objectMapper;
 
@@ -70,31 +72,32 @@ public class GuideService {
     @Transactional(rollbackFor = Exception.class)
     public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context,
                                      String rawOutput, ProfileSnapshot profile) {
-        List<Dept> enabledDepts = deptService.listEnabled();
+        // 校验白名单 = 可推荐科室（启用且有切片），与 ChatService 的候选清单同源：
+        // 模型能推荐的 ⇔ 能通过校验的。零切片科室即便被模型写出也会在此被过滤。
         Map<String, Dept> byName = new LinkedHashMap<>();
-        for (Dept dept : enabledDepts) {
+        for (Dept dept : recommendableDepts.list()) {
             byName.put(dept.getName(), dept);
         }
 
-        // 科室校验：Top3 混入停用/不存在科室则过滤，后续候选顶上
+        // 科室校验：Top3 混入不可推荐（停用/不存在/无切片）科室则过滤，后续候选顶上
         List<Candidate> kept = new ArrayList<>();
         for (RagAnswer.DeptCandidate candidate : answer.top3()) {
             Dept dept = byName.get(candidate.dept());
             if (dept != null) {
                 kept.add(new Candidate(dept, candidate.confidence()));
             } else {
-                log.info("推荐校验：科室「{}」不可用已过滤（停用或不存在）", candidate.dept());
+                log.info("推荐校验：科室「{}」不可推荐已过滤（停用/不存在/知识库无切片）", candidate.dept());
             }
         }
         if (kept.size() < answer.top3().size()) {
-            log.info("推荐校验：模型 Top3 {} 条 → 校验后保留 {} 条（其余为停用/不存在科室）",
+            log.info("推荐校验：模型 Top3 {} 条 → 校验后保留 {} 条（其余为不可推荐科室：停用/不存在/无切片）",
                     answer.top3().size(), kept.size());
         }
         boolean fallback = false;
         if (kept.isEmpty()) {
             // 全被拦：取检索片段的所属科室兜底，走低置信度分流（进盲区榜）
             fallback = true;
-            Dept dept = fallbackDept(context, enabledDepts);
+            Dept dept = fallbackDept(context, deptService.listEnabled());
             if (dept == null) {
                 throw new BizException(ErrorCode.RAG_EMPTY, "知识库暂无可用科室内容");
             }

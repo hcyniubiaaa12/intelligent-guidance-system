@@ -12,8 +12,11 @@ import com.guide.chat.enums.MessageRole;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatMessageMapper;
 import com.guide.chat.mapper.ChatSessionMapper;
+import com.guide.chat.support.RecommendableDepts;
+import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.RagService;
+import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagContext;
 import com.guide.rag.dto.RagRequest;
 import com.guide.rag.support.AnswerParser;
@@ -78,6 +81,8 @@ class ChatServiceTest {
     private SufficiencyRule sufficiencyRule;
     private SysConfigService sysConfigService;
     private HealthProfileService healthProfileService;
+    private DeptService deptService;
+    private RecommendableDepts recommendableDepts;
     private ChatService chatService;
 
     @BeforeEach
@@ -88,7 +93,8 @@ class ChatServiceTest {
         ragService = mock(RagService.class);
         SensitiveGuard sensitiveGuard = mock(SensitiveGuard.class);
         sufficiencyRule = mock(SufficiencyRule.class);
-        DeptService deptService = mock(DeptService.class);
+        deptService = mock(DeptService.class);
+        recommendableDepts = mock(RecommendableDepts.class);
         sysConfigService = mock(SysConfigService.class);
         healthProfileService = mock(HealthProfileService.class);
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
@@ -102,7 +108,9 @@ class ChatServiceTest {
         when(sufficiencyRule.templateQuestion()).thenReturn(TEMPLATE);
         when(sufficiencyRule.templateQuestionRepeat()).thenReturn(TEMPLATE_REPEAT);
         when(sysConfigService.getInt(anyString(), anyInt())).thenReturn(3);
+        // 默认无启用科室 / 无可推荐科室：候选清单为空（与收敛前 listEnabled() 返回空一致）
         when(deptService.listEnabled()).thenReturn(List.of());
+        when(recommendableDepts.snapshot()).thenReturn(new RecommendableDepts.Snapshot(List.of(), 0));
         // 默认无档案：两段空串、结构化档案 null ⇒ 不拼 prompt 段、不加推荐卡行、快照节点写空（与本单据前的链路一致）
         when(healthProfileService.assembleForChat(anyString()))
                 .thenReturn(new HealthProfileService.ChatProfile(
@@ -116,7 +124,7 @@ class ChatServiceTest {
 
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
-                sysConfigService, healthProfileService, new ObjectMapper(), executor);
+                recommendableDepts, sysConfigService, healthProfileService, new ObjectMapper(), executor);
     }
 
     @Test
@@ -305,6 +313,40 @@ class ChatServiceTest {
         assertEquals(0, captor.getValue().getArchived(), "续聊必须把归档标记清掉");
     }
 
+    @Test
+    @DisplayName("候选科室清单只含可推荐科室（有切片）：零切片科室不进候选、被剔除")
+    void candidateDeptsOnlyRecommendable() {
+        Dept cardio = dept("d-cardio", "心血管内科", "诊治心脏与血管疾病。");
+        // 启用 2 个、可推荐 1 个：老年医学科零切片被剔除
+        when(recommendableDepts.snapshot()).thenReturn(new RecommendableDepts.Snapshot(List.of(cardio), 2));
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        List<DeptOption> options = ragCaptor.getValue().deptOptions();
+        assertEquals(1, options.size(), "候选清单只应有可推荐科室");
+        assertEquals("心血管内科", options.get(0).name());
+        assertEquals("诊治心脏与血管疾病。", options.get(0).intro(), "候选清单带科室简介");
+        assertTrue(options.stream().noneMatch(option -> "老年医学科".equals(option.name())),
+                "零切片科室不得进入候选清单");
+    }
+
+    @Test
+    @DisplayName("挂号科室范围（listDepts）仍返回全部启用科室：零切片科室不进候选，但可挂号")
+    void listDeptsStillReturnsAllEnabled() {
+        when(deptService.listEnabled()).thenReturn(List.of(
+                dept("d-cardio", "心血管内科", "诊治心脏与血管疾病。"),
+                dept("d-geriatric", "老年医学科", "老年多病共存的综合评估与连续性管理。")));
+
+        List<ChatDTO.DeptVO> depts = chatService.listDepts();
+
+        assertEquals(2, depts.size(), "挂号范围是全部启用科室，不因无切片被收敛");
+        assertTrue(depts.stream().anyMatch(vo -> "老年医学科".equals(vo.name())),
+                "零切片科室患者照样能挂号");
+    }
+
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */
     @SuppressWarnings("unchecked")
     private void modelReturns(String raw) {
@@ -346,6 +388,16 @@ class ChatServiceTest {
     private GuideService.Conclusion conclusion() {
         return new GuideService.Conclusion(new GuideRecord(), new ChatDTO.ResultVO("s1234567890", "r1", "d1",
                 "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null));
+    }
+
+    /** 启用科室夹具（切片数不属于 Dept，由 RecommendableDepts 收敛时判定） */
+    private Dept dept(String id, String name, String intro) {
+        Dept dept = new Dept();
+        dept.setId(id);
+        dept.setName(name);
+        dept.setIntro(intro);
+        dept.setEnabled(1);
+        return dept;
     }
 
     private ChatDTO.MessageReq req(String content) {
