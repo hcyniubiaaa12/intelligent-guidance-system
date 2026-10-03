@@ -1,6 +1,6 @@
 # SQL 初始化脚本
 
-对应《数据库设计.md》v0.5。双库分工：MySQL 管事实，pgvector 管语义。
+对应《数据库设计.md》v0.6。双库分工：MySQL 管事实，pgvector 管语义。
 
 ## MySQL（先执行）
 
@@ -8,13 +8,13 @@
 mysql -uroot -p < mysql_init.sql
 ```
 
-包含：全部 19 张业务表（公共字段 id/deleted/created_at/updated_at）+ 初始数据（admin 账号 + 12 条默认 sys_config）。
+包含：全部 21 张业务表（公共字段 id/deleted/created_at/updated_at）+ 初始数据（admin 账号 + 19 条默认 sys_config）。
 
 **枚举字段**：状态列一律存英文小写编码值（如 `ongoing` / `parsing` / `pending`），列宽统一 `varchar(32)`；Java 侧由各模块 `enums` 包的枚举经 `@EnumValue` 自动装载，两端对齐关系见《数据库设计.md》§0 全字段枚举清单。布尔语义字段（`deleted`/`enabled`/`top1_hit` 等）保持 tinyint 0/1。
 
 ⚠️ admin 初始密码为示例 BCrypt 值（明文 `123456`），上线前请重新生成替换。
 
-脚本即最终形态：历次增量（`has_result`、`mute_until` / `user_violation`、敏感词与入库的 `sys_config`、`ingest_task.external_job_id`、`kb_chunk.chunk_type`、`guide_record.bucket_id`、`review_task.main_dept_id`）都已并入本文件，不再单发迁移脚本。
+脚本即最终形态：历次增量（`has_result`、`mute_until` / `user_violation`、**患者健康档案两表 `user_health_profile` / `health_tag`（2026-10-03）**、敏感词与入库的 `sys_config`、`ingest_task.external_job_id`、`kb_chunk.chunk_type`、`guide_record.bucket_id`、`review_task.main_dept_id`）都已并入本文件，不再单发迁移脚本。
 
 ⚠️ **全表都是 `CREATE TABLE IF NOT EXISTS`——重跑本脚本不会修改已存在的表。** 表已经建过、而后续版本改过列或索引时，重跑等于什么都没做，库会停在旧结构上，症状是运行期才炸的 `Unknown column`（例如 `review_task` 早期叫 `result_dept_id`，后来改成 `main_dept_id`）。**改过表结构之后，对已有的库要单独执行一次 ALTER。**
 

@@ -7,7 +7,7 @@
 ```
 frontend/
 ├── src/
-│   ├── views/patient/   # 患者端（Vant，样式：临床纸感 方案 A）：对话、推荐卡片、模拟挂号
+│   ├── views/patient/   # 患者端（**手写 CSS、无组件库**——`vant` 只在 package.json 声明、代码从未 import；样式：临床纸感 方案 A）：对话、推荐卡片、健康档案、模拟挂号
 │   ├── views/admin/     # 管理端（Element Plus，样式：冷靛控制台 方案 B）：知识库、审核、看板、LLM 配置
 │   ├── views/common/    # 双端共用（新增）：登录/注册页
 │   ├── api/             # HTTP 统一封装
