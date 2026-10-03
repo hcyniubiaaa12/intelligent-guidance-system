@@ -20,6 +20,8 @@ public enum ErrorCode {
     CANNOT_BAN_SELF(2006, "不能封禁自己的账号"),
     SENSITIVE_WORD_NOT_FOUND(2007, "敏感词不存在"),
     CONFIG_KEY_UNKNOWN(2008, "不支持的配置项"),
+    HEALTH_TAG_EXISTS(2009, "标签已存在"),
+    HEALTH_TAG_NOT_FOUND(2010, "标签不存在"),
 
     // chat 3xxx
     SESSION_CLOSED(3000, "会话已结束，请重新描述症状"),

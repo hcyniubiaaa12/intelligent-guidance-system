@@ -119,7 +119,13 @@ public class HealthProfileService {
                 .eq(UserHealthProfile::getUserId, userId));
     }
 
-    /** 标签词表只读列表（仅启用项）：患者端选项加载用；管理端启停第 05 单再补 */
+    /**
+     * 标签词表只读列表（**仅启用项**）：患者端选项加载用。
+     *
+     * <p>「停用只作用在入口」的入口就是这里——停用项不再出现在患者端多选列表里。
+     * 管理端启停见 {@link HealthTagAdminService}；已保存档案的召回**不受**停用影响
+     * （组装召回串走 {@link #allTagTerms()} 全量词表）。
+     */
     public List<HealthProfileDTO.TagVO> listEnabledTags() {
         List<HealthTag> rows = healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
                 .eq(HealthTag::getEnabled, 1)
@@ -161,7 +167,7 @@ public class HealthProfileService {
                 parseTags(row.getMedicationTags()), row.getMedicationOther(),
                 parseTags(row.getAllergyTags()), row.getAllergyOther());
         HealthProfileAssembler.Assembly assembly =
-                HealthProfileAssembler.assemble(profile, enabledTagTerms());
+                HealthProfileAssembler.assemble(profile, allTagTerms());
         if (assembly.textOverflow()) {
             log.warn("健康档案提示文本超 {} 字天花板（当前 {} 字）：非患者额度，属配置/词表异常，不裁剪、请检查",
                     HealthProfileAssembler.TEXT_MAX, assembly.text().length());
@@ -185,10 +191,17 @@ public class HealthProfileService {
                 null, null, List.of(), null, List.of(), null, List.of(), null);
     }
 
-    /** 启用词表（慢病 / 用药 / 过敏的 term 合集）：自由文本命中判定用，也是后续档案召回串的原料 */
-    private Set<String> enabledTagTerms() {
-        List<HealthTag> rows = healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
-                .eq(HealthTag::getEnabled, 1));
+    /**
+     * **全量**词表（慢病 / 用药 / 过敏的 term 合集，**含停用项**）：组装召回串时自由文本命中判定用。
+     *
+     * <p><b>为什么这里不过滤 {@code enabled}</b>：标签"停用"只作用在<b>入口</b>——患者端选项列表
+     * （{@link #listEnabledTags()}）只列启用项，与既有「科室停用只作用在入口」同一口径。
+     * 若召回串拿"只含启用的词表"去匹配，停用一个标签就会让**已保存档案里同样写着的自由文本**
+     * 在召回时失效——那等于停用回改了历史档案，违反单据 05「停用不改动任何已保存档案内容」。
+     * 故此处取全量：停用只影响"以后还能不能选"，不影响"已经填过的照常参与召回"。
+     */
+    private Set<String> allTagTerms() {
+        List<HealthTag> rows = healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery());
         Set<String> terms = new LinkedHashSet<>();
         for (HealthTag tag : rows) {
             if (tag.getTerm() != null && !tag.getTerm().isBlank()) {

@@ -1,5 +1,6 @@
 package com.guide.auth;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.guide.auth.dto.HealthProfileDTO;
 import com.guide.auth.entity.HealthTag;
 import com.guide.auth.entity.UserHealthProfile;
@@ -46,8 +47,9 @@ class HealthProfileServiceTest {
 
     @BeforeAll
     static void initTableInfo() {
-        // 整份覆盖写走 LambdaUpdateWrapper.set(...)，set 会立即解析列名 → 需先注册表信息
-        MpTableInfoTestSupport.init(UserHealthProfile.class);
+        // 整份覆盖写走 LambdaUpdateWrapper.set(...)，set 会立即解析列名 → 需先注册表信息；
+        // HealthTag 用于「入口 / 召回」两处查询断言（getSqlSegment 生成 SQL 时解析列名）
+        MpTableInfoTestSupport.init(UserHealthProfile.class, HealthTag.class);
     }
 
     @BeforeEach
@@ -186,5 +188,47 @@ class HealthProfileServiceTest {
         assertThat(tags.get(0).getId()).isEqualTo("t1");
         assertThat(tags.get(0).getTerm()).isEqualTo("高血压");
         assertThat(tags.get(0).getType()).isEqualTo("chronic");
+    }
+
+    // ---- 单据 05 核心口径：停用只作用入口，已保存档案照常参与召回 ----
+
+    @Test
+    @DisplayName("停用只作用在入口：患者端选项列表的查询按 enabled 过滤（只列启用项）")
+    void optionsQueryFiltersEnabled() {
+        when(healthTagMapper.selectList(any())).thenReturn(List.of());
+
+        service.listEnabledTags();
+
+        assertThat(capturedTagQuery().getSqlSegment()).contains("enabled");
+    }
+
+    @Test
+    @DisplayName("停用不妨碍已保存档案的召回：组装召回串用全量词表（查询不按 enabled 过滤）")
+    void recallVocabularyIncludesDisabledTags() {
+        // 患者档案的自由文本写了「我对青霉素类过敏」；该标签随后被停用（enabled=0）
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setAllergyOther("我对青霉素类过敏");
+        when(profileMapper.selectOne(any())).thenReturn(row);
+        HealthTag disabled = new HealthTag();
+        disabled.setId("t9");
+        disabled.setTerm("青霉素类");
+        disabled.setType(HealthTagType.ALLERGY);
+        disabled.setEnabled(0);
+        when(healthTagMapper.selectList(any())).thenReturn(List.of(disabled));
+
+        HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
+
+        // 已保存档案的自由文本照常进检索串——停用没有让已填内容失效
+        assertThat(chat.assembly().query()).contains("我对青霉素类过敏");
+        // 且加载词表的查询没有 enabled 过滤：否则真实库会漏掉停用词，等于停用回改了历史档案
+        assertThat(capturedTagQuery().getSqlSegment()).doesNotContain("enabled");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Wrapper<HealthTag> capturedTagQuery() {
+        ArgumentCaptor<Wrapper<HealthTag>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(healthTagMapper).selectList(captor.capture());
+        return captor.getValue();
     }
 }
