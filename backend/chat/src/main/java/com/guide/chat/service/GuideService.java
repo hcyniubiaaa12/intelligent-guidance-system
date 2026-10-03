@@ -61,10 +61,13 @@ public class GuideService {
     /**
      * 结论落库 + 组装 result 事件载荷。
      *
-     * @param rawOutput 模型原始输出（证据快照用，审核回放）
+     * @param rawOutput   模型原始输出（证据快照用，审核回放）
+     * @param profileText 患者健康档案的待注入文本（可为空）；随 result 事件单独下发，供推荐卡
+     *                    「已参考您的健康档案」行——它来自后端读档，**不是模型输出**（单据 02）
      */
     @Transactional(rollbackFor = Exception.class)
-    public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context, String rawOutput) {
+    public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context,
+                                     String rawOutput, String profileText) {
         List<Dept> enabledDepts = deptService.listEnabled();
         Map<String, Dept> byName = new LinkedHashMap<>();
         for (Dept dept : enabledDepts) {
@@ -120,7 +123,8 @@ public class GuideService {
         if (lowConfidence) {
             log.info("低置信度分流：该记录进盲区榜，不参与准确率统计");
         }
-        return new Conclusion(record, resultPayload(session.getId(), record, kept, answer, context, lowConfidence));
+        return new Conclusion(record, resultPayload(session.getId(), record, kept, answer, context,
+                lowConfidence, profileText));
     }
 
     /**
@@ -215,7 +219,8 @@ public class GuideService {
     }
 
     private ChatDTO.ResultVO resultPayload(String sessionId, GuideRecord record, List<Candidate> kept,
-                                           RagAnswer answer, RagContext context, boolean lowConfidence) {
+                                           RagAnswer answer, RagContext context, boolean lowConfidence,
+                                           String profileText) {
         List<ChatDTO.Top3Item> top3 = kept.stream()
                 .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getId(),
                         candidate.dept().getName(), percent(candidate.confidence())))
@@ -230,7 +235,12 @@ public class GuideService {
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
-                cites, lowConfidence);
+                cites, lowConfidence, blankToNull(profileText));
+    }
+
+    /** 空白档案文本归一为 null：前端据此判断"无档案行"，不渲染一个空标签 */
+    private String blankToNull(String text) {
+        return text == null || text.isBlank() ? null : text;
     }
 
     /** 置信度 → 百分比；null（模型未给合法值/兜底科室）保持 null，前端显示「—」而不是 0% */

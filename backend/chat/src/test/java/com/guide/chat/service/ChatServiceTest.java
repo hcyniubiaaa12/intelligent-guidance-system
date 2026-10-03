@@ -1,7 +1,9 @@
 package com.guide.chat.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.service.SysConfigService;
+import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatMessage;
 import com.guide.chat.entity.ChatSession;
@@ -13,6 +15,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.RagService;
 import com.guide.rag.dto.RagContext;
+import com.guide.rag.dto.RagRequest;
 import com.guide.rag.support.AnswerParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +27,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -59,6 +63,11 @@ class ChatServiceTest {
     /** 未声明：模型既没给分隔符也没给 JSON——这正是历史上被误判成追问的那种输出 */
     private static final String RAW_UNKNOWN = "P1事故必须记录：根因、影响用户数、恢复时间和补偿方案。";
 
+    /** 出结论：模型声明 RECOMMEND（档案行回传路径需要走到 saveConclusion） */
+    private static final String RAW_RECOMMEND = "结合您的糖尿病史，优先排查心血管来源。\n"
+            + AnswerParser.MARKER + "\n{\"verdict\":\"RECOMMEND\",\"dept\":\"心血管内科\",\"confidence\":0.82,"
+            + "\"top3\":[{\"dept\":\"心血管内科\",\"confidence\":0.82}],\"note\":\"结合既往史\",\"cites\":[1]}";
+
     private static final String TEMPLATE = "请补充一下部位、感觉和持续时间。";
     private static final String TEMPLATE_REPEAT = "我还是没听到症状相关的信息，可以这样说：胸口闷三天了。";
 
@@ -68,6 +77,7 @@ class ChatServiceTest {
     private RagService ragService;
     private SufficiencyRule sufficiencyRule;
     private SysConfigService sysConfigService;
+    private HealthProfileService healthProfileService;
     private ChatService chatService;
 
     @BeforeEach
@@ -80,6 +90,7 @@ class ChatServiceTest {
         sufficiencyRule = mock(SufficiencyRule.class);
         DeptService deptService = mock(DeptService.class);
         sysConfigService = mock(SysConfigService.class);
+        healthProfileService = mock(HealthProfileService.class);
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
 
         // 新会话：insert 时补 id（真实环境由 MyBatis-Plus 生成；turnTag 要读它，null 会 NPE）
@@ -92,6 +103,9 @@ class ChatServiceTest {
         when(sufficiencyRule.templateQuestionRepeat()).thenReturn(TEMPLATE_REPEAT);
         when(sysConfigService.getInt(anyString(), anyInt())).thenReturn(3);
         when(deptService.listEnabled()).thenReturn(List.of());
+        // 默认无档案：两段空串 ⇒ 不拼 prompt 段、不加推荐卡行（与本单据前的链路一致）
+        when(healthProfileService.assembleForChat(anyString()))
+                .thenReturn(new HealthProfileAssembler.Assembly("", "", false));
         when(ragService.retrieve(any())).thenAnswer(invocation -> new RagContext("q", "q", List.of(), 0, 0));
         // 线程池 mock 成同步执行：编排在调用线程里跑完，断言不必等
         doAnswer(invocation -> {
@@ -101,7 +115,7 @@ class ChatServiceTest {
 
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
-                sysConfigService, new ObjectMapper(), executor);
+                sysConfigService, healthProfileService, new ObjectMapper(), executor);
     }
 
     @Test
@@ -115,7 +129,7 @@ class ChatServiceTest {
         ArgumentCaptor<ChatSession> session = ArgumentCaptor.forClass(ChatSession.class);
         verify(sessionMapper).updateById(session.capture());
         assertEquals(1, session.getValue().getAskRound(), "追问必须推进轮次");
-        verify(guideService, never()).saveConclusion(any(), any(), any(), any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -129,7 +143,7 @@ class ChatServiceTest {
         assertEquals(MessageRole.INFO, saved.getRole());
         assertTrue(saved.getContent().contains("P1 事故必须记录"), "资料回答的正文要完整落库");
         verify(sessionMapper, never()).updateById(any());
-        verify(guideService, never()).saveConclusion(any(), any(), any(), any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -141,7 +155,7 @@ class ChatServiceTest {
 
         assertEquals(MessageRole.AI, lastMessage().getRole());
         verify(sessionMapper, never()).updateById(any());
-        verify(guideService, never()).saveConclusion(any(), any(), any(), any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -164,13 +178,13 @@ class ChatServiceTest {
         // 已达追问上限的会话（可续聊：ongoing + 未出结论）
         ChatSession ongoing = ongoingSession(3);
         when(sessionMapper.selectById("s1234567890")).thenReturn(ongoing);
-        when(guideService.saveConclusion(any(), any(), any(), any())).thenReturn(conclusion());
+        when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
         modelReturns(RAW_UNKNOWN);
 
         chatService.stream("u1", req("胸口闷", "s1234567890"));
 
         // 关键：UNKNOWN 在这一轮**不能**降级成普通回答，否则 ask_round 已满、又永远不出 result，会话闭不了环
-        verify(guideService).saveConclusion(any(), any(), any(), any());
+        verify(guideService).saveConclusion(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -191,7 +205,7 @@ class ChatServiceTest {
         // 轮次一次都不许动（动了就会走到 forceConclusion）
         verify(sessionMapper, never()).updateById(any());
         // 更硬的断言：5 轮下来一个结论都不许产生
-        verify(guideService, never()).saveConclusion(any(), any(), any(), any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
         verify(ragService, never()).retrieve(any());
 
         List<String> questions = questions();
@@ -213,6 +227,55 @@ class ChatServiceTest {
         verify(sessionMapper).updateById(session.capture());
         assertEquals(1, session.getValue().getAskRound());
         assertEquals(TEMPLATE, questions().get(0));
+    }
+
+    @Test
+    @DisplayName("填了档案也不能让「我不舒服」直接出结论：规则硬门槛仍跑在检索/模型之前（安全阀）")
+    void healthProfileCannotBypassRuleGate() {
+        when(sufficiencyRule.tooVague("我不舒服")).thenReturn(true);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(ongoingSession(0));
+        // 患者确实填了档案
+        when(healthProfileService.assembleForChat("u1"))
+                .thenReturn(new HealthProfileAssembler.Assembly("糖尿病史", "糖尿病史", false));
+
+        chatService.stream("u1", req("我不舒服", "s1234567890"));
+
+        // 门槛在档案之前：不检索、不出结论、只给模板追问
+        verify(ragService, never()).retrieve(any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
+        assertEquals(TEMPLATE, questions().get(0));
+    }
+
+    @Test
+    @DisplayName("档案进模型上下文 + 结论载荷：待注入文本既进 RagRequest，也随结论回传推荐卡")
+    void profileTextFlowsIntoRagAndConclusion() {
+        when(healthProfileService.assembleForChat("u1"))
+                .thenReturn(new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",
+                        "男、45-59岁、糖尿病史", false));
+        when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
+        modelReturns(RAW_RECOMMEND);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals("男、45-59岁、糖尿病史", ragCaptor.getValue().profileText());
+
+        ArgumentCaptor<String> profileRef = ArgumentCaptor.forClass(String.class);
+        verify(guideService).saveConclusion(any(), any(), any(), any(), profileRef.capture());
+        assertEquals("男、45-59岁、糖尿病史", profileRef.getValue(), "推荐卡档案行来自后端读到的档案");
+    }
+
+    @Test
+    @DisplayName("无档案：RagRequest 的档案字段为空（回归——链路与今天一致）")
+    void emptyProfileYieldsNullProfileText() {
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertNull(ragCaptor.getValue().profileText());
     }
 
     @Test
@@ -271,7 +334,7 @@ class ChatServiceTest {
     /** 结论兜底的返回值（saveConclusion 是 mock，这里只保证 payload 非空，避免 NPE 掩盖断言） */
     private GuideService.Conclusion conclusion() {
         return new GuideService.Conclusion(new GuideRecord(), new ChatDTO.ResultVO("s1234567890", "r1", "d1",
-                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true));
+                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null));
     }
 
     private ChatDTO.MessageReq req(String content) {

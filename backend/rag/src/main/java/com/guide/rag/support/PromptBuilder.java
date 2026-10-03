@@ -40,6 +40,7 @@ public class PromptBuilder {
     private String systemPrompt(RagRequest request, RagContext context) {
         String prompt = PromptProperties.render(prompts.getDiagnosis().getSystemTemplate(),
                 PromptProperties.PLACEHOLDER_KNOWLEDGE, knowledgeBlock(context));
+        prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PROFILE, profileBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_DEPTS, deptBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MARKER, AnswerParser.MARKER);
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_EXTRA, extraBlock(request));
@@ -61,6 +62,19 @@ public class PromptBuilder {
                     .append("：").append(chunk.content()).append('\n');
         }
         return sb.toString().stripTrailing();
+    }
+
+    /**
+     * 患者健康档案（可选背景）：整段由本方法渲染，档案为空时返回空串 ⇒ prompt 里**没有档案一节**
+     * （避免留下一个空标题）。档案是患者自述的背景，**不是医学证据**——三条硬约束写在主模板里，
+     * 此处只负责出内容，不写指令性文字（避免两处口径漂移）。
+     */
+    private String profileBlock(RagRequest request) {
+        String profileText = request.profileText();
+        if (profileText == null || profileText.isBlank()) {
+            return "";
+        }
+        return "【患者健康档案】\n" + profileText;
     }
 
     /** 候选科室：模型只能从这里选（停用科室已在 chat 层过滤，不进入本清单） */

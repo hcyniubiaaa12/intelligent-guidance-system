@@ -28,6 +28,8 @@ public class PromptProperties {
     public static final String PLACEHOLDER_KNOWLEDGE = "{knowledge}";
     public static final String PLACEHOLDER_DEPTS = "{depts}";
     public static final String PLACEHOLDER_EXTRA = "{extra}";
+    /** 患者健康档案（待注入背景，可选；为空时整段不出现） */
+    public static final String PLACEHOLDER_PROFILE = "{profile}";
     public static final String PLACEHOLDER_DIALOGUE = "{dialogue}";
     /** 禁言话术里的剩余分钟数 */
     public static final String PLACEHOLDER_MINUTES = "{minutes}";
@@ -59,7 +61,7 @@ public class PromptProperties {
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
     public static class Diagnosis {
-        /** 必含 {knowledge} {depts} {marker} {extra} */
+        /** 必含 {knowledge} {profile} {depts} {marker} {extra} */
         private String systemTemplate;
     }
 
@@ -122,7 +124,8 @@ public class PromptProperties {
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
-                List.of(PLACEHOLDER_KNOWLEDGE, PLACEHOLDER_DEPTS, PLACEHOLDER_MARKER, PLACEHOLDER_EXTRA));
+                List.of(PLACEHOLDER_KNOWLEDGE, PLACEHOLDER_PROFILE, PLACEHOLDER_DEPTS,
+                        PLACEHOLDER_MARKER, PLACEHOLDER_EXTRA));
         require(rewrite.getSystem(), "prompts.rewrite.system", List.of());
         require(rewrite.getUserTemplate(), "prompts.rewrite.user-template", List.of(PLACEHOLDER_DIALOGUE));
         require(chat.getTemplateQuestion(), "prompts.chat.template-question", List.of());
@@ -147,8 +150,8 @@ public class PromptProperties {
         }
         for (String placeholder : placeholders) {
             if (!template.contains(placeholder)) {
-                throw new IllegalStateException("提示词 " + key + " 缺少占位符 " + placeholder
-                        + "——该占位符承载的内容（知识片段/科室范围/结论分隔符/轮次约束）会静默丢失");
+            throw new IllegalStateException("提示词 " + key + " 缺少占位符 " + placeholder
+                    + "——该占位符承载的内容（知识片段/档案背景/科室范围/结论分隔符/轮次约束）会静默丢失");
             }
         }
     }

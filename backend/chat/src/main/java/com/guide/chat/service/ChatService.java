@@ -2,7 +2,9 @@ package com.guide.chat.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.service.SysConfigService;
+import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.chat.config.ChatExecutorConfig;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.dto.SseEvents;
@@ -69,6 +71,7 @@ public class ChatService {
     private final SufficiencyRule sufficiencyRule;
     private final DeptService deptService;
     private final SysConfigService sysConfigService;
+    private final HealthProfileService healthProfileService;
     private final ObjectMapper objectMapper;
     private final ThreadPoolTaskExecutor chatSseExecutor;
 
@@ -76,7 +79,8 @@ public class ChatService {
                        GuideService guideService, RagService ragService,
                        AnswerParser answerParser, SensitiveGuard sensitiveGuard,
                        SufficiencyRule sufficiencyRule, DeptService deptService,
-                       SysConfigService sysConfigService, ObjectMapper objectMapper,
+                       SysConfigService sysConfigService, HealthProfileService healthProfileService,
+                       ObjectMapper objectMapper,
                        @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
@@ -87,6 +91,7 @@ public class ChatService {
         this.sufficiencyRule = sufficiencyRule;
         this.deptService = deptService;
         this.sysConfigService = sysConfigService;
+        this.healthProfileService = healthProfileService;
         this.objectMapper = objectMapper;
         this.chatSseExecutor = chatSseExecutor;
     }
@@ -207,12 +212,19 @@ public class ChatService {
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
             boolean forceConclusion = askRound >= askMaxRounds;
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个", askRound, askMaxRounds,
-                    forceConclusion, deptOptions().size());
+            // 健康档案由 chat 读档组装成"待注入文本"再传进 rag（rag 不感知业务状态，不查档案）。
+            // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
+            // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
+            HealthProfileAssembler.Assembly profile = healthProfileService.assembleForChat(userId);
+            String profileText = profile.text().isBlank() ? null : profile.text();
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}",
+                    askRound, askMaxRounds, forceConclusion, deptOptions().size(),
+                    profileText == null ? "无" : profileText.length() + " 字");
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(),
                     askRound, forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
-                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N));
+                    sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
+                    profileText);
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
@@ -282,7 +294,8 @@ public class ChatService {
             }
 
             // ⑥ 结论：科室校验 + 导诊记录落库 + result/done
-            GuideService.Conclusion conclusion = guideService.saveConclusion(session, answer, context, rawOutput);
+            GuideService.Conclusion conclusion = guideService.saveConclusion(session, answer, context,
+                    rawOutput, profileText);
             saveMessage(sessionId, MessageRole.AI, answer.reply());
             send(emitter, SseEvents.RESULT, conclusion.payload());
             send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, true));
