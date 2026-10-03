@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.guide.auth.service.SysConfigService;
+import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
@@ -61,13 +62,14 @@ public class GuideService {
     /**
      * 结论落库 + 组装 result 事件载荷。
      *
-     * @param rawOutput   模型原始输出（证据快照用，审核回放）
-     * @param profileText 患者健康档案的待注入文本（可为空）；随 result 事件单独下发，供推荐卡
-     *                    「已参考您的健康档案」行——它来自后端读档，**不是模型输出**（单据 02）
+     * @param rawOutput 模型原始输出（证据快照用，审核回放）
+     * @param profile   本轮健康档案快照输入（待注入文本 + 检索用串 + 结构化档案，可为空）；
+     *                  其中待注入文本随 result 事件单独下发，供推荐卡「已参考您的健康档案」行——
+     *                  它来自后端读档，**不是模型输出**（单据 02）；三者一并进证据快照 profile 节点（单据 04）
      */
     @Transactional(rollbackFor = Exception.class)
     public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context,
-                                     String rawOutput, String profileText) {
+                                     String rawOutput, ProfileSnapshot profile) {
         List<Dept> enabledDepts = deptService.listEnabled();
         Map<String, Dept> byName = new LinkedHashMap<>();
         for (Dept dept : enabledDepts) {
@@ -111,7 +113,7 @@ public class GuideService {
         record.setRecTop3(top3Json(kept));
         record.setLowConfidence(lowConfidence ? 1 : 0);
         record.setAggregated(0);
-        record.setEvidence(evidenceJson(context, answer, rawOutput));
+        record.setEvidence(evidenceJson(context, answer, rawOutput, profile));
         guideRecordMapper.insert(record);
 
         session.setHasResult(1);
@@ -124,7 +126,7 @@ public class GuideService {
             log.info("低置信度分流：该记录进盲区榜，不参与准确率统计");
         }
         return new Conclusion(record, resultPayload(session.getId(), record, kept, answer, context,
-                lowConfidence, profileText));
+                lowConfidence, profile));
     }
 
     /**
@@ -193,7 +195,8 @@ public class GuideService {
     }
 
     /** 证据快照（只写）：系统当时看到了什么、怎么答的，供审核回放与根因归因 */
-    private String evidenceJson(RagContext context, RagAnswer answer, String rawOutput) {
+    private String evidenceJson(RagContext context, RagAnswer answer, String rawOutput,
+                                ProfileSnapshot profile) {
         ObjectNode evidence = objectMapper.createObjectNode();
         ArrayNode retrieved = evidence.putArray("retrieved");
         int rank = 1;
@@ -213,14 +216,70 @@ public class GuideService {
         evidence.put("retrieved_query", context.rewrittenQuery());
         ArrayNode cited = evidence.putArray("model_cited");
         answer.cites().forEach(cited::add);
+        if (profile == null || isBlank(profile.text())) {
+            // 无档案：与今天除多一个空节点外无差异（回放解析用 path() 取值，null 节点不炸）
+            evidence.putNull("profile");
+        } else {
+            evidence.set("profile", profileNode(profile));
+        }
         evidence.put("prompt_snippet", TextUtil.abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
         evidence.put("model_output_raw", TextUtil.abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
         return evidence.toString();
     }
 
+    /**
+     * 档案快照节点（单据 04）：还原"**系统当时看到的档案**"，与 {@code retrieved} /
+     * {@code retrieved_query} / {@code prompt_snippet} 同构，落在同一份证据快照 JSON 里，
+     * **不新增存储、不新增表、不新增列**。
+     *
+     * <p>三样都要，缺一不可：
+     * <ul>
+     *   <li>{@code text} —— 待注入模型的档案文本（模型实际看到的背景）；</li>
+     *   <li>{@code query} —— 档案检索用串（检索实际用到的那段）；</li>
+     *   <li>{@code content} —— 患者当时填的**结构化档案**（编码 + 标签 + 自由文本）：
+     *       只存加工后的文本，审核时就看不出患者当初勾了什么、写了什么。</li>
+     * </ul>
+     *
+     * <p><b>只写不读</b>：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——
+     * 档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，
+     * 旧记录的推荐理由就当场失真）。患者改档案，旧记录的档案快照因此纹丝不动。
+     */
+    private ObjectNode profileNode(ProfileSnapshot profile) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("text", profile.text());
+        node.put("query", profile.query());
+        HealthProfileAssembler.Profile structure = profile.structure();
+        if (structure == null) {
+            node.putNull("content");
+            return node;
+        }
+        ObjectNode content = node.putObject("content");
+        content.put("gender", structure.genderCode());
+        content.put("ageRange", structure.ageRangeCode());
+        putTags(content, "historyTags", structure.historyTags());
+        content.put("historyOther", structure.historyOther());
+        putTags(content, "medicationTags", structure.medicationTags());
+        content.put("medicationOther", structure.medicationOther());
+        putTags(content, "allergyTags", structure.allergyTags());
+        content.put("allergyOther", structure.allergyOther());
+        return node;
+    }
+
+    /** 标签数组一律写数组（空则空数组）：回放侧不必区分"没这一项"与"这一项为空" */
+    private void putTags(ObjectNode parent, String field, List<String> tags) {
+        ArrayNode array = parent.putArray(field);
+        if (tags != null) {
+            tags.forEach(array::add);
+        }
+    }
+
+    private boolean isBlank(String text) {
+        return text == null || text.isBlank();
+    }
+
     private ChatDTO.ResultVO resultPayload(String sessionId, GuideRecord record, List<Candidate> kept,
                                            RagAnswer answer, RagContext context, boolean lowConfidence,
-                                           String profileText) {
+                                           ProfileSnapshot profile) {
         List<ChatDTO.Top3Item> top3 = kept.stream()
                 .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getId(),
                         candidate.dept().getName(), percent(candidate.confidence())))
@@ -235,7 +294,7 @@ public class GuideService {
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
-                cites, lowConfidence, blankToNull(profileText));
+                cites, lowConfidence, blankToNull(profile == null ? null : profile.text()));
     }
 
     /** 空白档案文本归一为 null：前端据此判断"无档案行"，不渲染一个空标签 */
@@ -307,6 +366,16 @@ public class GuideService {
 
     /** 结论产出：落库记录 + SSE result 载荷 */
     public record Conclusion(GuideRecord record, ChatDTO.ResultVO payload) {
+    }
+
+    /**
+     * 本轮档案快照输入（证据快照 profile 节点用，单据 04）。
+     *
+     * @param text      待注入模型上下文的档案文本（= 推荐卡「已参考健康档案」行）；空 = 本轮无档案
+     * @param query     档案检索用串（03 起进检索扩容）；空 = 无
+     * @param structure 患者当时填的结构化档案（编码 + 标签 + 自由文本）；未建档为 null
+     */
+    public record ProfileSnapshot(String text, String query, HealthProfileAssembler.Profile structure) {
     }
 
     /** 通过校验的候选科室 */

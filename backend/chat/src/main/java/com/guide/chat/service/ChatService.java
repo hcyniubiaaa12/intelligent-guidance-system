@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.service.SysConfigService;
-import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.chat.config.ChatExecutorConfig;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.dto.SseEvents;
@@ -216,9 +215,9 @@ public class ChatService {
             //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
-            HealthProfileAssembler.Assembly profile = healthProfileService.assembleForChat(userId);
-            String profileText = profile.text().isBlank() ? null : profile.text();
-            String profileQuery = profile.query().isBlank() ? null : profile.query();
+            HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
+            String profileText = profile.assembly().text().isBlank() ? null : profile.assembly().text();
+            String profileQuery = profile.assembly().query().isBlank() ? null : profile.assembly().query();
             log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个｜健康档案 {}（召回串 {}）",
                     askRound, askMaxRounds, forceConclusion, deptOptions().size(),
                     profileText == null ? "无" : profileText.length() + " 字",
@@ -298,7 +297,7 @@ public class ChatService {
 
             // ⑥ 结论：科室校验 + 导诊记录落库 + result/done
             GuideService.Conclusion conclusion = guideService.saveConclusion(session, answer, context,
-                    rawOutput, profileText);
+                    rawOutput, new GuideService.ProfileSnapshot(profileText, profileQuery, profile.structure()));
             saveMessage(sessionId, MessageRole.AI, answer.reply());
             send(emitter, SseEvents.RESULT, conclusion.payload());
             send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, true));

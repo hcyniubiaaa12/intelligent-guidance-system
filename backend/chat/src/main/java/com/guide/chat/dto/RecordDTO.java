@@ -89,7 +89,12 @@ public class RecordDTO {
             boolean lowConfidence,
             boolean booked,
             String actualDept,
-            String actualDeptLocation) {
+            String actualDeptLocation,
+            /**
+             * 当时的健康档案提示文本（单据 04）：读**证据快照** profile 节点的 text，
+             * **不回查当前档案**——患者改档案不回改历史；为空 = 当时无档案 / 老记录无该节点。
+             */
+            String profileRef) {
     }
 
     /** 一条会话的完整回放（右页正文 + 书签 + 结论卡） */

@@ -103,9 +103,10 @@ class ChatServiceTest {
         when(sufficiencyRule.templateQuestionRepeat()).thenReturn(TEMPLATE_REPEAT);
         when(sysConfigService.getInt(anyString(), anyInt())).thenReturn(3);
         when(deptService.listEnabled()).thenReturn(List.of());
-        // 默认无档案：两段空串 ⇒ 不拼 prompt 段、不加推荐卡行（与本单据前的链路一致）
+        // 默认无档案：两段空串、结构化档案 null ⇒ 不拼 prompt 段、不加推荐卡行、快照节点写空（与本单据前的链路一致）
         when(healthProfileService.assembleForChat(anyString()))
-                .thenReturn(new HealthProfileAssembler.Assembly("", "", false));
+                .thenReturn(new HealthProfileService.ChatProfile(
+                        new HealthProfileAssembler.Assembly("", "", false), null));
         when(ragService.retrieve(any())).thenAnswer(invocation -> new RagContext("q", "q", List.of(), 0, 0));
         // 线程池 mock 成同步执行：编排在调用线程里跑完，断言不必等
         doAnswer(invocation -> {
@@ -236,7 +237,8 @@ class ChatServiceTest {
         when(sessionMapper.selectById("s1234567890")).thenReturn(ongoingSession(0));
         // 患者确实填了档案
         when(healthProfileService.assembleForChat("u1"))
-                .thenReturn(new HealthProfileAssembler.Assembly("糖尿病史", "糖尿病史", false));
+                .thenReturn(new HealthProfileService.ChatProfile(
+                        new HealthProfileAssembler.Assembly("糖尿病史", "糖尿病史", false), null));
 
         chatService.stream("u1", req("我不舒服", "s1234567890"));
 
@@ -247,11 +249,15 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("档案进模型上下文 + 结论载荷：待注入文本既进 RagRequest，也随结论回传推荐卡")
+    @DisplayName("档案进模型上下文 + 结论载荷：待注入文本既进 RagRequest，也随结论回传推荐卡与证据快照")
     void profileTextFlowsIntoRagAndConclusion() {
+        HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
+                "male", "45-59", List.of("2型糖尿病"), null,
+                List.of(), null, List.of(), null);
         when(healthProfileService.assembleForChat("u1"))
-                .thenReturn(new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",
-                        "男、45-59岁、糖尿病史", false));
+                .thenReturn(new HealthProfileService.ChatProfile(
+                        new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",
+                                "男、45-59岁、糖尿病史", false), structure));
         when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
         modelReturns(RAW_RECOMMEND);
 
@@ -261,9 +267,14 @@ class ChatServiceTest {
         verify(ragService).retrieve(ragCaptor.capture());
         assertEquals("男、45-59岁、糖尿病史", ragCaptor.getValue().profileText());
 
-        ArgumentCaptor<String> profileRef = ArgumentCaptor.forClass(String.class);
-        verify(guideService).saveConclusion(any(), any(), any(), any(), profileRef.capture());
-        assertEquals("男、45-59岁、糖尿病史", profileRef.getValue(), "推荐卡档案行来自后端读到的档案");
+        // 结论回传的是「档案快照输入」：待注入文本 + 检索用串 + 结构化档案三者一起进 saveConclusion，
+        // 由 GuideService 落进证据快照 profile 节点（单据 04）
+        ArgumentCaptor<GuideService.ProfileSnapshot> snapshot =
+                ArgumentCaptor.forClass(GuideService.ProfileSnapshot.class);
+        verify(guideService).saveConclusion(any(), any(), any(), any(), snapshot.capture());
+        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().text(), "推荐卡档案行来自后端读到的档案");
+        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().query(), "检索用串一并进快照");
+        assertEquals(structure, snapshot.getValue().structure(), "结构化档案一并进快照");
     }
 
     @Test

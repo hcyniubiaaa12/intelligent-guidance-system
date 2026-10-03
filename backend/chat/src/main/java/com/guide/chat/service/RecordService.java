@@ -200,6 +200,7 @@ public class RecordService {
         List<ChatDTO.Top3Item> top3 = new ArrayList<>();
         List<ChatDTO.Cite> cites = new ArrayList<>();
         String note = null;
+        String profileRef = null;
         try {
             JsonNode array = record.getRecTop3() == null ? null : objectMapper.readTree(record.getRecTop3());
             if (array != null) {
@@ -241,6 +242,13 @@ public class RecordService {
                 // 取不到就当没有（卡片少一行说明，不影响其余字段）
                 RagAnswer answer = answerParser.parse(evidence.path("model_output_raw").asText(""));
                 note = answer.note();
+                // 「已参考您的健康档案」行读**当时的快照**（profile.text），不回查当前档案——
+                // 患者改档案不回改历史。老记录 / 无档案时节点缺失或为空，path() 取值安全、行为 null
+                JsonNode profile = evidence.path("profile");
+                if (profile.isObject()) {
+                    String text = profile.path("text").asText("");
+                    profileRef = text.isBlank() ? null : text;
+                }
             }
         } catch (Exception e) {
             log.warn("结论卡重建失败（记录 {}）：{}", record.getId(), e.getMessage());
@@ -249,7 +257,7 @@ public class RecordService {
                 rec == null ? null : rec.getName(), record.getConfidence(), top3, note, cites,
                 record.getLowConfidence() != null && record.getLowConfidence() == 1,
                 booked, actual == null ? null : actual.getName(),
-                actual == null ? null : actual.getLocation());
+                actual == null ? null : actual.getLocation(), profileRef);
     }
 
     /**

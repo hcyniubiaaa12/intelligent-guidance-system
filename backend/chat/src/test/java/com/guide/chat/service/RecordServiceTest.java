@@ -359,6 +359,51 @@ class RecordServiceTest {
         assertFalse(card.booked());
     }
 
+    @Test
+    @DisplayName("回放结论卡：「已参考档案」文本读自证据快照的 profile 节点，不回查当前档案")
+    void cardProfileRefReadsSnapshot() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(19, 17, 0), SessionStatus.CLOSED, 1));
+        when(messageMapper.selectList(any())).thenReturn(List.of());
+
+        GuideRecord record = new GuideRecord();
+        record.setId("r1");
+        record.setSessionId("s1");
+        record.setRecDeptId("d-neuro");
+        record.setConfidence(0.85);
+        record.setLowConfidence(0);
+        // 快照里存的是「当时那一份」档案：患者后来改成别的，这里也不会变
+        record.setEvidence("""
+                {"retrieved":[],
+                 "profile":{"text":"男、45-59岁、2型糖尿病","query":"男、45-59岁、2型糖尿病",
+                            "content":{"gender":"male","ageRange":"45-59","historyTags":["2型糖尿病"]}}}
+                """);
+        when(recordMapper.selectList(any())).thenReturn(List.of(record));
+
+        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").card();
+
+        assertEquals("男、45-59岁、2型糖尿病", card.profileRef());
+    }
+
+    @Test
+    @DisplayName("老记录无档案节点 / 无档案记录节点为空：回放不崩、档案行为空（兼容回归）")
+    void cardToleratesMissingOrNullProfileNode() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(19, 17, 0), SessionStatus.CLOSED, 0));
+
+        GuideRecord noNode = new GuideRecord();
+        noNode.setSessionId("s1");
+        noNode.setRecDeptId("d-neuro");
+        noNode.setEvidence("{\"retrieved\":[]}"); // 单据 04 之前的老快照：没有 profile 节点
+        when(recordMapper.selectList(any())).thenReturn(List.of(noNode));
+        assertNull(service.sessionDetail(ME, "s1").card().profileRef(), "缺节点 → 空，不炸");
+
+        GuideRecord nullNode = new GuideRecord();
+        nullNode.setSessionId("s1");
+        nullNode.setRecDeptId("d-neuro");
+        nullNode.setEvidence("{\"retrieved\":[],\"profile\":null}"); // 无档案记录：节点为 null
+        when(recordMapper.selectList(any())).thenReturn(List.of(nullNode));
+        assertNull(service.sessionDetail(ME, "s1").card().profileRef(), "null 节点 → 空，不炸");
+    }
+
     // ---------------------------------------------------------------- 夹具
 
     private Dept dept(String id, String name, String location) {

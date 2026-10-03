@@ -137,20 +137,22 @@ public class HealthProfileService {
     }
 
     /**
-     * 为导诊链路组装档案两段文本（单据 02 只接上"待注入文本"这一半；检索用串留给 03）。
+     * 为导诊链路组装档案两段文本（单据 02 接上"待注入文本"、03 接上"检索用串"），
+     * 并把**结构化档案**一并带回，供证据快照存"系统当时看到的档案"（单据 04）。
      *
      * <p>读档案 + 启用词表 → 纯函数 {@link HealthProfileAssembler#assemble}。档案不存在 / 全空 ⇒
-     * 两段均为空串（上层据此不拼 prompt 段、不加推荐卡行，链路行为与无档案时完全一致）。
+     * 两段均为空串、结构化档案为 null（上层据此不拼 prompt 段、不加推荐卡行、快照节点写空，
+     * 链路行为与无档案时完全一致）。
      *
      * <p>待注入文本超 350 字天花板时**记 WARN 告警、不裁剪**——超出不是患者的问题，
      * 是配置或词表出了问题，要能在源头被发现（与链路 B「丢字零容忍」同一态度）。
      */
-    public HealthProfileAssembler.Assembly assembleForChat(String userId) {
+    public ChatProfile assembleForChat(String userId) {
         UserHealthProfile row = profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
                 .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
         if (row == null) {
             // 无档案（大多数用户）：直接给空组装结果，连词表都不查
-            return HealthProfileAssembler.assemble(emptyProfileInput(), Set.of());
+            return new ChatProfile(HealthProfileAssembler.assemble(emptyProfileInput(), Set.of()), null);
         }
         HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
                 row.getGender() == null ? null : row.getGender().getCode(),
@@ -164,7 +166,18 @@ public class HealthProfileService {
             log.warn("健康档案提示文本超 {} 字天花板（当前 {} 字）：非患者额度，属配置/词表异常，不裁剪、请检查",
                     HealthProfileAssembler.TEXT_MAX, assembly.text().length());
         }
-        return assembly;
+        return new ChatProfile(assembly, profile);
+    }
+
+    /**
+     * 导诊链路读档结果：两段文本 + 结构化档案（证据快照用）。
+     *
+     * <p>{@code structure} 是患者**当时填的结构化内容**（编码 + 标签 + 自由文本）——随结论
+     * 落进证据快照的 profile 节点，供审核时看清"患者当时到底填了什么"，而不只是模型看到了什么。
+     * 未建档时为 null（快照节点写空、与今天无差异）。
+     */
+    public record ChatProfile(HealthProfileAssembler.Assembly assembly,
+                              HealthProfileAssembler.Profile structure) {
     }
 
     private HealthProfileAssembler.Profile emptyProfileInput() {
