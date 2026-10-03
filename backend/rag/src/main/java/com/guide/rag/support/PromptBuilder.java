@@ -65,16 +65,22 @@ public class PromptBuilder {
     }
 
     /**
-     * 患者健康档案（可选背景）：整段由本方法渲染，档案为空时返回空串 ⇒ prompt 里**没有档案一节**
-     * （避免留下一个空标题）。档案是患者自述的背景，**不是医学证据**——三条硬约束写在主模板里，
-     * 此处只负责出内容，不写指令性文字（避免两处口径漂移）。
+     * 患者健康档案（可选背景）：**标题 + 内容 + 前后换行作为一个整体块**参与占位符替换。
+     *
+     * <p>模板里 {@code {profile}} 紧贴 {@code {knowledge}}（{@code {knowledge}{profile}}），档案非空时
+     * 本方法补上「空行 + 【患者健康档案】标题 + 换行」，渲染出与知识片段平行的一节；档案为空时返回空串，
+     * 模板中那条空行与标题随之一并消失——**prompt 与不含档案占位符时逐字一致**（回归保证），
+     * 不会留下"标题没了、空行还在"的连续空行。
+     *
+     * <p>档案是患者自述的背景，**不是医学证据**——三条硬约束写在主模板里，此处只出内容，
+     * 不写指令性文字（避免两处口径漂移）。
      */
     private String profileBlock(RagRequest request) {
         String profileText = request.profileText();
         if (profileText == null || profileText.isBlank()) {
             return "";
         }
-        return "【患者健康档案】\n" + profileText;
+        return "\n\n【患者健康档案】\n" + profileText;
     }
 
     /** 候选科室：模型只能从这里选（停用科室已在 chat 层过滤，不进入本清单） */
