@@ -1031,7 +1031,11 @@ function emptyProfile() {
   }
 }
 
-/** 三组「多选标签 + 其他自由文本」：标签按 type 从词表过滤 */
+/**
+ * 三组「多选标签 + 其他自由文本」：标签按 type 从词表过滤。
+ * 分组名与后端 `HealthTagType.label`（既往病史/长期用药/过敏史）各持一份——跨了语言边界
+ * （后端 Java 枚举 / 前端展示文案），无法共享同一常量，故保留；改文案时两处一起改。
+ */
 const profileGroups = computed(() => [
   { key: 'history', label: '既 往 病 史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
   { key: 'medication', label: '长 期 用 药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
