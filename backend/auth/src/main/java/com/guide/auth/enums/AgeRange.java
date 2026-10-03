@@ -34,11 +34,6 @@ public enum AgeRange {
     /** 展示名（患者端下拉框选项） */
     private final String label;
 
-    /** 编码值是否合法（null 视为合法——选填，未填即空） */
-    public static boolean isValidCode(String code) {
-        return code == null || code.isBlank() || findByCode(code).isPresent();
-    }
-
     public static Optional<AgeRange> findByCode(String code) {
         if (code == null) {
             return Optional.empty();
