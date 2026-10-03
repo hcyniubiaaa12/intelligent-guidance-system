@@ -70,6 +70,38 @@ CREATE TABLE IF NOT EXISTS `sys_config` (
     UNIQUE KEY `uk_cfg_key` (`config_key`)
 ) ENGINE=InnoDB COMMENT='运行时可调配置字典表（链路 5 参数）；LLM API Key/模型名不走本表（密钥不进库）';
 
+-- 患者健康档案（选填，一人一份）——只作检索扩容与生成背景，永远没有决定推荐科室的权力；
+-- 历史导诊记录不回读本表（回放靠证据快照里的档案节点，见链路 A）
+CREATE TABLE IF NOT EXISTS `user_health_profile` (
+    `id`               VARCHAR(32)  NOT NULL,
+    `user_id`          VARCHAR(32)  NOT NULL COMMENT '用户 id（一人一份）',
+    `gender`           VARCHAR(32)  NULL COMMENT '枚举：male/female（选填；NULL=未填）',
+    `age_range`        VARCHAR(32)  NULL COMMENT '年龄段区间：0-3/4-6/7-14/15-44/45-59/60+（选填；区间不是具体岁数）',
+    `history_tags`     JSON         NULL COMMENT '既往病史标签数组（取自 health_tag）',
+    `history_other`    VARCHAR(512) NULL COMMENT '既往病史自由文本补充',
+    `medication_tags`  JSON         NULL COMMENT '长期用药标签数组',
+    `medication_other` VARCHAR(512) NULL COMMENT '长期用药自由文本补充',
+    `allergy_tags`     JSON         NULL COMMENT '过敏史标签数组（类别）',
+    `allergy_other`    VARCHAR(512) NULL COMMENT '过敏史自由文本补充（具体药名等）',
+    `deleted`          TINYINT      NOT NULL DEFAULT 0,
+    `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_uhp_user` (`user_id`)
+) ENGINE=InnoDB COMMENT='患者健康档案（用户级、一人一份、选填）；只作检索扩容与生成背景，不参与科室排序与注号体系';
+
+CREATE TABLE IF NOT EXISTS `health_tag` (
+    `id`         VARCHAR(32)  NOT NULL,
+    `term`       VARCHAR(128) NOT NULL COMMENT '标签词（慢病/用药/过敏类别）',
+    `type`       VARCHAR(32)  NOT NULL COMMENT '枚举：chronic 慢病/medication 用药/allergy 过敏',
+    `enabled`    TINYINT      NOT NULL DEFAULT 1 COMMENT '1 启用/0 停用；停用只作用于患者端选项加载，历史已选不受影响',
+    `deleted`    TINYINT      NOT NULL DEFAULT 0,
+    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ht_term_type` (`term`, `type`)
+) ENGINE=InnoDB COMMENT='健康档案标签词表（受控词汇）：患者端选项与后续档案召回串共用同一份源；管理端可启停（单据 05）';
+
 -- ------------------------------------------------------------
 -- 2. 会话与导诊（chat，链路 A）
 -- ------------------------------------------------------------
@@ -333,5 +365,7 @@ INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c14', 'chunk.max.length',              '800',  '切分：单切片上限（字），超过它必走递归切'),
 ('c15', 'chunk.model.min.length',        '1200', '切分：模型切触发长度（字），无标题的连续文本达到它才调模型'),
 ('c16', 'ingest.poll.interval.seconds',  '10',   '入库：轮询外部解析进度的间隔（秒）'),
-('c17', 'ingest.parse.timeout.minutes',  '30',   '入库：单次解析总超时（分钟），超了标 failed 可重试')
+('c17', 'ingest.parse.timeout.minutes',  '30',   '入库：单次解析总超时（分钟），超了标 failed 可重试'),
+('c18', 'profile.tag.max',               '10',   '健康档案：每类标签（既往病史/长期用药/过敏史）最多可选条数'),
+('c19', 'profile.text.max',              '50',   '健康档案：每个「其他」自由文本框最多字数')
 ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;
