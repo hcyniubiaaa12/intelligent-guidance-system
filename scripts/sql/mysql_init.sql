@@ -367,5 +367,6 @@ INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c16', 'ingest.poll.interval.seconds',  '10',   '入库：轮询外部解析进度的间隔（秒）'),
 ('c17', 'ingest.parse.timeout.minutes',  '30',   '入库：单次解析总超时（分钟），超了标 failed 可重试'),
 ('c18', 'profile.tag.max',               '10',   '健康档案：每类标签（既往病史/长期用药/过敏史）最多可选条数'),
-('c19', 'profile.text.max',              '50',   '健康档案：每个「其他」自由文本框最多字数')
+('c19', 'profile.text.max',              '50',   '健康档案：每个「其他」自由文本框最多字数'),
+('c20', 'profile.text.total.max',        '120',  '健康档案：三个「其他」自由文本框合计最多字数（每框上限之外的总量闸，防「既往史挤掉用药史」）')
 ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;
