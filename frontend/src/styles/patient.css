@@ -762,6 +762,10 @@
 }
 /* 宽体变体：宽表单类浮层（健康档案）用它 */
 .p-overlay--wide .p-overlay__box { max-width: 560px; }
+/* 超宽变体：左右分栏的浮层（人体图覆盖层——左图右选栏，窄容器会把图压扁） */
+.p-overlay--xl .p-overlay__box { max-width: 760px; }
+/* 高体变体：图要占到视口大部分高度，否则 13 个区域挤在一屏里点不准 */
+.p-overlay--tall .p-overlay__box { height: calc(100vh - 40px); }
 .p-overlay__head {
   display: flex;
   align-items: flex-start;

@@ -9,6 +9,16 @@ export function listDepts() {
 }
 
 /**
+ * 人体图的部位词清单：resolve = string[]，如['腹部', '上腹', '腰', …]。
+ * 词源唯一是术语白名单的部位类（type=part 且启用）——管理员停用一个词，
+ * 患者端选项里立刻不再出现它。**这里只有词，没有"图上哪块区域对应哪个词"**：
+ * 图形是前端资产，后端不知道也不需要知道。
+ */
+export function listBodyParts() {
+  return http.get('/chat/parts')
+}
+
+/**
  * 挂号确认：写 actual_dept / 命中标记 / 会话置 closed。
  * resolve = { sessionId, deptId, deptName, location }；
  * register_success 埋点由后端接口补记，前端不上报

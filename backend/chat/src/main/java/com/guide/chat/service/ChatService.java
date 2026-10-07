@@ -19,6 +19,7 @@ import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
+import com.guide.kb.service.MedicalTermService;
 import com.guide.rag.RagService;
 import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagAnswer;
@@ -70,6 +71,7 @@ public class ChatService {
     private final SensitiveGuard sensitiveGuard;
     private final SufficiencyRule sufficiencyRule;
     private final DeptService deptService;
+    private final MedicalTermService medicalTermService;
     private final RecommendableDepts recommendableDepts;
     private final SysConfigService sysConfigService;
     private final HealthProfileService healthProfileService;
@@ -80,6 +82,7 @@ public class ChatService {
                        GuideService guideService, RagService ragService,
                        AnswerParser answerParser, SensitiveGuard sensitiveGuard,
                        SufficiencyRule sufficiencyRule, DeptService deptService,
+                       MedicalTermService medicalTermService,
                        RecommendableDepts recommendableDepts, SysConfigService sysConfigService,
                        HealthProfileService healthProfileService, ObjectMapper objectMapper,
                        @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor) {
@@ -91,6 +94,7 @@ public class ChatService {
         this.sensitiveGuard = sensitiveGuard;
         this.sufficiencyRule = sufficiencyRule;
         this.deptService = deptService;
+        this.medicalTermService = medicalTermService;
         this.recommendableDepts = recommendableDepts;
         this.sysConfigService = sysConfigService;
         this.healthProfileService = healthProfileService;
@@ -141,6 +145,17 @@ public class ChatService {
         return guideService.confirmRegister(userId, request);
     }
 
+    /**
+     * 患者端「人体图」的部位词清单（部位声明的可选项）。
+     *
+     * <p>只给<b>词</b>，不给"图上哪块区域对应哪个词"——图形是前端资产，后端不需要知道。
+     * 词源唯一是术语白名单的部位类（{@code medical_term.type=part} 且启用），所以管理员在
+     * 管理端停用一个词，这里立刻就不给了：前端另存一份的话，停用会**只对管理端生效**。
+     */
+    public List<String> listParts() {
+        return medicalTermService.enabledParts();
+    }
+
     private void handle(String userId, ChatDTO.MessageReq request, SseEmitter emitter) {
         String sessionId = null;
         long start = System.currentTimeMillis();
@@ -153,7 +168,7 @@ public class ChatService {
             MDC.put(TURN_KEY, turnTag(session));
             log.info("会话{}：askRound={} hasResult={} status={}", resolution.created() ? "新建" : "续聊",
                     session.getAskRound(), session.getHasResult(), session.getStatus());
-            handleTurn(userId, session, content, emitter);
+            handleTurn(userId, session, content, resolveParts(session, request.getParts()), emitter);
         } catch (BizException e) {
             log.warn("导诊流业务异常：{}", e.getMessage());
             emitError(emitter, sessionId, patientMessage(e));
@@ -167,8 +182,31 @@ public class ChatService {
         }
     }
 
+    /**
+     * 部位声明<b>只在新会话的首条输入生效</b>，其余轮一律丢弃。
+     *
+     * <p>与前端「只在首条带」的约定是同一条纪律的两端，但**这里必须再兜一次**：后端是唯一能
+     * 判定"这条是新主诉"的地方（{@link #isFirstTurn}，用的是会话状态机字段而非消息条数）。
+     * 若只在约定侧收窄，一个改过的前端在追问轮继续带上位置，就会把同一条已知信息反复注入——
+     * 多余的注入会让模型觉得患者在强调位置，进而在不该出结论时先给结论。
+     *
+     * <p>丢弃而不是报错：多带一个可选字段不该让患者的这一轮导诊失败。
+     */
+    private List<String> resolveParts(ChatSession session, List<String> requested) {
+        if (requested == null || requested.isEmpty()) {
+            return List.of();
+        }
+        if (!isFirstTurn(session)) {
+            log.info("部位声明丢弃：本轮非首条主诉（askRound={} hasResult={}），位置信息上下文里已有",
+                    session.getAskRound(), session.getHasResult());
+            return List.of();
+        }
+        return requested;
+    }
+
     /** 单轮编排主体：会话落定后执行（sessionId 已确定，异常由外层统一转 SSE error） */
-    private void handleTurn(String userId, ChatSession session, String content, SseEmitter emitter) {
+    private void handleTurn(String userId, ChatSession session, String content,
+                            List<String> parts, SseEmitter emitter) {
         {
             String sessionId = session.getId();
             log.info("患者输入：{}", abbreviate(content, 120));
@@ -229,16 +267,17 @@ public class ChatService {
             String profileQuery = profile.assembly().recallQuery().isBlank() ? null : profile.assembly().recallQuery();
             // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
             RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}（召回串 {}）",
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}（召回串 {}）｜部位声明 {}",
                     askRound, askMaxRounds, forceConclusion, depts.recommendableCount(),
                     depts.enabledCount(), depts.recommendableCount(), depts.filtered(),
                     profileText == null ? "无" : profileText.length() + " 字",
-                    profileQuery == null ? "无" : profileQuery.length() + " 字");
+                    profileQuery == null ? "无" : profileQuery.length() + " 字",
+                    parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
                     askRound, forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText, profileQuery);
+                    profileText, profileQuery, parts);
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析

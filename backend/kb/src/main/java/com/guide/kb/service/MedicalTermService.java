@@ -6,12 +6,15 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.MedicalTerm;
+import com.guide.kb.enums.TermType;
 import com.guide.kb.mapper.MedicalTermMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -33,6 +36,9 @@ public class MedicalTermService {
     /** 启用术语快照（带加载时间；过期或在 refresh() 时整体替换） */
     private final AtomicReference<CacheEntry> cache = new AtomicReference<>();
 
+    /** 启用部位词快照：与上面那份**互不影响**，改一类不必连坐另一类（见 enabledParts 的说明） */
+    private final AtomicReference<PartCacheEntry> partCache = new AtomicReference<>();
+
     /** 启用术语集合（首次访问或缓存过期时加载） */
     public Set<String> enabledTerms() {
         CacheEntry entry = cache.get();
@@ -42,6 +48,25 @@ public class MedicalTermService {
             cache.set(entry);
         }
         return entry.terms();
+    }
+
+    /**
+     * 启用中的**部位词**（患者端「人体图」的选项来源）。
+     *
+     * <p>与 {@link #enabledTerms()} 分开缓存、分开加载：那一路是链路 A 入口的两类判定
+     * （防误杀精确匹配 / 信息充足性子串匹配），语义敏感、动它就是在动判定口径；本方法是
+     * 第三类读者（患者能点什么），两条路的过滤条件与顺序都各自独立。
+     * 返回的是<b>有序去重</b>列表：图上的选项按这个词表渲染，顺序抖动会让患者每次进来看到的
+     * 排列不一样（{@code Set} 不保证顺序）。
+     */
+    public List<String> enabledParts() {
+        PartCacheEntry entry = partCache.get();
+        long now = System.currentTimeMillis();
+        if (entry == null || now - entry.loadedAt() > CACHE_TTL_MS) {
+            entry = new PartCacheEntry(loadParts(), now);
+            partCache.set(entry);
+        }
+        return entry.parts();
     }
 
     /** 文本是否命中医学术语白名单（含任一词即命中；用于信息充足性规则门槛） */
@@ -69,7 +94,9 @@ public class MedicalTermService {
     /** 失效重建（管理端增删/停用、知识库更新后调用；不调也有 60s TTL 兜底） */
     public void refresh() {
         cache.set(new CacheEntry(load(), System.currentTimeMillis()));
-        log.info("医学术语白名单已刷新，启用术语 {} 条", enabledTerms().size());
+        partCache.set(new PartCacheEntry(loadParts(), System.currentTimeMillis()));
+        log.info("医学术语白名单已刷新，启用术语 {} 条（部位 {} 个）",
+                enabledTerms().size(), enabledParts().size());
     }
 
     /** 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用） */
@@ -100,6 +127,36 @@ public class MedicalTermService {
     }
 
     private record CacheEntry(Set<String> terms, long loadedAt) {
+    }
+
+    private record PartCacheEntry(List<String> parts, long loadedAt) {
+    }
+
+    /**
+     * 启用部位词：查全部启用词后在 Java 侧按 type 收口。
+     *
+     * <p>类型与启用状态<b>都</b>在本方法里判，不只交给 SQL 条件。SQL 里的 {@code enabled=1}
+     * 是查询入口，而"停用的词不许出现在患者端选项里"这条业务约束必须落在这一行代码上才立得住——
+     * 否则它只是"恰好被过滤条件带上了"，换个查询就漏。type 同理：库里存的是编码字符串，
+     * 历史行可能为空，落到这里统一按"不是 part 就不给"收口，不必把判据散到 SQL。
+     */
+    private List<String> loadParts() {
+        List<String> parts = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (MedicalTerm term : medicalTermMapper.selectList(Wrappers.<MedicalTerm>lambdaQuery()
+                .eq(MedicalTerm::getEnabled, 1))) {
+            boolean usable = term.getType() == TermType.PART
+                    && Integer.valueOf(1).equals(term.getEnabled())
+                    && term.getTerm() != null && !term.getTerm().isBlank();
+            if (!usable) {
+                continue;
+            }
+            String word = term.getTerm().trim();
+            if (seen.add(word)) {
+                parts.add(word);
+            }
+        }
+        return List.copyOf(parts);
     }
 
     private Set<String> load() {

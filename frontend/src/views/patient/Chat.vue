@@ -34,7 +34,7 @@
         <div class="p-chat__main" :class="{ 'is-empty': isEmpty }">
           <main ref="threadEl" class="p-thread p-chat__thread">
             <!-- 空状态：一张还没填的导诊卡 -->
-            <EmptyState v-if="isEmpty" :common="COMMON" @pick="useChip" />
+            <EmptyState v-if="isEmpty" :common="COMMON" @pick="useChip" @pick-part="mapOpen = true" />
 
             <!-- 回放与实时共用同一套条目渲染：shown = 回放条目 或 本次对话条目 -->
             <template v-else>
@@ -212,6 +212,9 @@
 
       <!-- ---------- 健康档案（选填）：浮层。自带加载与保存，页面只管开关 ---------- -->
       <HealthProfileOverlay v-model:open="profileOpen" />
+
+      <!-- ---------- 人体图选部位：浮层。外壳与档案共用浮层语言，页面只管开关与提交 ---------- -->
+      <BodyMapOverlay v-model:open="mapOpen" @submit="onPartsSubmit" />
     </div>
   </div>
 </template>
@@ -231,6 +234,7 @@ import SideRail from '../../components/patient/SideRail.vue'
 import EmptyState from '../../components/patient/EmptyState.vue'
 import ConclusionCard from '../../components/patient/ConclusionCard.vue'
 import HealthProfileOverlay from '../../components/patient/HealthProfileOverlay.vue'
+import BodyMapOverlay from '../../components/patient/BodyMapOverlay.vue'
 import CopyButton from '../../components/patient/CopyButton.vue'
 import '../../styles/patient.css'
 
@@ -252,6 +256,36 @@ const rail = ref(null)
 const sideOpen = ref(false)
 /** 健康档案浮层的开关 */
 const profileOpen = ref(false)
+
+/**
+ * 待提交的部位声明（工单 02 只做到"选部位 → 落词 → 发送时带上"）。
+ *
+ * 放在**页面本地**而不是 chat store：它服务的是"下一条要发的消息"，不是会话或对话态本身。
+ * `sentence` 是患者那句话（可编辑，落进输入框由患者接着补），`locations` 是**结构化声明**——
+ * 患者随后改掉那句话，"他在图上标过 X"这个事实仍然为真，所以两者不互相覆盖。
+ * 声明只随**新会话的首条输入**提交一次（sse.js 与后端各按自己的口径挡一次）。
+ */
+const parts = ref({ locations: [], sentence: '' })
+const mapOpen = ref(false)
+
+/** 覆盖层交回来的结果：句子落进输入框，声明单独存着 */
+function onPartsSubmit(result) {
+  parts.value = { locations: result.locations, sentence: result.sentence }
+  if (result.sentence) {
+    const now = draft.value.trim()
+    draft.value = now ? `${result.sentence}${now}` : result.sentence
+    nextTick(autoGrow)
+  }
+  inputEl.value?.focus()
+}
+
+/** 「位置选错了」：清空已锁定的声明，回到"还没声明"（工单 05 才把它接成门禁） */
+function resetParts() {
+  parts.value = { locations: [], sentence: '' }
+  draft.value = ''
+  mapOpen.value = true
+  nextTick(() => inputEl.value?.focus())
+}
 
 /** 常见主诉：点一下填进输入框——**不直接发**（患者还能补一句"还伴着恶心"，也不至于误触烧掉一次模型调用） */
 const COMMON = ['发热咳嗽', '肚子疼', '头疼头晕', '皮肤起疹', '心慌胸闷', '腰背酸痛']
@@ -325,6 +359,9 @@ function startNew() {
   activeQ.value = null
   sideOpen.value = false
   chat.reset()
+  // 声明必须一起清：上一轮选过的部位漏进新会话，会让模型拿到一条与新主诉无关的"已知位置"
+  parts.value = { locations: [], sentence: '' }
+  draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
 
@@ -481,7 +518,7 @@ async function runTurn(content) {
   turnAbort = new AbortController()
   try {
     await streamChat(
-      { sessionId: chat.sessionId, content },
+      { sessionId: chat.sessionId, content, parts: parts.value.locations },
       {
         onSession: ({ sessionId }) => chat.setSession(sessionId),
 

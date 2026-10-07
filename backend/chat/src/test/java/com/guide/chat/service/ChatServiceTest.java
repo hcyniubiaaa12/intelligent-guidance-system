@@ -15,6 +15,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
+import com.guide.kb.service.MedicalTermService;
 import com.guide.rag.RagService;
 import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagContext;
@@ -82,6 +83,7 @@ class ChatServiceTest {
     private SysConfigService sysConfigService;
     private HealthProfileService healthProfileService;
     private DeptService deptService;
+    private MedicalTermService medicalTermService;
     private RecommendableDepts recommendableDepts;
     private ChatService chatService;
 
@@ -94,6 +96,7 @@ class ChatServiceTest {
         SensitiveGuard sensitiveGuard = mock(SensitiveGuard.class);
         sufficiencyRule = mock(SufficiencyRule.class);
         deptService = mock(DeptService.class);
+        medicalTermService = mock(MedicalTermService.class);
         recommendableDepts = mock(RecommendableDepts.class);
         sysConfigService = mock(SysConfigService.class);
         healthProfileService = mock(HealthProfileService.class);
@@ -124,7 +127,8 @@ class ChatServiceTest {
 
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
-                recommendableDepts, sysConfigService, healthProfileService, new ObjectMapper(), executor);
+                medicalTermService, recommendableDepts, sysConfigService, healthProfileService,
+                new ObjectMapper(), executor);
     }
 
     @Test
@@ -347,6 +351,97 @@ class ChatServiceTest {
                 "零切片科室患者照样能挂号");
     }
 
+    @Test
+    @DisplayName("带部位声明：声明被注入模型上下文，让模型知道位置已确认（这才是省下追问的原因）")
+    void declaredPartsReachModelContext() {
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("左腹部疼，两天了", null, List.of("左腹部")));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals(List.of("左腹部"), ragCaptor.getValue().parts());
+        assertEquals("左腹部疼，两天了", ragCaptor.getValue().query(),
+                "检索仍只用患者那句话：声明不进检索，位置词已经在句子里");
+    }
+
+    @Test
+    @DisplayName("无部位声明：链路行为与今天完全一致（回归，声明为空即 prompt 里那一节不出现）")
+    void withoutPartsBehavesExactlyAsBefore() {
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷", null, List.of()));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertTrue(ragCaptor.getValue().parts().isEmpty());
+    }
+
+    @Test
+    @DisplayName("部位声明不参与检索：它只是范围信息，不额外开召回通道（档案才有那个权力）")
+    void partsDoNotEnterRetrieval() {
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("左腹部疼", null, List.of("左腹部")));
+
+        // 召回条数仍按 sys_config 的单路 topK 算，没有因声明多出任何一路
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals(3, ragCaptor.getValue().topK());
+        assertEquals(3, ragCaptor.getValue().topN());
+        assertNull(ragCaptor.getValue().profileQuery());
+    }
+
+    @Test
+    @DisplayName("追问轮再带声明：后端丢弃（位置上下文里已有，重复注入会让模型误以为患者在强调）")
+    void partsDroppedOnFollowUpTurn() {
+        ChatSession asked = ongoingSession(1);   // 已追问过 ⇒ 不是首轮
+        when(sessionMapper.selectById("s1234567890")).thenReturn(asked);
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("两天了，一阵一阵", "s1234567890", List.of("左腹部")));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertTrue(ragCaptor.getValue().parts().isEmpty(), "非首轮一律不带声明");
+    }
+
+    @Test
+    @DisplayName("已出结论的旧会话再带声明：开新会话，声明<b>保留</b>（下一句就是新主诉，该重新声明）")
+    void partsKeptWhenOldSessionOpenedNewOne() {
+        // 已出结论的会话 continuable=false ⇒ resolveSession 开新会话 ⇒ 落在新会话的首轮
+        ChatSession done = ongoingSession(0);
+        done.setHasResult(1);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(done);
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("又疼了", "s1234567890", List.of("胸部")));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals(List.of("胸部"), ragCaptor.getValue().parts(),
+                "新主诉要重新声明位置，不能因为上一轮声明过就丢掉");
+    }
+
+    @Test
+    @DisplayName("带声明也过不了规则门槛：声明不产生结论权，「我不舒服」仍被拦（安全阀）")
+    void declaredPartsCannotBypassRuleGate() {
+        when(sufficiencyRule.tooVague("我不舒服")).thenReturn(true);
+
+        chatService.stream("u1", req("我不舒服", null, List.of("左腹部")));
+
+        verify(ragService, never()).retrieve(any());
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("人体图部位词清单（listParts）：直读术语白名单的部位类")
+    void listPartsReadsFromTermVocabulary() {
+        when(medicalTermService.enabledParts()).thenReturn(List.of("腹部", "上腹"));
+
+        assertEquals(List.of("腹部", "上腹"), chatService.listParts());
+    }
+
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */
     @SuppressWarnings("unchecked")
     private void modelReturns(String raw) {
@@ -405,9 +500,14 @@ class ChatServiceTest {
     }
 
     private ChatDTO.MessageReq req(String content, String sessionId) {
+        return req(content, sessionId, List.of());
+    }
+
+    private ChatDTO.MessageReq req(String content, String sessionId, List<String> parts) {
         ChatDTO.MessageReq request = new ChatDTO.MessageReq();
         request.setContent(content);
         request.setSessionId(sessionId);
+        request.setParts(parts);
         return request;
     }
 }

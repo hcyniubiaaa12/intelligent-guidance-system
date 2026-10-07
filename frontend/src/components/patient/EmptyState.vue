@@ -37,8 +37,9 @@
  * 空状态：一张还没填的导诊卡。**空状态是行动邀请，不是一句客套话**——
  * 它要告诉患者"说清三件事就够"，再给一句像人写的例子。
  *
- * 三个部件卡**不是按钮**：别让人以为要点。（人体图功能落地后，「部位」那一格会变成
- * 真入口，到那时才换。）
+ * 三张部件卡里**只有「部位」是真入口**（人体图选部位）：另两格仍是提示不是控件——
+ * 做成按钮的样子会被当成快捷入口去点。部位那格换成按钮，是因为它是唯一一件
+ * 患者**不必回忆**的事（别人问"你疼在哪儿"他答得出来，让他自己描述反而费劲）。
  *
  * 常见主诉点了只是**填进输入框**，不直接发——患者还能补一句"还伴着恶心"，
  * 也不至于误触就烧掉一次模型调用。
@@ -47,7 +48,7 @@ defineProps({
   /** 常见主诉词条 */
   common: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['pick'])
+const emit = defineEmits(['pick', 'pickPart'])
 </script>
 
 <style scoped>
@@ -98,6 +99,26 @@ const emit = defineEmits(['pick'])
   color: var(--leaf-deep);
 }
 .p-hello__bub span { display: block; margin-top: 8px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+/* 「部位」是入口：与另两格同尺寸同圆角，只差"可点"的信号（描边主色 + 行内箭头）——
+   刻意不加阴影或底色块，那会把它读成"当前已选中的一步"，而此刻还没选 */
+.p-hello__bub--act {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--sans);
+  cursor: pointer;
+  border-color: var(--leaf-line);
+  transition: border-color .18s ease, background .18s ease;
+}
+.p-hello__bub--act:hover { border-color: var(--leaf); background: var(--leaf-soft); }
+.p-hello__bub--act:focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; }
+.p-hello__bubact {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  color: var(--leaf-deep) !important;
+  font-weight: 600;
+}
 .p-hello__eg {
   margin-top: 16px;
   padding: 12px 16px;

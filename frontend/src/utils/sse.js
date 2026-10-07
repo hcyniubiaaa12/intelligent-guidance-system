@@ -51,13 +51,15 @@ async function readFailure(res) {
 /**
  * 发送消息并消费 SSE 流（链路 A）。
  *
- * @param {{sessionId?: string, content: string}} payload 续聊回传 sessionId；为空则后端开新会话
+ * @param {{sessionId?: string, content: string, parts?: string[]}} payload
+ *   续聊回传 sessionId；为空则后端开新会话。
+ *   parts = 患者在人体图上标明的部位（**仅首轮带**，见下）；为空或缺省则链路与今天完全一致
  * @param {object} handlers 事件回调：onSession/onDelta/onQuestion/onInfo/onResult/onNotice/onDone/onError
  *   参数为该事件的 data（JSON 已解析）；网络异常与流中断也回落到 onError({ message })
  * @param {AbortSignal} [signal] 可选：离开页面时中断，不写已卸载组件
  * @returns {Promise<void>} 流结束（或异常已回落 onError）后 resolve
  */
-export async function streamChat({ sessionId, content }, handlers = {}, signal) {
+export async function streamChat({ sessionId, content, parts }, handlers = {}, signal) {
   // 是否已经收到终态（done / error / 本地失败）：收流时没有终态 = 连接被中断
   let settled = false
   // onError 是唯一出口：回调自身抛错也不能把异常抛出本函数（调用方是 fire-and-forget）
@@ -83,7 +85,14 @@ export async function streamChat({ sessionId, content }, handlers = {}, signal) 
         Accept: 'text/event-stream, application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
-      body: JSON.stringify({ sessionId: sessionId || undefined, content }),
+      // parts 刻意**只在新会话那一次**带上：位置在追问轮的上下文里已经有了，
+      // 再带一次是重复注入（后端也会按会话状态机再挡一次，两端同一条纪律）。
+      // 空数组与缺省等价，所以只在真有内容时才写这个键。
+      body: JSON.stringify({
+        sessionId: sessionId || undefined,
+        content,
+        ...(sessionId || !parts?.length ? {} : { parts })
+      }),
       signal
     })
   } catch (e) {

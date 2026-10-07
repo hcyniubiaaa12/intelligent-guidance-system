@@ -41,6 +41,7 @@ public class PromptBuilder {
         String prompt = PromptProperties.render(prompts.getDiagnosis().getSystemTemplate(),
                 PromptProperties.PLACEHOLDER_KNOWLEDGE, knowledgeBlock(context));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PROFILE, profileBlock(request));
+        prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PARTS, partsBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_DEPTS, deptBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MARKER, AnswerParser.MARKER);
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_EXTRA, extraBlock(request));
@@ -81,6 +82,25 @@ public class PromptBuilder {
             return "";
         }
         return "\n\n【患者健康档案】\n" + profileText;
+    }
+
+    /**
+     * 患者已标明的部位（部位声明，可选）：**标题 + 内容 + 前后换行作为一个整体块**，
+     * 形态与 {@link #profileBlock} 一致——为空时整节连同换行一并消失，
+     * 保证"没声明部位"的请求 prompt 与改动前**逐字一致**（回归保证）。
+     *
+     * <p>措辞刻意用「患者标明的位置是 X」而<b>不</b>用「患者的部位是 X」：
+     * 患者随后可以改掉输入框里那句话（那句话才是主诉），但"他在图上标过 X"这个事实始终为真。
+     * 写成后者会在患者改口后与主诉自相矛盾，模型可能去纠正患者——那正是本功能要省掉的一轮。
+     *
+     * <p>此处只出内容，"不必再追问部位"的指令写在主模板里（避免两处口径漂移）。
+     */
+    private String partsBlock(RagRequest request) {
+        List<String> parts = request.parts();
+        if (parts.isEmpty()) {
+            return "";
+        }
+        return "\n\n【患者标明的位置】\n" + String.join("、", parts);
     }
 
     /**

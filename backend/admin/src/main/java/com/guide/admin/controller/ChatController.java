@@ -48,6 +48,17 @@ public class ChatController {
         return Result.ok(chatService.listDepts());
     }
 
+    /**
+     * 人体图的部位词清单（患者端选部位的可选项，术语白名单的部位类且启用）。
+     *
+     * <p>只给词不给图形：哪块区域画在哪是前端的事。刻意与 {@code /depts} 并排放在患者端导诊接口下——
+     * 它和科室清单一样是"渲染输入"而不是业务事实，词源都在别处（科室表 / 术语白名单）。
+     */
+    @GetMapping("/parts")
+    public Result<List<String>> parts() {
+        return Result.ok(chatService.listParts());
+    }
+
     /** 挂号确认：写 actual_dept 与命中标记、会话置 closed，随后旁路补 register_success 埋点 */
     @PostMapping("/register")
     public Result<ChatDTO.RegisterVO> register(@Valid @RequestBody ChatDTO.RegisterReq request) {
