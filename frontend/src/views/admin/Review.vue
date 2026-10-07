@@ -98,7 +98,7 @@
                       {{ option.label }}
                     </button>
                   </div>
-                  <button class="a-btn a-btn--ghost" :disabled="acting" @click="applyBucket">
+                  <button class="a-btn a-btn--ghost rev__fit" :disabled="acting" @click="applyBucket">
                     套用根因
                   </button>
 
@@ -107,12 +107,20 @@
                   <div class="rev__form">
                     <label class="rev__field">
                       <span>主科室</span>
-                      <select v-model="form.mainDeptId" @change="onMainDeptChange">
-                        <option value="">选择主科室</option>
-                        <option v-for="dept in depts" :key="dept.id" :value="dept.id">
-                          {{ dept.enabled ? dept.name : dept.name + '（已停用）' }}
-                        </option>
-                      </select>
+                      <!-- 用 EP 的 el-select（管理端表单一律走 EP，原生 <select> 的长相由浏览器决定） -->
+                      <el-select
+                        v-model="form.mainDeptId"
+                        class="rev__select"
+                        placeholder="选择主科室"
+                        @change="onMainDeptChange"
+                      >
+                        <el-option
+                          v-for="dept in depts"
+                          :key="dept.id"
+                          :label="dept.enabled ? dept.name : dept.name + '（已停用）'"
+                          :value="dept.id"
+                        />
+                      </el-select>
                     </label>
                     <div class="rev__field">
                       <span>交叉科室 · 预填可增删</span>
@@ -264,6 +272,9 @@ const form = reactive({
   syntheticText: '',
   previewed: false
 })
+// per-bucket 表单缓存：收起/切桶时存起来，回来时还原。
+// 预览生成的合成文本是**可手改**的（管理员入库前会编辑），一收起就清空等于逼人重写一遍
+const formCache = reactive({})
 
 const crossOptions = computed(() => depts.value.filter((dept) => dept.id !== form.mainDeptId))
 
@@ -445,7 +456,30 @@ async function loadBuckets(pageNo = page.current) {
   }
 }
 
+/** 收起前把表单存进 per-bucket 缓存。直接切桶也走这里，所以 A→B→A 回来内容还在 */
+function stashForm() {
+  if (!expandedId.value) return
+  formCache[expandedId.value] = {
+    form: { ...form },
+    bucketCauses: [...bucketCauses.value]
+  }
+}
+
+function restoreForm(bucketId) {
+  const cached = formCache[bucketId]
+  if (!cached) return false
+  Object.assign(form, cached.form)
+  bucketCauses.value = [...cached.bucketCauses]
+  return true
+}
+
+/** 桶已经 approve / 驳回 / 忽略了，缓存留着只是脏数据 */
+function forgetForm(bucketId) {
+  delete formCache[bucketId]
+}
+
 function collapse() {
+  stashForm()
   expandedId.value = ''
   detail.value = null
   // 换桶/收起时把展开的样本也收掉：留下的 recordId 属于上一个桶，留着只是噪音
@@ -456,18 +490,23 @@ function collapse() {
 async function openBucket(bucket) {
   if (expandedId.value === bucket.id && detail.value) return
   const targetId = bucket.id
+  if (expandedId.value && expandedId.value !== targetId) stashForm()
+  const restored = restoreForm(targetId)
   expandedId.value = targetId
   detail.value = null
   detailLoading.value = true
-  resetForm()
+  if (!restored) resetForm()
   try {
     const data = await getReviewBucket(targetId)
     // 详情还没回来时用户可能已经切到别的桶了（点得快、或直接点了另一行的三角）——
     // 迟到的响应不能盖到新版面上，否则展开的桶和显示的详情对不上
     if (expandedId.value !== targetId) return
     detail.value = data
-    form.mainDeptId = data.suggestedMainDeptId || ''
-    form.crossDeptIds = [...(data.suggestedCrossDeptIds || [])]
+    // 还原过就不再用建议值覆盖：管理员可能已经改过主科室/交叉科室，甚至已经生成过文本
+    if (!restored) {
+      form.mainDeptId = data.suggestedMainDeptId || ''
+      form.crossDeptIds = [...(data.suggestedCrossDeptIds || [])]
+    }
   } catch (e) {
     if (expandedId.value !== targetId) return
     collapse()
@@ -587,6 +626,7 @@ async function approve() {
       syntheticText: form.syntheticText
     })
     ElMessage.success('已入库。合成切片在后台写入，失败可在知识库页看到')
+    forgetForm(expandedId.value)
     expandedId.value = ''
     await reloadAfterReview()
   } catch (e) {
@@ -627,6 +667,7 @@ async function act(call, success) {
   try {
     await call()
     ElMessage.success(success)
+    forgetForm(expandedId.value)
     expandedId.value = ''
     await reloadAfterReview()
   } catch (e) {
@@ -754,6 +795,15 @@ onMounted(async () => {
   justify-content: space-between;
   margin-top: 10px;
 }
+/* .rev 是 flex 列容器，子元素默认 stretch —— 单独一个按钮会被拉成整行宽。
+   凡是"不该占满一行"的直接子元素都要显式收窄 */
+.rev__fit {
+  align-self: flex-start;
+}
+/* el-select 的宽度在组件上给（EP 不吃 max-width），样式交给 element-override.css */
+.rev__select {
+  width: 320px;
+}
 .rev__form {
   display: flex;
   flex-direction: column;
@@ -765,20 +815,6 @@ onMounted(async () => {
   gap: 4px;
   font-size: 12px;
   color: var(--ink-2);
-}
-.rev__field select {
-  max-width: 320px;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  font-family: var(--sans);
-  font-size: 12.5px;
-  color: var(--ink);
-}
-.rev__field select:focus {
-  outline: none;
-  border-color: var(--blue);
 }
 .rev__ops {
   display: flex;
