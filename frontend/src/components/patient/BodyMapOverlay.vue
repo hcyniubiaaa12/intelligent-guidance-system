@@ -170,9 +170,9 @@
             <b>{{ allDisabled ? '词都下架了，用「说不清在哪儿」直接说也行' : previewText }}</b>
           </p>
           <div class="p-map__acts">
-            <button type="button" class="p-btn p-btn--ghost" @click="giveUp">说不清在哪儿 · 直接描述</button>
+            <button type="button" class="p-map__ghost" @click="giveUp">说不清在哪儿 · 直接描述</button>
             <small>{{ allDisabled ? '' : '选完只填进输入框、不自动发送。' }}</small>
-            <button type="button" class="p-btn" :disabled="!canFill || allDisabled" @click="fill">填 入</button>
+            <button type="button" class="p-map__prime" :disabled="!canFill || allDisabled" @click="fill">填 入</button>
           </div>
         </footer>
       </div>
@@ -475,35 +475,47 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   stroke-width: 1.5;
   cursor: pointer;
   transition: fill .16s ease, stroke .16s ease;
+  /* 点击后浏览器会给 SVG 图元画一圈默认 focus 轮廓（围绕包围盒的黑色方框）——
+     这就是"点一下出现黑框"的来源。outline 一律收掉，键盘焦点改用描边加粗给信号：
+     选中态本身就是描边语言，焦点用同一种语言不会多出第二种编码 */
+  outline: none;
 }
+.p-map__rg:focus-visible { stroke: var(--leaf); stroke-width: 2.5; }
 .p-map__rg:hover { fill: #CBE6DE; stroke: var(--leaf); }
 .p-map__rg.is-act { fill: #CBE6DE; stroke: var(--leaf); stroke-width: 2.5; }
 /* 选中态必须"看得出"：填实 + 深描边，两条一起变（只变色在灰底图上读不出来） */
 .p-map__rg.is-sel { fill: var(--leaf); stroke: var(--leaf-deep); }
-.p-map__rg.is-sel.is-act { stroke: var(--apricot-deep); stroke-width: 2.5; }
+/* 草案 06：已选中又正被查看的那块，描边换亮黄 #F0B429 区分"选过"与"正在看" */
+.p-map__rg.is-sel.is-act { stroke: #F0B429; stroke-width: 2.5; }
 
 .p-map__views {
   display: flex;
   flex: none;
   background: var(--rail);
-  border-radius: var(--r-sm);
+  border-radius: 12px;
   padding: 3px;
+  outline: none;
 }
+/* 草案 06：紧凑分段器（padding 6px 18px / font 12px / radius 9px）——
+   44px 的大块头在这只当"两个大按钮"，不像切换器 */
 .p-map__viewbtn {
-  min-height: 44px;
-  padding: 0 20px;
-  border-radius: var(--r-xs);
+  padding: 6px 18px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--ink-2);
   cursor: pointer;
+  outline: none;
   transition: background .18s ease, color .18s ease;
 }
+.p-map__viewbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--leaf); }
 .p-map__viewbtn.is-on {
   background: var(--surface);
   color: var(--leaf-deep);
   font-weight: 600;
-  box-shadow: var(--sh-raised);
+  box-shadow: 0 1px 4px rgba(70, 50, 34, .1);
 }
 .p-map__tip { flex: none; font-size: 10.5px; color: var(--ink-3); }
 
@@ -520,11 +532,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   border-bottom: 1px solid var(--line);
 }
 .p-map__sec--last { border-bottom: none; }
+/* 草案 06：em 紧跟标题文字（margin-left 6px），不甩到最右——
+   「再点一下什么感觉<em>选填 · 可多选</em>」读起来是一句话，不是两栏 */
 .p-map__lb {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
   margin-bottom: 10px;
   font-size: 10px;
   font-weight: 600;
@@ -535,23 +545,29 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-style: normal;
   font-weight: 400;
   letter-spacing: 0;
-  color: var(--leaf-deep);
+  margin-left: 6px;
+  color: var(--ink-3);
 }
 .p-map__hint { font-size: 10.5px; line-height: 1.7; color: var(--ink-3); }
+.p-map__hint b { color: var(--ink-2); font-weight: 600; }
 .p-map__chips { display: flex; flex-wrap: wrap; gap: 7px; }
 
+/* 草案 06：紧凑胶囊（padding 6px 13px / font 12px / radius 16px）。
+   此前的 44px 高 + 全圆角把「疼 / 胀」这类单字挤成了圆球——高度追平宽度，胶囊变圆。
+   44px 触控豁免留痕：本面板是密集点选区，主操作（大按钮 / 发送 / 关闭）仍 ≥44px */
 .p-map__chip {
-  min-height: 44px;
-  padding: 0 14px;
+  padding: 6px 13px;
   border: 1px solid var(--line-2);
-  border-radius: var(--r-full);
+  border-radius: 16px;
   background: var(--surface);
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--ink-2);
   cursor: pointer;
+  outline: none;
   transition: border-color .18s ease, color .18s ease, background .18s ease;
 }
+.p-map__chip:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); border-color: var(--leaf); }
 .p-map__chip:hover { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
 .p-map__chip.is-on {
   background: var(--leaf);
@@ -588,48 +604,42 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-size: 12px;
   font-weight: 600;
 }
-.p-map__pill--feel { background: var(--apricot-soft); color: var(--apricot-deep); }
-/* 移除按钮：视觉上是 22px 的小圆点，但**可点区域撑到 44px**——
-   小 × 是"看着不挤"的常规做法，直接给 44px 圆点会把已选区撑成一串大按钮。
-   撑法是 padding + 负 margin（不改变布局），触屏与鼠标都拿到 44px。 */
+.p-map__pill--feel { background: var(--apricot-soft); color: #8A5A1E; }
+/* 草案 06：15px 小圆点 ×（padding 4px 8px 4px 12px 的药丸自带空间）。
+   44px 触控豁免留痕：已选药丸是密集堆叠区，一颗颗撑 44px 会把已选区撑成一串大按钮；
+   同信息还有整条药丸可点兜底（点字不删、点 × 才删，误触有整体清空可回） */
 .p-map__x {
-  width: 44px;
-  height: 44px;
-  margin: -11px -11px -11px 0;
-  border-radius: var(--r-full);
-  background: none;
-  color: inherit;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background .18s ease, color .18s ease;
-}
-/* 圆点本体用 ::before 画，尺寸回到 22px：小 × 是"看着不挤"的常规做法，
-   直接给 44px 圆点会把已选区撑成一串大按钮 */
-.p-map__x::before {
-  content: '×';
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-left: 11px;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
   border-radius: var(--r-full);
   background: rgba(31, 138, 112, .2);
+  color: var(--leaf-deep);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  outline: none;
+  transition: background .18s ease, color .18s ease;
 }
-.p-map__x:hover::before { background: var(--leaf); color: var(--on-accent); }
-.p-map__pill--feel .p-map__x::before { background: rgba(232, 151, 74, .3); }
-.p-map__pill--feel .p-map__x:hover::before { background: var(--apricot); color: var(--on-accent); }
+.p-map__x:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); }
+.p-map__x:hover { background: var(--leaf); color: var(--on-accent); }
+.p-map__pill--feel .p-map__x { background: rgba(232, 151, 74, .28); color: #8A5A1E; }
+.p-map__pill--feel .p-map__x:hover { background: var(--apricot); color: var(--on-accent); }
 .p-map__clear {
-  min-height: 44px;
-  padding: 0 6px;
+  padding: 4px 6px;
   background: none;
   border: 0;
   font-family: var(--sans);
   font-size: 11px;
   color: var(--ink-3);
   cursor: pointer;
+  outline: none;
 }
+.p-map__clear:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); border-radius: 6px; }
 .p-map__clear:hover { color: var(--alert); }
 
 /* 底部：预览 + 动作 */
@@ -647,14 +657,45 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 }
 .p-map__previewk { flex: none; font-weight: 600; }
 .p-map__preview b { font-weight: 600; }
-/* 两颗按钮在同一行，中间夹一句说明。
-   `.p-btn` 共享件是 **width:100%**（表单页脚那个"保存档案"就该通栏），这里三颗挤在一行，
-   必须改回内容宽——**只写 align-self 不够**，100% 是宽度不是拉伸。
-   宽度由内容决定后，那句说明才拿得到剩余空间（flex:1 + min-width：窄面板下换行，不被挤成
-   "一列一个字"——那是被挤没，不是断行）。 */
+/* 底部动作行（草案 06）：ghost = 描边次按钮（9px 16px / 12.5px），prime = 实心主按钮
+   （10px 24px / 13px 600）。.p-btn 共享件是表单页脚的通栏 44px 件，塞进这一行太重，
+   所以覆盖层用自己的两颗紧凑按钮——不动共享件，也不给它添第二个宽度语义 */
 .p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .p-map__acts small { flex: 1 1 200px; min-width: 200px; font-size: 10.5px; line-height: 1.6; color: var(--ink-3); }
-.p-map__acts .p-btn { width: auto; align-self: flex-start; }
+.p-map__ghost {
+  padding: 9px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: none;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+.p-map__ghost:focus-visible { border-color: var(--leaf); color: var(--leaf-deep); box-shadow: 0 0 0 2px var(--leaf-glow); }
+.p-map__ghost:hover { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
+.p-map__prime {
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--leaf);
+  color: var(--on-accent);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(31, 138, 112, .24);
+  outline: none;
+  transition: background .18s ease;
+}
+.p-map__prime:focus-visible { box-shadow: 0 0 0 3px var(--leaf-glow); }
+.p-map__prime:not(:disabled):hover { background: var(--leaf-deep); }
+.p-map__prime:disabled { background: var(--rail); color: var(--ink-3); box-shadow: none; cursor: not-allowed; }
 
 /* 窄屏：图与选栏改成上下。
    断点按**浮层自身宽度**判（`@container`），不按视口——手机视口窄、桌面浮层宽，
