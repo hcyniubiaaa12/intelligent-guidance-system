@@ -4,10 +4,13 @@
       <div class="p-overlay__box p-map__box" role="dialog" aria-label="人体图选部位">
         <header class="p-overlay__head">
           <div>
-            <div class="p-overlay__title">身 上 哪 里 不 舒 服</div>
+            <div class="p-overlay__title">
+              身 上 哪 里 不 舒 服
+              <span class="p-map__must">必填</span>
+            </div>
             <p class="p-overlay__sub">
-              点一下图上不舒服的位置，可以选多个；再顺手点一下「哪一侧」和「什么感觉」。
-              <b>心 / 肺 / 胃 / 肠不在图上</b>——它们是器官，不是体表位置，等下直接打字说也一样。
+              先锁住位置，我才能帮您判断科室。点一下图上不舒服的位置（可以选多个），
+              再顺手点一下「哪一侧」和「什么感觉」。找不到就点下面的「说不清在哪儿」。
             </p>
           </div>
           <button class="p-overlay__close" aria-label="关闭人体图" @click="close">关 闭</button>
@@ -63,7 +66,6 @@
                 @click="state = { ...state, view: face.id }"
               >{{ face.label }}</button>
             </div>
-            <p class="p-map__tip">背痛、腰痛在正面图上指不出来，看背面 →</p>
           </div>
 
           <!-- 右：细分词 / 方位 / 感觉 / 已选 -->
@@ -103,7 +105,7 @@
                   @click="state = selectSide(state, s)"
                 >{{ sideLabel(s) }}</button>
               </div>
-              <p class="p-map__hint">左右在分诊里是有效信息：左上腹多在胃，右下腹要留意阑尾。</p>
+              <p class="p-map__hint">左右在分诊里是有效信息：左上腹痛多在胃，右下腹痛要留意阑尾。</p>
             </section>
 
             <section class="p-map__sec">
@@ -155,6 +157,9 @@
                   @click="pick(w)"
                 >{{ w }}</button>
               </div>
+              <p class="p-map__hint">
+                <b>心 / 肺 / 胃 / 肠不在图上</b>——它们是器官，不是体表位置。等进了对话直接打字说"胃疼"就行。
+              </p>
             </section>
           </div>
         </div>
@@ -198,9 +203,15 @@ import {
  * 所有拼句/声明规则都在 `utils/bodyMap.js`，这里只管画与点。
  *
  * 覆盖层**自管数据**（打开时拉词表），调用方只管 `open`；选定结果经 `submit` 单出口交出。
+ *
+ * `preset`（可选）：快捷词入口的**预选**——「肚子疼」这类 chip 点了直接打开图并选中对应区域，
+ * 让必填变成省事而不是拦路。只在打开那一刻应用一次（患者随后取消预选是正常操作，
+ * 不能每次 watch 都把它按回去）。
  */
 const props = defineProps({
-  open: { type: Boolean, default: false }
+  open: { type: Boolean, default: false },
+  /** { region: 'abd'|null, word: '腹部' } | null —— 打开时预选的区域与部位词 */
+  preset: { type: Object, default: null }
 })
 const emit = defineEmits(['update:open', 'submit'])
 
@@ -365,6 +376,12 @@ watch(() => props.open, async (open) => {
   if (!open) return
   // 每次打开都从零开始：上一次选过的部位不该在这一次里幽灵般地预选着
   state.value = emptyState()
+  // 快捷词的预选：只在这一个时机应用一次——患者随后取消是正常操作，
+  // 不能在后续的重渲染里把他的取消又按回预选态
+  const preset = props.preset
+  if (preset && preset.word) {
+    state.value = { ...state.value, act: preset.region || null, picked: [preset.word] }
+  }
   await loadVocabulary()
 }, { immediate: true })
 
@@ -406,6 +423,20 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
    浮层是 width:100% + max-width:760px，所以它的实际宽度在手机上约 335、桌面 760，
    而视口宽度未必同步（分屏、内嵌宿主容器），只按视口判会漏。*/
 .p-map__box { max-width: 760px; container-type: inline-size; }
+
+/* 「必填」徽标（草案 06）：贴在标题右边，10px 小胶囊 */
+.p-map__must {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--leaf);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  vertical-align: 1px;
+}
 
 .p-map__bd {
   flex: 1;

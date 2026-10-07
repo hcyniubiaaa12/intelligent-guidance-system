@@ -83,6 +83,24 @@ export const SIDES = Object.freeze(['左', '右', '两侧'])
 /** 没选感觉时的回落词：用"不舒服"而不是"疼"——不是所有不适都疼 */
 const DEFAULT_FEELING = '不舒服'
 
+/**
+ * 常见主诉快捷词：点了**直接打开图并预选**对应区域，让必填变成省事而不是拦路。
+ *
+ * 只保留能明确对应一个体表区域的 5 个。**「发热咳嗽」刻意不在列**——它对应不了任何
+ * 体表区域（发热是全身症状、咳嗽的器官在图上又不给），留着它等于给必填开了一条后门：
+ * 患者点了它、绕过选图，门禁就形同虚设。这类主诉走「说不清在哪儿」出口才对。
+ *
+ * `region` 是 REGIONS 里的区域 id（预选后右栏直接列出这块的细分词）；`word` 是预选中的部位词，
+ * 必须都在 {@link PARTS} 里——皮肤是全身词（走 GLOBAL_WORDS，没有区域）。
+ */
+export const QUICK_PICKS = Object.freeze([
+  { label: '肚子疼', region: 'abd', word: '腹部' },
+  { label: '头疼头晕', region: 'head', word: '头' },
+  { label: '心慌胸闷', region: 'chest', word: '胸口' },
+  { label: '腰背酸痛', region: 'waist', word: '腰' },
+  { label: '皮肤起疹', region: null, word: '皮肤' }
+])
+
 /** 没选部位时的话（"说不清在哪儿"那条出口走的就是它） */
 export const NO_LOCATION_HINT = '还没选，先点一下图上不舒服的位置'
 
@@ -121,6 +139,15 @@ export function sentence(picked = [], feelings = [], side = null) {
   const feels = (Array.isArray(feelings) ? feelings : [])
     .filter((f) => typeof f === 'string' && f !== FEELING_UNSURE)
   return locations.join('、') + (feels.length ? feels.join('、') : DEFAULT_FEELING) + '，'
+}
+
+/**
+ * 「位置已锁定」回执里的部位串（如「左腹部」）：结构化声明的展示形态。
+ * 没声明（走了"说不清"出口）⇒ 空串，回执据此换文案。
+ */
+export function pickedLabel(picked = [], side = null) {
+  const locations = declarationLocations(picked, side)
+  return locations.length ? locations.join('、') : ''
 }
 
 /**

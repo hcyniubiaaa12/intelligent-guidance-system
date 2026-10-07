@@ -34,7 +34,14 @@
         <div class="p-chat__main" :class="{ 'is-empty': isEmpty }">
           <main ref="threadEl" class="p-thread p-chat__thread">
             <!-- 空状态：一张还没填的导诊卡 -->
-            <EmptyState v-if="isEmpty" :common="COMMON" @pick="useChip" @pick-part="mapOpen = true" />
+            <EmptyState
+              v-if="isEmpty"
+              :stage="partStage"
+              :part-label="partLabel"
+              @pick-part="mapOpen = true"
+              @quick="onQuickPick"
+              @rechoose="rechooseParts"
+            />
 
             <!-- 回放与实时共用同一套条目渲染：shown = 回放条目 或 本次对话条目 -->
             <template v-else>
@@ -139,22 +146,42 @@
             <span class="p-steps__item"><span class="p-steps__no">3</span>确认完成</span>
           </nav>
 
-          <!-- 输入区：一整块「书写区」——上面写字，下面一行小字＋发送。
-               看历史时换成只读条——一次会话 = 一次就诊，翻旧账不能往里写字 -->
-          <footer v-if="!isReplay" class="p-composer">
+<!-- 输入区：一整块「书写区」——上面写字，下面一行小字＋发送。
+             看历史时换成只读条——一次会话 = 一次就诊，翻旧账不能往里写字。
+             等待态（新会话还没声明部位，草案 06）：输入框只读 + 发送不可用。
+             「人体图选部位」小按钮**等待态也不禁**——草案里它禁用是因为引导区有大按钮兜着，
+             但结论卡出现后 EmptyState 已不在，禁掉它就是死路（声明就没了入口）。 -->
+          <footer v-if="!isReplay" class="p-composer" :class="{ 'is-waiting': partStage === 'awaiting' }">
             <div class="p-composer__box">
               <textarea
                 ref="inputEl"
                 v-model="draft"
                 class="p-composer__input"
                 rows="1"
-                :placeholder="isEmpty ? '说吧，我在听…' : '还有什么想补充的，慢慢说…'"
+                :readonly="partStage === 'awaiting'"
+                :placeholder="partStage === 'awaiting'
+                  ? '先在上面选好位置，就能开始说了…'
+                  : (isEmpty ? '接着说一句，我边听边判断…' : '还有什么想补充的，慢慢说…')"
                 @input="autoGrow"
                 @keydown.enter.exact.prevent="send()"
               />
               <div class="p-composer__bar">
+                <button
+                  type="button"
+                  class="p-composer__map"
+                  :disabled="chat.streaming"
+                  @click="mapOpen = true"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.4"/><path d="M12 7.6v6M12 13.6l-3.2 6M12 13.6l3.2 6M7.6 10h8.8"/></svg>
+                  人体图选部位
+                </button>
                 <span class="p-composer__hint">分诊建议，不能替代医生诊断</span>
-                <button class="p-composer__send" :disabled="chat.streaming" aria-label="发送" @click="send()">
+                <button
+                  class="p-composer__send"
+                  :disabled="chat.streaming || partStage === 'awaiting' || !draft.trim()"
+                  aria-label="发送"
+                  @click="send()"
+                >
                   <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
                     <path d="M8 13.5V3M3.2 7.8 8 3l4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.8" />
                   </svg>
@@ -213,8 +240,8 @@
       <!-- ---------- 健康档案（选填）：浮层。自带加载与保存，页面只管开关 ---------- -->
       <HealthProfileOverlay v-model:open="profileOpen" />
 
-      <!-- ---------- 人体图选部位：浮层。外壳与档案共用浮层语言，页面只管开关与提交 ---------- -->
-      <BodyMapOverlay v-model:open="mapOpen" @submit="onPartsSubmit" />
+      <!-- ---------- 人体图选部位：浮层。外壳与档案共用浮层语言，页面只管开关、预选与提交 ---------- -->
+      <BodyMapOverlay v-model:open="mapOpen" :preset="mapPreset" @submit="onPartsSubmit" />
     </div>
   </div>
 </template>
@@ -230,6 +257,7 @@ import { streamChat } from '../../utils/sse'
 import { track } from '../../utils/track'
 import { rankedTop3 } from '../../utils/conclusion'
 import { copyToClipboard } from '../../utils/clipboard'
+import { pickedLabel } from '../../utils/bodyMap'
 import SideRail from '../../components/patient/SideRail.vue'
 import EmptyState from '../../components/patient/EmptyState.vue'
 import ConclusionCard from '../../components/patient/ConclusionCard.vue'
@@ -258,40 +286,59 @@ const sideOpen = ref(false)
 const profileOpen = ref(false)
 
 /**
- * 待提交的部位声明（工单 02 只做到"选部位 → 落词 → 发送时带上"）。
+ * 部位声明的两样东西与它的**三态机**（草案 06：引导 → 选图 → 已锁定）。
  *
- * 放在**页面本地**而不是 chat store：它服务的是"下一条要发的消息"，不是会话或对话态本身。
- * `sentence` 是患者那句话（可编辑，落进输入框由患者接着补），`locations` 是**结构化声明**——
- * 患者随后改掉那句话，"他在图上标过 X"这个事实仍然为真，所以两者不互相覆盖。
- * 声明只随**新会话的首条输入**提交一次（sse.js 与后端各按自己的口径挡一次）。
+ * `partStage` 是门禁，不是装饰——「必填的是这一步动作，不是必须点中某个区域」：
+ *   awaiting：新会话的首条输入还没准备好，输入框是等待态（发送不可用）；
+ *   locked  ：声明完成。选了部位、点了「说不清在哪儿」都算——出口是完成声明的一种方式，
+ *             不是失败；区别只写在回执文案里（`parts.locations` 是否为空）。
+ *
+ * 什么时候回到 awaiting（与后端「新主诉判定」同口径，**以后端状态为准**）：
+ *   - startNew()：患者主动开新咨询；
+ *   - done 事件带回 hasResult=1：已出结论，下一句输入就是新会话（追问轮、归档续聊不在此列——
+ *     它们期间 partStage 一直是 locked，不会被拦）。
+ * 回放是只读的，根本没有输入框，天然不涉及门禁。
  */
 const parts = ref(emptyParts())
+const partStage = ref('awaiting') // 'awaiting' | 'locked'
 const mapOpen = ref(false)
+/** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，只在打开那一刻生效 */
+const mapPreset = ref(null)
 
-/** 空声明：开新咨询、登出、重选三处都要用，字面量只写这一处 */
+/** 空声明：开新咨询、重选、登出三处都要用，字面量只写这一处 */
 function emptyParts() {
   return { locations: [], sentence: '' }
 }
 
-/** 覆盖层交回来的结果：句子落进输入框，声明单独存着 */
+/** 空状态三格里的 ① 部位显示什么（锁定后是回执的一部分） */
+const partLabel = computed(() => pickedLabel(parts.value.locations))
+
+/** 覆盖层交回来的结果：句子落进输入框，声明单独存着，门禁随之解除 */
 function onPartsSubmit(result) {
   parts.value = { locations: result.locations, sentence: result.sentence }
+  partStage.value = 'locked'
   if (result.sentence) {
     const now = draft.value.trim()
+    // 输入框里已有患者自己写的话（如从"说不清"出来又重选过）就接在后面，不覆盖——
+    // 可编辑文本被静默顶掉属于不可接受的数据丢失
     draft.value = now ? `${result.sentence}${now}` : result.sentence
     nextTick(autoGrow)
   }
   inputEl.value?.focus()
 }
 
-/** 常见主诉：点一下填进输入框——**不直接发**（患者还能补一句"还伴着恶心"，也不至于误触烧掉一次模型调用） */
-const COMMON = ['发热咳嗽', '肚子疼', '头疼头晕', '皮肤起疹', '心慌胸闷', '腰背酸痛']
+/** 「位置选错了？重新选」（草案 06 的 btnReset）：清空重来，回等待态 */
+function rechooseParts() {
+  parts.value = emptyParts()
+  partStage.value = 'awaiting'
+  draft.value = ''
+  nextTick(() => inputEl.value?.focus())
+}
 
-function useChip(text) {
-  const now = draft.value.trim()
-  draft.value = now ? `${now}，${text}` : text
-  inputEl.value?.focus()
-  nextTick(autoGrow)
+/** 快捷词（草案 06）：带着预选打开图——必填变成省事，而不是一道拦路的关卡 */
+function onQuickPick(pick) {
+  mapPreset.value = { region: pick.region, word: pick.word }
+  mapOpen.value = true
 }
 
 /** 输入框随内容长高（120px 封顶后自己滚）——别让一段长主诉挤在一条缝里写 */
@@ -356,8 +403,10 @@ function startNew() {
   activeQ.value = null
   sideOpen.value = false
   chat.reset()
-  // 声明必须一起清：上一轮选过的部位漏进新会话，会让模型拿到一条与新主诉无关的"已知位置"
+  // 声明必须一起清：上一轮选过的部位漏进新会话，会让模型拿到一条与新主诉无关的"已知位置"。
+  // 门禁也回等待态——新的一次就诊要重新声明（工单 05）
   parts.value = emptyParts()
+  partStage.value = 'awaiting'
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
@@ -483,10 +532,12 @@ function scrollToBottom() {
   })
 }
 
-// 用户主动发送：插用户气泡 + 跑一轮导诊
+// 用户主动发送：插用户气泡 + 跑一轮导诊。
+// 门禁在这里再拦一道（UI 已把等待态的发送禁用，这里兜键盘 Enter 等旁路）：
+// partStage === 'awaiting' 意味着这一条会是新会话的首条输入，没声明部位就不该发出去
 function send(text) {
   const content = (typeof text === 'string' ? text : draft.value).trim()
-  if (!content || chat.streaming) return
+  if (!content || chat.streaming || partStage.value === 'awaiting') return
   draft.value = ''
   nextTick(autoGrow) // 清空后缩回单行
   chat.pushEntry({ type: 'user', content })
@@ -575,8 +626,16 @@ async function runTurn(content) {
           endTurn()
         },
 
-        // error 之后后端还会补一个 done：此时流式态已结束，重复收尾无害
-        onDone: () => endTurn(),
+        // error 之后后端还会补一个 done：此时流式态已结束，重复收尾无害。
+        // hasResult=1 ⇒ 本会话已出结论，下一句输入就是**新会话**（后端「新主诉判定」）——
+        // 门禁据此回到等待态。这是"以后端状态为准"的落点：前端不自判是不是新主诉。
+        onDone: ({ hasResult } = {}) => {
+          if (hasResult) {
+            parts.value = emptyParts()
+            partStage.value = 'awaiting'
+          }
+          endTurn()
+        },
 
         onError: ({ message }) => {
           if (!bubble.content) chat.removeEntry(bubble)
