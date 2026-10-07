@@ -61,7 +61,7 @@
                         {{ option.label }}
                       </button>
                     </div>
-                    <pre v-if="sample.evidence" class="rev__evidence">{{ prettyEvidence(sample.evidence) }}</pre>
+                    <EvidenceReplay v-if="sample.evidence" :evidence="sample.evidence" />
                     <div v-else class="a-panel__hint">这条记录没有证据快照</div>
                   </div>
 
@@ -206,6 +206,7 @@ import {
   approveBucket, rejectBucket, dismissBucket, reReviewBucket
 } from '../../api/admin'
 import { useReviewStore } from '../../stores/review'
+import EvidenceReplay from './EvidenceReplay.vue'
 
 // 待归桶样本数 + 待审桶数（侧栏徽标）都从 store 读：本页的动作会同时改这两个数
 const reviewStore = useReviewStore()
@@ -253,15 +254,6 @@ function fmtTime(value) {
   if (!value) return '—'
   const text = String(value)
   return text.length >= 16 ? text.slice(5, 16).replace('T', ' ') : text
-}
-
-/** 证据快照是 JSON 原文，排版后给人看；解析不了就原样展示，不藏数据 */
-function prettyEvidence(raw) {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2)
-  } catch {
-    return raw
-  }
 }
 
 function toggleCause(list, key) {
@@ -627,19 +619,6 @@ onMounted(async () => {
 .rev__symptom {
   font-size: 13px;
   color: var(--ink);
-}
-.rev__evidence {
-  margin: 4px 0 0;
-  padding: 8px 10px;
-  background: var(--wash);
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--ink-2);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 220px;
-  overflow: auto;
 }
 .rev__form {
   display: flex;
