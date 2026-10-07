@@ -208,8 +208,9 @@ onMounted(loadDepts)
 /* 页面内提示：与科室列表保持 12px 间距，不挤在一起 */
 .p-reg__tip { margin-bottom: 12px; }
 .p-dept__loc { display: block; font-size: 11.5px; }
-/* 选中态实心 teal 底上，位置文字改用半透明白，保证可读 */
-.p-dept--on .p-dept__loc { color: rgba(255, 255, 255, .82); }
+/* 选中态已改成「主色描边 + 主色浅底」（不再是实心主色底），
+   位置文字跟着回到次要文字色——旧方案那行半透明白在浅青底上会看不见 */
+.p-dept--on .p-dept__loc { color: var(--ink-2); }
 /* 确认按钮禁用态（未选科室 / 提交中 / 缺记录） */
 .p-reg .p-btn:disabled {
   background: var(--line);

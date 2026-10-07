@@ -1,64 +1,108 @@
 /* ============================================================
-   患者端「临床纸感」方案 A —— 令牌与部件
-   见 .claude/rules/前端设计方案.md；参考稿 方案A2-临床纸感增强.html
-   作用域：全部规则挂在 .patient-root 下，与管理端样式互不干扰
+   患者端「陪诊伙伴」（方向 04）—— 令牌与共享部件
+   规范：.claude/rules/前端设计方案.md 第 1–5 章
+   视觉参考稿：前端方案/重设计-四方向草案/04-陪诊伙伴-亲和陪伴.html
+              （点时间产物，落地后不维护；与本文冲突以规范为准）
+   作用域：全部规则挂在 .patient-root 下，与管理端样式互不干扰。
+           患者端令牌只在 .patient-root 一处定义——**不能挂 :root**：
+           管理端 element-override.css 已在 :root 定义了 --bg / --ink / --line 等同名令牌，
+           挂 :root 会与它撞名。患者端浮层都是页面内浮层（不 teleport），单作用域够用。
    ============================================================ */
 
 .patient-root {
-  /* 色板（只用这些值） */
-  --paper: #F7F9F8;
-  --card: #FFFFFF;
-  --ink: #1C2B28;
-  --ink-2: #5A6B67;
-  --line: #DDE5E2;
-  --teal: #0E7C66;
-  --teal-deep: #0A5C4C;
-  --moss: #4A7C59;
-  --teal-soft: #CDE3DD;
-  --err: #A94438;
-  /* 侧栏底色：比 paper 暗两档，让「我的就诊」与「对话」分成两块纸，而不用画一条分界线 */
-  --side: #E9EFEC;
+  /* ---------- §2.1 色板（只用这些值；每项一个值）---------- */
+  --bg: #FAF5EF;              /* 页面底（暖沙）——最外层 */
+  --stage: #FDFAF6;           /* 对话舞台底：比 bg 亮一档 */
+  --rail: #F4EDE4;            /* 左侧栏底：比 bg 暗一档 */
+  --surface: #FFFFFF;         /* 卡片 / 结论卡 / 输入区 / 浮层 */
+  --ink: #2E2620;             /* 主文字（暖墨）*/
+  --ink-2: #7A6A5E;           /* 次要文字、标签、说明 */
+  --ink-3: #AB9C8D;           /* 三级文字：时间、占位、极弱标注 */
+  --line: #EDE2D7;            /* 分隔线、卡片描边（浅）*/
+  --line-2: #E0D2C4;          /* 强调描边：悬停/选中边界、浮动件轮廓 */
+  --leaf: #1F8A70;            /* 主色（柔和青绿）：主按钮、用户气泡、当前态、Top1 */
+  --leaf-deep: #176B57;       /* 主色深一档：hover、选中与强调文字 */
+  --leaf-soft: #E6F3EF;       /* 主色浅底：陪伴带底、引用竖线、注号底、助手头像底 */
+  --leaf-line: #CFDED8;       /* 派生：浅青，用在 rail 底上的条形填充与连接线 */
+  --leaf-glow: rgba(31, 138, 112, .16); /* 派生：主色光晕（当前节点、聚焦）*/
+  --apricot: #E8974A;         /* 辅色（杏色）：读数、推荐标记 */
+  --apricot-deep: #B8702A;    /* 派生：杏色文字的深一档（在 apricot-soft 上可读）*/
+  --apricot-soft: #FDF0DF;    /* 杏色浅底：置信度读数块、健康档案行、推荐标签 */
+  --alert: #BE5238;           /* 危险色：错误、低置信度、"退出"hover */
+  --alert-soft: #FBEBE5;      /* 危险浅底 */
+  --mask: rgba(46, 38, 32, .42); /* 浮层遮罩：暖色（不是管理端的冷灰 --mask）*/
+  --on-accent: #FFFFFF;       /* 派生：主色实心底上的文字/图标（用户气泡、主按钮、Top1 圆点）*/
 
-  /* 字体：正文/显示衬线，界面标签无衬线 + 大字距 */
-  --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  --sans: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* ---------- §2.2 字体（全局无衬线；字阶 26/19/14.5/13.5/12.5/11.5/10.5/10）---------- */
+  --sans: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+
+  /* ---------- §2.3 圆角阶梯（部件只取一档）---------- */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 18px;
+  --r-full: 999px;
+
+  /* ---------- §2.5 阴影（暖色投影，三档）---------- */
+  --sh-rest: 0 3px 12px rgba(70, 50, 34, .06);
+  --sh-raised: 0 1px 5px rgba(70, 50, 34, .07);
+  --sh-primary: 0 4px 14px rgba(31, 138, 112, .24);
+  --sh-overlay: 0 16px 44px rgba(70, 50, 34, .14);
+
+  /* ---------- 过渡别名（**B-06 收口时删除**）----------
+     未迁移页面的 scoped 样式仍写旧「临床纸感」的令牌名。这里把旧名指向新令牌，
+     保证「未迁移的页面照常能跑」——中间态允许视觉不统一，但不许坏。
+     B-06 的验收项是「全仓无旧令牌残留」，届时连同本段一起删掉。*/
+  --paper: var(--bg);
+  --card: var(--surface);
+  --teal: var(--leaf);
+  --teal-deep: var(--leaf-deep);
+  --teal-soft: var(--leaf-soft);
+  --err: var(--alert);
+  --side: var(--rail);
+  --serif: var(--sans);
 
   min-height: 100vh;
-  background: var(--paper);
+  background: var(--bg);
   color: var(--ink);
-  font-family: var(--serif);
-  font-size: 14px;
-  line-height: 1.7;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.85;
   -webkit-font-smoothing: antialiased;
 }
 
-/* 键盘可达：focus-visible 用 teal 2px 描边 */
+/* 键盘可达：focus-visible 用主色 2px 描边 */
 .patient-root *:focus-visible {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--leaf);
   outline-offset: 2px;
 }
 
+/* ============================================================
+   §3.x 共享部件
+   ============================================================ */
+
+/* ---------- 标签（eyebrow · 10.5px + 大字距）---------- */
 .p-eyebrow {
   font-family: var(--sans);
   font-size: 10.5px;
-  letter-spacing: .22em;
+  letter-spacing: .18em;
   color: var(--ink-2);
-  text-transform: uppercase;
 }
 
-/* ---------- 顶栏：病历抬头式 ---------- */
+/* ---------- 顶栏（病历抬头式；对话页桌面端整条不渲染，见 §4.1）---------- */
 .p-topbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 12px;
-  background: var(--card);
-  border-bottom: 1px solid var(--ink);
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
 }
 .p-topbar__title {
-  font-family: var(--serif);
-  font-size: 17px;
-  letter-spacing: .04em;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: .02em;
 }
 .p-topbar__sub {
   font-family: var(--sans);
@@ -66,34 +110,40 @@
   letter-spacing: .18em;
   color: var(--ink-2);
 }
-
-/* 顶栏退出：文本按钮，与 sub 同级排版 */
 .p-topbar__ops {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 44px;
 }
-/* 昵称 = 进「就诊记录」的入口：做成下划线文本而不是按钮，保持抬头式的安静 */
+/* 昵称 = 入口：做成下划线文本而不是按钮，保持抬头式的安静。
+   触控目标靠 min-height 补足到 44px，下划线用 text-decoration 贴着文字，
+   不把 44px 的框画出来。 */
 .p-topbar__nick {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
   background: none;
   border: none;
-  padding: 0 0 1px;
   font-family: var(--sans);
   font-size: 10.5px;
   letter-spacing: .18em;
   color: var(--ink-2);
-  border-bottom: 1px dashed var(--ink-2);
+  text-decoration: underline dashed var(--ink-3);
+  text-underline-offset: 3px;
   cursor: pointer;
-  transition: color .18s ease, border-color .18s ease;
+  transition: color .18s ease;
 }
-.p-topbar__nick:hover {
-  color: var(--teal);
-  border-bottom-color: var(--teal);
-}
+.p-topbar__nick:hover { color: var(--leaf); }
 .p-topbar__logout {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
   background: none;
   border: 1px solid var(--line);
-  padding: 4px 10px;
+  border-radius: var(--r-xs);
   font-family: var(--sans);
   font-size: 10.5px;
   letter-spacing: .18em;
@@ -102,77 +152,83 @@
   transition: color .18s ease, border-color .18s ease;
 }
 .p-topbar__logout:hover {
-  color: var(--err);
-  border-color: var(--err);
+  color: var(--alert);
+  border-color: var(--alert);
 }
 
-/* ---------- 对话区 ---------- */
+/* ---------- §3.1 消息气泡与消息流 ---------- */
 .p-thread {
   display: flex;
   flex-direction: column;
-  gap: 18px; /* 会话区垂直节奏 18px */
-  padding: 18px 16px 8px;
+  gap: 20px; /* 消息轮之间 20px */
+  padding: 20px 16px 8px;
 }
 
-/* AI 回复：直排文字无底色 + moss 小标签 */
+/* 助手消息：直排文字，不带底色 */
 .p-ai__tag {
   font-family: var(--sans);
   font-size: 10.5px;
-  letter-spacing: .18em;
-  color: var(--moss);
-  margin-bottom: 4px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--leaf-deep);
+  margin-bottom: 8px;
 }
 .p-ai__text {
   font-size: 14.5px;
-  line-height: 1.8;
+  line-height: 2; /* 正文行高放宽 */
   white-space: pre-wrap;
 }
 
-/* 处置提示（敏感词累计触发的警告）：独立一泡 + err 色左侧粗描边，
-   与「分诊助手」的直排正文区分开——别让它看起来像诊断结论 */
+/* 处置提示（敏感词累计触发的警告/禁言话术）：独立一泡 + 危险色左侧描边，
+   与「陪诊助手」的直排正文区分开——别让它看起来像分诊结论 */
 .p-notice {
   align-self: flex-start;
   max-width: 88%;
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--err);
-  padding: 9px 12px;
-  font-size: 13px;
-  line-height: 1.75;
-  color: var(--err);
+  border-left: 3px solid var(--alert);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--alert);
 }
 
-/* 用户消息：实心 teal 气泡（圆角只用于气泡） */
+/* 用户消息：实心主色气泡，右下角小圆角（开口朝着说话的人，方向不许反）*/
 .p-user {
   align-self: flex-end;
-  max-width: 82%;
-  background: var(--teal);
-  color: #fff;
-  padding: 9px 13px;
-  border-radius: 14px 14px 3px 14px;
-  font-size: 14.5px;
-  line-height: 1.6;
+  max-width: 64%;
+  background: var(--leaf);
+  color: var(--on-accent);
+  padding: 12px 16px;
+  border-radius: var(--r-lg) var(--r-lg) 6px var(--r-lg);
+  font-size: 13.5px;
+  line-height: 1.85;
 }
 
-/* 追问消息：与普通回复同款，不加特殊样式 */
+/* 追问：与普通回复同款，只加左侧竖线——这套语言里竖线表示"追问 / 引用" */
 .p-ask {
-  border-left: 2px solid var(--teal-soft);
-  padding-left: 10px;
+  border-left: 3px solid var(--leaf-soft);
+  padding-left: 14px;
   color: var(--ink);
 }
 
-/* SSE error：line 描边块，说清原因与下一步 */
+/* SSE error：危险色描边块，说清原因与下一步 */
 .p-error {
-  border: 1px solid var(--line);
-  padding: 10px 12px;
-  font-size: 13px;
-  color: var(--ink-2);
+  border: 1px solid var(--alert);
+  background: var(--alert-soft);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--alert);
 }
 .p-error__retry {
+  margin-left: 6px;
   font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .1em;
-  color: var(--teal);
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  color: var(--alert);
   text-decoration: underline;
   cursor: pointer;
   background: none;
@@ -180,62 +236,78 @@
   padding: 0;
 }
 
-/* ---------- 推荐卡（签名元素 · 单据） ---------- */
+/* ---------- §3.2 推荐卡 ---------- */
 .p-card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--line);
-  padding: 16px; /* 卡片内边距 16px，直角 0 圆角 */
+  border-radius: var(--r-lg);
+  padding: 20px 22px;
+  box-shadow: var(--sh-rest);
 }
 .p-card__head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 16px;
 }
 .p-card__dept {
-  font-size: 24px; /* 结论科室名 24px */
-  letter-spacing: .03em;
-  line-height: 1.2;
-}
-.p-card__conf {
-  font-family: var(--sans);
-  font-size: 15px;
+  margin-top: 8px;
+  font-size: 26px; /* 巨型：一屏最大的那句话 */
   font-weight: 600;
-  color: var(--teal);
+  letter-spacing: .01em;
+  line-height: 1.3;
 }
-.p-card__conf--low {
-  color: var(--err);
+/* 结论读数：杏色专属用途。紧凑版（不换标记也能吃到新语言）*/
+.p-card__conf {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--apricot-soft);
+  border-radius: var(--r-sm);
+  font-family: var(--sans);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--apricot-deep);
 }
+.p-card__conf--low { color: var(--alert); }
 
-/* 置信度条列表（Top3 横向概率条） */
+/* 并列候选条（Top3）*/
 .p-bars {
-  margin: 12px 0 14px;
+  margin: 0 0 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 11px;
 }
 .p-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
 }
-/* 名次：细无衬线数字，备选行用 ink-2 弱化；Top1 用 teal（2026-10-02 加，
-   此前 Top1 只靠「实心条 + 科室名加粗」区分，顺序一旦乱了患者看不出哪条是首选） */
+/* 名次：序号圆点。Top1 用主色实心——顺序一旦乱了，患者得看得出哪条是首选 */
 .p-bar__rank {
   flex: none;
-  width: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: var(--rail);
+  color: var(--ink-2);
   font-family: var(--sans);
   font-size: 10.5px;
+  font-weight: 600;
   line-height: 1;
-  text-align: right;
-  color: var(--ink-2);
 }
 .p-bar--top .p-bar__rank {
-  color: var(--teal);
-  font-weight: 600;
+  background: var(--leaf);
+  color: var(--on-accent);
 }
 .p-bar__name {
-  width: 92px; /* 科室名列宽 92px */
+  width: 112px;
   flex: none;
   font-size: 12.5px;
   color: var(--ink-2);
@@ -245,89 +317,152 @@
 }
 .p-bar__track {
   flex: 1;
-  height: 5px; /* 条高 5px，直角 */
-  background: var(--teal-soft);
+  height: 9px;
+  background: var(--rail);
+  border-radius: var(--r-full);
+  overflow: hidden;
 }
 .p-bar__fill {
+  display: block;
   height: 100%;
-  background: var(--teal-soft);
+  background: var(--leaf-line);
+  border-radius: var(--r-full);
 }
 .p-bar__pct {
   flex: none;
   width: 44px;
   text-align: right;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--ink-2);
 }
 .p-bar--top .p-bar__name {
   color: var(--ink);
   font-weight: 600;
 }
-.p-bar--top .p-bar__fill {
-  background: var(--teal);
-}
+.p-bar--top .p-bar__fill { background: var(--leaf); }
 .p-bar--top .p-bar__pct {
-  color: var(--teal);
+  color: var(--leaf-deep);
   font-weight: 600;
 }
 
 .p-card__note {
-  font-size: 13px;
-  line-height: 1.75;
+  font-size: 13.5px;
+  line-height: 1.85;
   color: var(--ink);
 }
 
-/* 脚注区：1px dashed 上边框 + 「判 断 依 据」 */
+/* 判断依据脚注：1px 实线（旧方案的 dashed 作废）+ 注N + 标题 + 原文 */
 .p-card__foot {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--line);
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
 }
 .p-card__foot .p-eyebrow {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .p-cite {
-  font-size: 12.5px;
+  font-size: 11.5px;
+  line-height: 1.8;
   color: var(--ink-2);
-  line-height: 1.7;
 }
-.p-cite + .p-cite {
-  margin-top: 8px;
-}
+.p-cite + .p-cite { margin-top: 10px; }
 .p-cite__no {
-  color: var(--teal);
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 10px;
+  line-height: 1.5;
 }
 /* 标题一行，原文另起一段：原文可能 400 字，跟标题挤在一行会读不成句 */
 .p-cite__title {
   color: var(--ink);
   font-weight: 600;
+  font-size: 12.5px;
 }
 .p-cite__body {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--ink-2);
-  /* 原文是"引用"，用左侧细线把它与结论正文区分开——与追问气泡同一套语言 */
-  border-left: 2px solid var(--teal-soft);
-  padding-left: 8px;
+  /* 原文是"引用"，用左侧细线把它与结论正文区分开——与追问同一套语言 */
+  border-left: 2px solid var(--leaf-soft);
+  padding-left: 10px;
 }
 .p-card__lowhint {
-  margin-top: 8px;
-  font-size: 12.5px;
-  color: var(--err);
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--alert);
 }
 
-/* 健康档案：患者自述、不是证据——实线上边框（「判断依据」用虚线），与知识片段分开呈现 */
+/* 健康档案行：患者自述、不是证据。用杏色底块与「判断依据」分开
+   （旧方案靠"实线 vs 虚线"区分，这里改用"杏色块 vs 脚注"区分，效果同一件事）*/
 .p-card__profile {
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--apricot-soft);
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--apricot-deep);
+}
+
+/* ---------- §3.3 三步陪伴带（签名部件）----------
+   结论卡里的**邀请**：出现一次、不带百分比、不随滚动常驻。
+   全局位置指示只有一个 —— §3.4 的步进条。两者若读起来像重复，先削陪伴带。*/
+.p-band {
+  margin-top: 17px;
+  padding: 16px 18px;
+  background: var(--leaf-soft);
+  border-radius: var(--r-md);
+}
+.p-band__hd {
   font-size: 12.5px;
-  line-height: 1.7;
+  font-weight: 600;
+  color: var(--leaf-deep);
+}
+.p-band__row {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 14px;
+}
+.p-band__n {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+.p-band__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+  background: var(--surface);
+  border: 2px solid var(--leaf-line);
+}
+.p-band__n--now .p-band__dot {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 4px var(--leaf-glow);
+}
+.p-band__t {
+  font-size: 10.5px;
   color: var(--ink-2);
+  white-space: nowrap;
+}
+.p-band__n--now .p-band__t {
+  color: var(--leaf-deep);
+  font-weight: 600;
+}
+.p-band__link {
+  flex: 1;
+  height: 2px;
+  margin: 5px 8px 0;
+  background: var(--leaf-line);
 }
 
 /* ---------- 按钮 ---------- */
@@ -336,38 +471,50 @@
   width: 100%;
   min-height: 44px; /* 触控目标 ≥ 44px */
   border: 0;
-  border-radius: 0; /* 按钮直角 */
-  background: var(--teal);
-  color: #fff;
+  border-radius: var(--r-sm);
+  background: var(--leaf);
+  color: var(--on-accent);
   font-family: var(--sans);
-  font-size: 13px;
-  letter-spacing: .14em;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
   cursor: pointer;
   transition: background .18s ease;
+  box-shadow: var(--sh-primary);
 }
-.p-btn:hover { background: var(--teal-deep); }
+.p-btn:hover { background: var(--leaf-deep); }
 .p-btn--ghost {
   background: transparent;
-  color: var(--teal);
-  border: 1px solid var(--line);
+  color: var(--leaf-deep);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
 }
-.p-btn--ghost:hover { background: transparent; border-color: var(--teal); }
+.p-btn--ghost:hover {
+  background: transparent;
+  border-color: var(--leaf);
+}
+.p-btn:disabled {
+  background: var(--line);
+  color: var(--ink-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
 
-/* ---------- 步进流程条 ---------- */
+/* ---------- §3.4 步进条（全局位置指示）---------- */
 .p-steps {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0;
-  padding: 10px 16px;
-  background: var(--paper);
+  padding: 12px 16px;
+  background: var(--surface);
   border-top: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .06em;
-  color: var(--ink-2);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  color: var(--ink-3);
 }
-.p-steps__item { display: inline-flex; align-items: center; gap: 4px; }
+.p-steps__item { display: inline-flex; align-items: center; gap: 6px; }
 .p-steps__no {
   display: inline-flex;
   align-items: center;
@@ -375,106 +522,257 @@
   width: 15px;
   height: 15px;
   border: 1px solid var(--line);
-  border-radius: 50%;
-  font-size: 9px;
+  border-radius: var(--r-full);
+  font-size: 10px;
 }
-.p-steps__link { width: 26px; height: 1px; background: var(--line); margin: 0 6px; }
-.p-steps__item--now { color: var(--teal); font-weight: 700; }
-.p-steps__item--now .p-steps__no { border-color: var(--teal); color: var(--teal); }
-.p-steps__item--done { color: var(--teal); }
-.p-steps__item--done .p-steps__no { border-color: var(--teal); background: var(--teal); color: #fff; }
+.p-steps__link {
+  width: 26px;
+  height: 1px;
+  margin: 0 8px;
+  background: var(--line);
+}
+.p-steps__item--now {
+  color: var(--leaf-deep);
+  font-weight: 600;
+}
+.p-steps__item--now .p-steps__no {
+  border-color: var(--leaf);
+  color: var(--leaf-deep);
+}
+.p-steps__item--done { color: var(--leaf-deep); }
+.p-steps__item--done .p-steps__no {
+  border-color: var(--leaf);
+  background: var(--leaf);
+  color: var(--on-accent);
+}
 
-/* ---------- 输入区 ---------- */
+/* ---------- §3.5 输入区（书写卡）---------- */
 .p-composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 16px 14px;
-  background: var(--card);
+  padding: 12px 16px 16px;
+  background: var(--stage);
   border-top: 1px solid var(--line);
 }
-.p-composer__input {
-  flex: 1;
-  min-height: 44px;
-  max-height: 96px;
-  resize: none;
+.p-composer__box {
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  padding: 11px 12px;
-  font-family: var(--serif);
-  font-size: 14px;
-  color: var(--ink);
-  line-height: 1.5;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-rest);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
-.p-composer__input::placeholder { color: var(--ink-2); }
-.p-composer__input:focus { outline: none; border-color: var(--teal); }
+/* 聚焦时**整块**变主色描边，不画内层输入框的边 */
+.p-composer__box:focus-within {
+  border-color: var(--leaf);
+  box-shadow: var(--sh-primary);
+}
+.p-composer__input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 120px; /* 长高封顶后自己滚 */
+  resize: none;
+  border: 0;
+  background: none;
+  padding: 14px 16px 4px;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--ink);
+}
+.p-composer__input::placeholder { color: var(--ink-3); }
+.p-composer__input:focus { outline: none; }
+.p-composer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 10px 16px;
+}
+.p-composer__hint {
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
 .p-composer__send {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 44px;
   height: 44px;
   border: 0;
-  background: var(--teal);
-  color: #fff;
-  font-family: var(--sans);
-  font-size: 12px;
-  letter-spacing: .04em;
+  border-radius: var(--r-sm);
+  background: var(--leaf);
+  color: var(--on-accent);
   cursor: pointer;
+  transition: background .18s ease;
 }
-.p-composer__send:hover { background: var(--teal-deep); }
+.p-composer__send:hover { background: var(--leaf-deep); }
+.p-composer__send:disabled {
+  background: var(--line);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
 
-/* ---------- 科室列表（模拟挂号页） ---------- */
-.p-deptlist { display: flex; flex-direction: column; gap: 8px; }
+/* ---------- 科室列表（模拟挂号页）---------- */
+.p-deptlist { display: flex; flex-direction: column; gap: 11px; }
 .p-dept {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   min-height: 48px;
-  padding: 10px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
-  background: var(--card);
+  border-radius: var(--r-sm);
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
-  font-family: var(--serif);
-  font-size: 14.5px;
+  font-family: var(--sans);
+  font-size: 13.5px;
   color: var(--ink);
+  transition: border-color .18s ease, background .18s ease;
 }
-.p-dept--rec {
-  border-color: var(--teal);
-  box-shadow: inset 3px 0 0 var(--teal);
-}
+.p-dept:hover { border-color: var(--line-2); }
+/* 推荐科室：杏色竖条 + 杏色「推荐」标。
+   主色描边留给「选中态」——两者同时出现时要分得清"系统推的"和"我选的" */
+.p-dept--rec { box-shadow: inset 3px 0 0 var(--apricot); }
+/* 选中态：主色描边 + 主色浅底（**不再是实心主色底**，所以白色文字一律要改）*/
 .p-dept--on {
-  background: var(--teal);
-  border-color: var(--teal);
-  color: #fff;
+  border-color: var(--leaf);
+  background: var(--leaf-soft);
 }
+.p-dept--on .p-dept__hint { color: var(--leaf-deep); }
 .p-dept__hint {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  background: var(--apricot-soft);
+  color: var(--apricot-deep);
   font-family: var(--sans);
   font-size: 10.5px;
-  letter-spacing: .14em;
-  color: var(--teal);
+  font-weight: 600;
+  letter-spacing: .1em;
 }
-.p-dept--on .p-dept__hint { color: #fff; }
-/* 备选（Top2/Top3）：比「推 荐」弱一档，排在推荐科室之后 */
-.p-dept__hint--alt { color: var(--ink-2); }
+/* 备选（Top2/Top3）：比「推荐」弱一档，排在推荐科室之后 */
+.p-dept__hint--alt {
+  background: var(--rail);
+  color: var(--ink-2);
+  font-weight: 400;
+}
 
 /* ---------- 空状态 ---------- */
 .p-empty {
   padding: 48px 24px;
   text-align: center;
   color: var(--ink-2);
-  font-size: 13.5px;
+  font-size: 12.5px;
+}
+
+/* ---------- §3.8 浮层语言（共享部件：抽屉 / 覆盖层）----------
+   全端只有这一种浮层语言。健康档案抽屉、人体图覆盖层都复用它，
+   页面**不各自实现**遮罩、容器、关闭方式与进出节奏。
+   浮层是页面内浮层（不 teleport），可以安稳吃 .patient-root 上的令牌。*/
+.p-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--mask);
+  animation: p-fade .18s ease;
+}
+.p-overlay__box {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-overlay);
+  animation: p-rise .18s ease;
+}
+/* 抽屉变体：贴边、满高 */
+.p-overlay--drawer {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+.p-overlay--drawer .p-overlay__box {
+  max-width: 420px;
+  max-height: none;
+  height: 100%;
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+}
+.p-overlay__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.p-overlay__title {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .18em;
+  color: var(--ink-2);
+}
+.p-overlay__sub {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.p-overlay__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  background: none;
+  border: 0;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: .14em;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color .18s ease;
+}
+.p-overlay__close:hover { color: var(--leaf-deep); }
+.p-overlay__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.p-overlay__foot {
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--line);
+}
+@keyframes p-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes p-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ---------- 动效降级 ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .patient-root * { transition: none !important; animation: none !important; }
+  .patient-root *,
+  .patient-root *::before,
+  .patient-root *::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
-/* ---------- 桌面端适配（≥768px）----------
-   手机浏览器保持全屏原生布局；电脑浏览器把移动版式收成一列居中的「病历单」。
+/* ---------- §5 桌面端适配（≥768px）----------
+   手机浏览器保持全屏原生布局；电脑浏览器把移动版式收成一列居中的「陪诊卡」。
    1000px 而不是 720px：720 在 1440／1920 屏上两侧各空 360／600px，像张纸条贴在墙中央；
-   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。色板与部件规范不变。 */
+   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。 */
 @media (min-width: 768px) {
   .patient-root .p-topbar,
   .patient-root .p-thread,
@@ -487,7 +785,7 @@
     margin-left: auto;
     margin-right: auto;
   }
-  /* 居中列两侧细线，营造病历单边界 */
+  /* 居中列两侧细线，营造一列卡片的边界 */
   .patient-root .p-topbar,
   .patient-root .p-thread,
   .patient-root .p-steps,
@@ -495,9 +793,6 @@
   .patient-root .p-reg__body {
     border-left: 1px solid var(--line);
     border-right: 1px solid var(--line);
-  }
-  .patient-root .p-composer {
-    border-bottom: 1px solid var(--line);
   }
   /* 文字区块的左右内边距跟着放宽，免得 1000px 里文字贴着纸边 */
   .patient-root .p-topbar,
