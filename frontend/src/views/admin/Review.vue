@@ -577,6 +577,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 根因 / 科室 chip 的选中态要「点了就是」：admin.css 里 .a-chip 带 180ms 过渡，
+   点下去有个渐变过程，看起来像没点上。本页取消过渡（LlmConfig 页未动） */
+.a-chip {
+  transition: none;
+}
+
 /* 待归桶提示：常驻一行，两种状态。有活时左侧竖条转 coral、数字加重——
    「有没有活」要一眼看得出来，不能只靠读一句话 */
 .rev__hint {

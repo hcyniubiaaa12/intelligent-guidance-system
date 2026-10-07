@@ -1,60 +1,46 @@
 <template>
   <div class="ev">
     <template v-if="parsed.ok">
-      <!-- 柱高 = 本组内的相对相关度，蓝色 = 模型引用了这一注。
-           不读一个字就能看出「检索排第一的有没有被用上」 -->
-      <div v-if="parsed.retrieved.length" class="ev__bar">
-        <div
-          v-for="(item, i) in parsed.retrieved"
-          :key="item.index"
-          class="ev__seg"
-          :class="{
-            'ev__seg--cited': isCited(parsed, item),
-            'ev__seg--unknown': heights[i] === null
-          }"
-          :style="heights[i] === null ? null : { height: heights[i] + 'px' }"
-        />
-        <span class="ev__cap">柱高 = 本组内的相对相关度 · 蓝色 = 模型引用了这一注</span>
-      </div>
+      <!-- 结论行放最上面：先知道"答了什么、引用了谁"，再看依据 -->
+      <p v-if="parsed.model" class="ev__model">
+        <span v-if="parsed.model.verdict" class="a-tag">{{ parsed.model.verdict }}</span>
+        <span v-if="parsed.model.dept" class="ev__dept">{{ parsed.model.dept }}</span>
+        <span v-if="parsed.model.confidence !== null" class="ev__conf">
+          置信度 {{ fmtScore(parsed.model.confidence) }}
+        </span>
+        <span v-if="citedSummary" class="ev__citedsum">{{ citedSummary }}</span>
+      </p>
 
       <p v-if="hint" class="ev__hint" :class="'ev__hint--' + hint.level">{{ hint.text }}</p>
 
       <template v-if="parsed.retrieved.length">
-        <div class="ev__label">系统召回 · 精排 Top{{ parsed.retrieved.length }}（正文为 400 字缩写）</div>
-        <button
-          v-for="item in parsed.retrieved"
-          :key="item.index"
-          class="ev__row"
-          :class="{ 'ev__row--cited': isCited(parsed, item) }"
-          @click="toggleRow(item.index)"
-        >
-          <span class="ev__no">{{ item.rank === null ? '注?' : '注' + item.rank }}</span>
-          <span class="ev__title">{{ item.title || '（无标题）' }}</span>
-          <span v-if="isCited(parsed, item)" class="ev__cited">已引用</span>
-          <span class="ev__score">{{ fmtScore(item.score) }}</span>
-        </button>
-        <template v-if="openIndex !== null">
-          <pre class="ev__pre">{{ openContent }}</pre>
-          <p class="ev__note">
-            不是完整切片，要全文得拿 chunk_id 回知识库页查：{{ openChunkId || '（这条没存 chunk_id）' }}
-          </p>
+        <div class="ev__label">系统召回 · Top{{ parsed.retrieved.length }}（正文为 400 字缩写，点条目展开）</div>
+        <template v-for="item in parsed.retrieved" :key="item.index">
+          <button
+            class="ev__row"
+            :class="{
+              'ev__row--cited': isCited(parsed, item),
+              'ev__row--open': isOpen(item.index)
+            }"
+            @click="toggleRow(item.index)"
+          >
+            <span class="ev__chev">{{ isOpen(item.index) ? '▾' : '▸' }}</span>
+            <span class="ev__no">{{ item.rank === null ? '注?' : '注' + item.rank }}</span>
+            <span class="ev__title">{{ item.title || '（无标题）' }}</span>
+            <span v-if="isCited(parsed, item)" class="ev__cited">已引用</span>
+            <span class="ev__score">{{ fmtScore(item.score) }}</span>
+          </button>
+          <!-- 点哪条就在哪条下面展开，不把正文挪到整个列表底下 -->
+          <div v-if="isOpen(item.index)" class="ev__body">
+            <pre class="ev__pre">{{ item.content || '（这条没存正文）' }}</pre>
+            <p class="ev__note">不是完整切片，要全文得拿 chunk_id 回知识库页查：{{ item.chunkId || '（没存）' }}</p>
+          </div>
         </template>
       </template>
 
-      <template v-if="parsed.model">
-        <div class="ev__label">模型当时的回答</div>
-        <p class="ev__model">
-          <span v-if="parsed.model.verdict" class="a-tag">{{ parsed.model.verdict }}</span>
-          <span v-if="parsed.model.dept">{{ parsed.model.dept }}</span>
-          <span v-if="parsed.model.confidence !== null">置信度 {{ fmtScore(parsed.model.confidence) }}</span>
-        </p>
-        <p v-if="parsed.model.note" class="ev__note">{{ parsed.model.note }}</p>
-      </template>
-
-      <template v-if="parsed.profile">
-        <div class="ev__label">当时的健康档案</div>
-        <p class="ev__profile">{{ parsed.profile.text || '（档案召回串非空，但注入文本为空）' }}</p>
-      </template>
+      <p v-if="parsed.profile" class="ev__profile">
+        <span class="ev__profile-label">当时的健康档案</span>{{ parsed.profile.text || '（档案召回串非空，但注入文本为空）' }}
+      </p>
 
       <div class="ev__folds">
         <button class="ev__fold" :class="{ 'ev__fold--on': open.query }" @click="open.query = !open.query">
@@ -82,7 +68,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { barHeights, evidenceHint, fmtScore, isCited, parseEvidence, prettySnapshot } from '../../utils/evidenceReplay'
+import { evidenceHint, fmtScore, isCited, parseEvidence, prettySnapshot } from '../../utils/evidenceReplay'
 
 const props = defineProps({
   evidence: { type: String, default: '' }
@@ -90,19 +76,25 @@ const props = defineProps({
 
 const parsed = computed(() => parseEvidence(props.evidence))
 const hint = computed(() => evidenceHint(parsed.value))
-const heights = computed(() => barHeights(parsed.value.retrieved))
-
-// 一次只展开一条正文，跟这一页「一次只开一个桶」的节奏一致
-const openIndex = ref(null)
-const open = reactive({ query: false, raw: false, snapshot: false })
-
-const openHit = computed(() => parsed.value.retrieved.find((item) => item.index === openIndex.value))
-const openContent = computed(() => (openHit.value && openHit.value.content) || '（这条没存正文）')
-const openChunkId = computed(() => (openHit.value ? openHit.value.chunkId : ''))
 const snapshotText = computed(() => prettySnapshot(parsed.value))
 
+const citedSummary = computed(() => {
+  if (!parsed.value.cited.length) return '未引用任何注'
+  return '引用 ' + parsed.value.cited.map((no) => `注${no}`).join('、')
+})
+
+// 每条召回独立开合：点哪条看哪条，互不影响
+const openIndexes = ref([])
+const open = reactive({ query: false, raw: false, snapshot: false })
+
+function isOpen(index) {
+  return openIndexes.value.includes(index)
+}
+
 function toggleRow(index) {
-  openIndex.value = openIndex.value === index ? null : index
+  const pos = openIndexes.value.indexOf(index)
+  if (pos >= 0) openIndexes.value.splice(pos, 1)
+  else openIndexes.value.push(index)
 }
 </script>
 
@@ -112,29 +104,21 @@ function toggleRow(index) {
   flex-direction: column;
   gap: 8px;
 }
-/* 条带：柱底对齐、高度按本组分数归一化——只表达相对高低，不是绝对分数 */
-.ev__bar {
+/* 结论行：verdict 用既有药丸 tag（.a-tag 在 admin.css，10px 圆角） */
+.ev__model {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 28px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
 }
-.ev__seg {
-  width: 18px;
-  background: var(--line);
+.ev__dept {
+  font-weight: 700;
 }
-.ev__seg--cited {
-  background: var(--blue);
-}
-/* 分数未知：虚线空框。不画成最矮那根——那等于说「它最不相关」 */
-.ev__seg--unknown {
-  height: 8px;
-  background: transparent;
-  border: 1px dashed var(--line);
-}
-.ev__cap {
-  align-self: center;
-  margin-left: 8px;
+.ev__conf,
+.ev__citedsum {
   font-size: 11px;
   color: var(--ink-2);
 }
@@ -164,7 +148,7 @@ function toggleRow(index) {
 .ev__row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   padding: 6px 9px;
   border: 0;
@@ -181,8 +165,17 @@ function toggleRow(index) {
 }
 .ev__row--cited {
   border-left-color: var(--blue);
+  color: var(--ink);
+}
+.ev__row--open {
   background: var(--wash);
   color: var(--ink);
+}
+.ev__chev {
+  flex: none;
+  width: 12px;
+  font-size: 10px;
+  color: var(--ink-2);
 }
 .ev__no {
   flex: none;
@@ -211,25 +204,31 @@ function toggleRow(index) {
   font-size: 11px;
   color: var(--ink-2);
 }
-/* verdict 用药丸 tag（.a-tag 在 admin.css 里，10px 圆角） */
-.ev__model {
+/* 展开的正文贴着它的条目，左侧同一条 2px 蓝线连起来 */
+.ev__body {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 13px;
-  color: var(--ink);
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 2px;
+  padding-left: 9px;
+  border-left: 2px solid var(--wash);
 }
-.ev__profile,
-.ev__note {
+.ev__profile {
   margin: 0;
   font-size: 11px;
   line-height: 1.7;
   color: var(--ink-2);
 }
-.ev__profile {
-  padding: 6px 9px;
-  background: var(--wash);
+.ev__profile-label {
+  font-weight: 700;
+  color: var(--ink);
+  margin-right: 8px;
+}
+.ev__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-2);
 }
 .ev__folds {
   display: flex;

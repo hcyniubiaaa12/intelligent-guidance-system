@@ -108,21 +108,6 @@ export function isCited(parsed, item) {
   return item.rank !== null && parsed.cited.includes(item.rank)
 }
 
-/** 条带高度：只表达**本组内的相对**相关度，所以按本组分数归一化到 [min, max]；分数未知返回 null（不画） */
-export function barHeights(retrieved, min = 8, max = 26) {
-  const scores = retrieved.map((item) => item.score).filter((score) => score !== null)
-  if (!scores.length) return retrieved.map(() => null)
-
-  const low = Math.min(...scores)
-  const high = Math.max(...scores)
-  return retrieved.map((item) => {
-    // 未知不是最低 —— 画成最矮那根就等于说"它最不相关"，那是编的
-    if (item.score === null) return null
-    if (high === low) return Math.round((min + max) / 2)
-    return Math.round(min + ((item.score - low) / (high - low)) * (max - min))
-  })
-}
-
 /** 原始快照的排版展示。复用 parseEvidence 已经解出来的对象，不再解一遍 */
 export function prettySnapshot(parsed) {
   if (!parsed.ok || !parsed.json) return parsed.raw || ''
