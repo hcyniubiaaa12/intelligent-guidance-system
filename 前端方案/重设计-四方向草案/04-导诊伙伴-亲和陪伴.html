@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>草案 04 · 陪诊伙伴 —— 患者端</title>
+<title>草案 04 · 导诊伙伴 —— 患者端</title>
 <style>
   /* ============================================================
-     方向 04「陪诊伙伴」：把系统当成一个陪你走完流程的人，而不是一台查询机。
+     方向 04「导诊伙伴」：把系统当成一个陪你走完流程的人，而不是一台查询机。
      暖沙底的纸感、柔和的青绿与杏色、圆角与慢节奏；语气从"系统"改成"人"。
      签名部件：三步陪伴带 —— 结论卡下面那条 "我陪您走完这三步"。
      ============================================================ */
@@ -170,7 +170,7 @@
     display:flex;align-items:center;justify-content:center;transition:.18s ease}
   .send:hover{background:var(--leaf-deep)}
 
-  /* 空状态：陪诊卡 */
+  /* 空状态：导诊卡 */
   .empty{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 50px 44px;gap:22px}
   .hello{display:flex;align-items:center;gap:13px}
   .hello__ava{width:44px;height:44px;border-radius:14px;background:var(--leaf);color:#fff;flex:none;
@@ -219,7 +219,7 @@
 <body>
 
 <header class="hd">
-  <h1><span>方向 04</span>陪诊伙伴 · 亲和陪伴</h1>
+  <h1><span>方向 04</span>导诊伙伴 · 亲和陪伴</h1>
   <p>把系统当成<b>一个陪你走完流程的人</b>，而不是一台查询机：暖沙底的纸感、柔和的青绿与杏色、
     大圆角与慢节奏，助手有了自己的语气和头像。文案也从"系统"改成"人"——
     不写"导诊完成"，写"下一步我陪您去挂号"。</p>
@@ -246,7 +246,7 @@
       <aside class="rail">
         <div class="rail__hd">
           <span class="mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
-          <span class="rail__brand">智能导诊<small>您的陪诊助手</small></span>
+          <span class="rail__brand">智能导诊<small>您的导诊助手</small></span>
         </div>
         <div class="rail__new">＋ 开始新的咨询</div>
         <div class="rail__lb">我 的 就 诊 · <b>7 次</b></div>
@@ -346,14 +346,14 @@
 
 <!-- ============ 2. 空状态 ============ -->
 <section class="shot">
-  <div class="shot__lb">屏幕 2 · 对话页（空状态 · 陪诊卡）<u></u></div>
+  <div class="shot__lb">屏幕 2 · 对话页（空状态 · 导诊卡）<u></u></div>
   <div class="viewport">
     <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
     <div class="app" style="height:490px">
       <aside class="rail">
         <div class="rail__hd">
           <span class="mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
-          <span class="rail__brand">智能导诊<small>您的陪诊助手</small></span>
+          <span class="rail__brand">智能导诊<small>您的导诊助手</small></span>
         </div>
         <div class="rail__new">＋ 开始新的咨询</div>
         <div class="rail__lb">我 的 就 诊 · <b>7 次</b></div>
@@ -370,7 +370,7 @@
           <div class="hello">
             <span class="hello__ava"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
             <div>
-              <h2>您好，我是您的陪诊助手</h2>
+              <h2>您好，我是您的导诊助手</h2>
               <p class="empty__sub">先跟我说说哪里不舒服，我帮您判断该去哪个科。</p>
             </div>
           </div>
@@ -414,7 +414,7 @@
       <aside class="rail">
         <div class="rail__hd">
           <span class="mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
-          <span class="rail__brand">智能导诊<small>您的陪诊助手</small></span>
+          <span class="rail__brand">智能导诊<small>您的导诊助手</small></span>
         </div>
         <div class="rail__new">＋ 开始新的咨询</div>
         <div class="rail__lb">我 的 就 诊 · <b>7 次</b></div>

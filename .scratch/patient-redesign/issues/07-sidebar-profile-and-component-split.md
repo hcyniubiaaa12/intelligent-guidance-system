@@ -20,7 +20,7 @@
 ## 拆分
 
 - [ ] `SideRail`（左栏：会话目录 + 底部用户区，自带列表状态与归档逻辑）
-- [ ] `EmptyState`（空状态陪诊卡）
+- [ ] `EmptyState`（空状态导诊卡）
 - [ ] `ConclusionCard`（分诊结论卡，自带复制文本与复制态）
 - [ ] `HealthProfileOverlay`（档案浮层，自带加载 / 保存 / 额度）
 - [ ] `PatientSelect`（自绘下拉；面板高度与朝向按"到最近滚动容器的可用空间"实测，装不下向上翻）

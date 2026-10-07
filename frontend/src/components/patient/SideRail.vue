@@ -36,7 +36,7 @@
             <path d="M6.9 16h3.6" stroke="currentColor" stroke-width="1.7" opacity=".3" />
           </svg>
         </span>
-        <span class="p-chat__brand">智能导诊<small>您的陪诊助手</small></span>
+        <span class="p-chat__brand">智能导诊<small>您的导诊助手</small></span>
         <button class="p-chat__iconbtn p-chat__foldbtn" title="收起侧栏" aria-label="收起侧栏" @click="toggleSide">
           <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>

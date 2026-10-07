@@ -24,7 +24,7 @@
 `Chat.vue` 的 **936 行 scoped 样式整块重写**（新 858 行），并做了三处模板/常量调整：
 
 - **删掉所有对共享类的重复实现**：`.p-chat .p-composer`、`.p-composer__box`、`.p-composer__input`、`.p-composer__bar`、`.p-composer__hint`、`.p-composer__send`、`.p-btn:disabled`、`.p-composer__send:disabled`、以及那一段 `@media (prefers-reduced-motion)`——全部改吃 `patient.css`（唯一保留的是**上下文覆盖** `.is-empty .p-composer`，它描述"空状态下输入区不带顶边"）。
-- **空状态按 §3.6 改成「陪诊卡」**：问候行（leaf 圆角方块头像 + 26px「您好，我是您的陪诊助手」+ 一句招呼）→「说 清 这 三 件 事 就 够 了」→ 三张部件卡（① 部位 ② 时间 ③ 感觉，**不是按钮**）→ 示例句 →「大 家 常 问 的」chips。输入框 placeholder 随之在空状态与对话态之间切换。
+- **空状态按 §3.6 改成「导诊卡」**：问候行（leaf 圆角方块头像 + 26px「您好，我是您的导诊助手」+ 一句招呼）→「说 清 这 三 件 事 就 够 了」→ 三张部件卡（① 部位 ② 时间 ③ 感觉，**不是按钮**）→ 示例句 →「大 家 常 问 的」chips。输入框 placeholder 随之在空状态与对话态之间切换。
 - **侧栏宽度 248 → 228**（文档 §3.7 的值），收起态 127 → **123**（间距收敛到 §2.4 十档后重算出来的定值）。
 
 **验证**：真机截图（Chrome headless + 临时引导页；引导页与核验页用完即删、未入库）——

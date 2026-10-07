@@ -33,7 +33,7 @@
         <!-- 对话区：有消息时＝对话流＋流程条＋底部输入；空状态时＝欢迎块＋输入框＋免责 一起居中 -->
         <div class="p-chat__main" :class="{ 'is-empty': isEmpty }">
           <main ref="threadEl" class="p-thread p-chat__thread">
-            <!-- 空状态：一张还没填的陪诊卡 -->
+            <!-- 空状态：一张还没填的导诊卡 -->
             <EmptyState v-if="isEmpty" :common="COMMON" @pick="useChip" />
 
             <!-- 回放与实时共用同一套条目渲染：shown = 回放条目 或 本次对话条目 -->
@@ -621,7 +621,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* ============================================================
-   对话页 —— 方向 04「陪诊伙伴」
+   对话页 —— 方向 04「导诊伙伴」
    规范：.claude/rules/前端设计方案.md §3 / §4.1
 
    本页只写「本页私有部件」与「页面布局」。共享部件（气泡 / 推荐卡 / 步进条 /
@@ -700,7 +700,7 @@ onBeforeUnmount(() => {
   background-clip: content-box;
 }
 
-/* 空状态：陪诊卡与输入区当一整块，在顶栏以下的空白里垂直居中。
+/* 空状态：导诊卡与输入区当一整块，在顶栏以下的空白里垂直居中。
    用上下 auto 外边距而不是 justify-content——空间不够时它退化成 0，不会把顶部裁掉 */
 .p-chat__main.is-empty { overflow-y: auto; }
 .p-chat__main.is-empty .p-chat__thread {

@@ -5,7 +5,7 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
       </span>
       <div>
-        <h2 class="p-hello__t">您好，我是您的陪诊助手</h2>
+        <h2 class="p-hello__t">您好，我是您的导诊助手</h2>
         <p class="p-hello__lead">先跟我说说哪里不舒服，我帮您判断该去哪个科。</p>
       </div>
     </div>
@@ -34,7 +34,7 @@
 
 <script setup>
 /**
- * 空状态：一张还没填的陪诊卡。**空状态是行动邀请，不是一句客套话**——
+ * 空状态：一张还没填的导诊卡。**空状态是行动邀请，不是一句客套话**——
  * 它要告诉患者"说清三件事就够"，再给一句像人写的例子。
  *
  * 三个部件卡**不是按钮**：别让人以为要点。（人体图功能落地后，「部位」那一格会变成
@@ -51,7 +51,7 @@ const emit = defineEmits(['pick'])
 </script>
 
 <style scoped>
-/* ---------- 空状态：陪诊卡 ----------
+/* ---------- 空状态：导诊卡 ----------
    问候行 + 「说清这三件事」+ 三张部件卡 + 示例句 + 常见主诉。见设计文档 §3.6。 */
 .p-hello { display: flex; flex-direction: column; max-width: 640px; }
 .p-hello__hd { display: flex; align-items: center; gap: 12px; }
