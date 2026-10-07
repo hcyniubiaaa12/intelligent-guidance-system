@@ -227,6 +227,36 @@
   padding: 0;
 }
 
+/* 一键复制（学 DS）：**桌面 hover 才浮现**，触屏常显。
+   放共享件而不是各页面自己写——用户气泡、AI 回复、追问、资料、结论卡五处都在用，
+   规则分裂在两处的话，改了共享件那几处会悄悄用旧的。
+   `.p-q`（用户气泡那一列）是对话页私有的，hover 浮现的那条选择器随它留在页面里。 */
+.p-act__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity .18s ease, color .18s ease;
+}
+.p-act__btn:hover,
+.p-act__btn.is-copied,
+.p-act__btn:focus-visible { color: var(--leaf-deep); }
+.p-act__btn.is-copied { opacity: 1; }
+/* 触屏没有 hover：复制按钮常显——这时候它就是**真控件**，命中区必须补到 44px
+   （桌面端是 hover 才出现的辅助动作，鼠标不需要那么大的靶子，保持紧凑） */
+@media (hover: none) {
+  .p-act__btn { opacity: 1; min-height: 44px; }
+}
+
 /* ---------- §3.2 推荐卡 ---------- */
 .p-card {
   background: var(--surface);
@@ -789,6 +819,100 @@
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ---------- §3.9 表单控件：自绘下拉（`components/patient/PatientSelect.vue`）----------
+   **不用原生 `<select>`**：原生控件的外观由浏览器决定（Windows 灰凹面 / macOS 圆角胶囊），
+   与本方案的控件语言对不上，同一套截图换台机器就变了。
+   高度与朝向由组件按"到最近滚动容器的可用空间"实测后写成行内 max-height /
+   `--up` 类，所以这里只给默认形态，**不写死 max-height**。 */
+/* 表单控件默认**填满所在的一行**（flex 容器里跟标签并排的那种）。要按内容收窄
+   就把它裹进一个 `width: fit-content` 的壳里——不要靠组件自己猜该多宽。 */
+.p-sel { position: relative; flex: 1; min-width: 0; }
+.p-sel__btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px; /* 触控目标 ≥ 44px（§5） */
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  text-align: left;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.p-sel__btn:hover:not(:disabled) { border-color: var(--line-2); }
+/* 展开态：主色描边 + 一圈极淡的主色光晕（不是加粗边框——那会让控件突然变大）*/
+.p-sel__btn.is-open {
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 4px var(--leaf-glow);
+}
+.p-sel__btn.is-empty { color: var(--ink-3); }
+.p-sel__btn:disabled { background: var(--line); color: var(--ink-3); cursor: not-allowed; }
+.p-sel__val { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.p-sel__caret { flex: none; color: var(--ink-3); transition: transform .18s ease; }
+.p-sel__btn.is-open .p-sel__caret { transform: rotate(180deg); }
+
+.p-sel__panel {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--sh-overlay); /* 浮在内容之上：没有阴影就会和下面的表单糊在一起 */
+}
+/* 向上翻：下面放不下时（浮层表单区是 overflow-y:auto，滚动到一半就会遇到） */
+.p-sel__panel--up { top: auto; bottom: calc(100% + 4px); }
+.p-sel__opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px; /* 选项也是控件，同样 ≥44px */
+  padding: 0 8px;
+  border-radius: var(--r-xs);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap; /* 「不 填」这类带字距的文案不许断行 */
+  transition: background .18s ease, color .18s ease;
+}
+/* 高亮（键盘正在走的那条）与选中（当前值）是两回事，颜色上用底与字重分开 */
+.p-sel__opt.on { background: var(--leaf-soft); }
+.p-sel__opt.sel { color: var(--leaf-deep); font-weight: 600; }
+/* 勾占一个固定宽度的位：勾与不勾的行，文字才会对齐 */
+.p-sel__tick {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--leaf-deep);
+}
+.p-sel__optx { flex: 1; min-width: 0; }
+.p-sel__none { padding: 12px 8px; font-size: 11.5px; color: var(--ink-3); }
+
+/* 过渡时长统一 .18s（§2.5），不另立一个"下拉专用"的节奏 */
+.p-sel-rise-enter-active,
+.p-sel-rise-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.p-sel-rise-enter-from,
+.p-sel-rise-leave-to { opacity: 0; transform: translateY(-4px); }
+.p-sel__panel--up.p-sel-rise-enter-from,
+.p-sel__panel--up.p-sel-rise-leave-to { transform: translateY(4px); }
 
 /* ---------- 动效降级 ---------- */
 @media (prefers-reduced-motion: reduce) {
