@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>草案 06 · 陪诊伙伴 × 人体图选部位（必填）</title>
+<style>
+  /* ============================================================
+     方案 06 = 方向 04「陪诊伙伴」的皮肤 + 人体图选部位
+     本轮改动：**部位改为必填** —— 先锁范围，再追问细节。
+     但"必填的是这一步动作，不是必须点中某个区域"：
+     覆盖层里保留「说不清在哪儿 · 直接描述」出口，否则发烧/乏力/头晕这批人进不来。
+     部位词来自后端 medical_term(type=part, enabled=1)；「感觉」那排是前端自持的。
+     ============================================================ */
+  :root{
+    --bg:#FAF5EF; --stage:#FDFAF6; --rail:#F4EDE4; --surface:#FFFFFF;
+    --ink:#2E2620; --ink-2:#7A6A5E; --ink-3:#AB9C8D; --line:#EDE2D7; --line-2:#E0D2C4;
+    --leaf:#1F8A70; --leaf-deep:#176B57; --leaf-soft:#E6F3EF;
+    --apricot:#E8974A; --apricot-soft:#FDF0DF;
+    --alert:#BE5238; --alert-soft:#FBEBE5;
+    --body:#E9F1EE; --body-line:#B9D2CB; --body-on:#1F8A70; --body-on-soft:#CBE6DE;
+    --sans:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    --mono:ui-monospace,Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#EFE6DB;color:var(--ink);font-family:var(--sans);font-size:13.5px;
+    padding:10px 10px 40px;-webkit-font-smoothing:antialiased}
+  :focus-visible{outline:2px solid var(--leaf);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  button{font-family:inherit;cursor:pointer;background:none;border:none;color:inherit;font-size:inherit}
+
+  /* ---------- 草案说明区（不进产品） ---------- */
+  .hd{max-width:1240px;margin:0 auto 26px;padding:20px 22px;border:1px solid var(--line-2);
+    border-radius:20px;background:var(--surface)}
+  .hd h1{font-size:18px;font-weight:600}
+  .hd h1 span{font-family:var(--mono);font-size:11px;color:var(--leaf-deep);letter-spacing:.14em;
+    border:1px solid var(--line-2);padding:2px 7px;border-radius:6px;vertical-align:2px;margin-right:10px}
+  .hd p{margin-top:9px;font-size:12.5px;line-height:2;color:var(--ink-2);max-width:880px}
+  .hd p b{color:var(--ink);font-weight:600}
+  .cover{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);display:grid;
+    grid-template-columns:1.15fr 1fr;gap:14px 28px}
+  .cover__b{font-size:12px;line-height:1.85;color:var(--ink-2)}
+  .cover__b b{display:block;color:var(--ink);font-weight:600;margin-bottom:4px;font-size:12.5px}
+  .cover__b em{font-style:normal;color:var(--alert)}
+  .maprow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .w{font-size:11px;padding:3px 9px;border-radius:12px;background:var(--leaf-soft);color:var(--leaf-deep)}
+  .w--out{background:var(--rail);color:var(--ink-2);font-size:11px;padding:3px 9px;border-radius:12px}
+  .w--none{background:var(--alert-soft);color:var(--alert);font-size:11px;padding:3px 9px;border-radius:12px}
+
+  /* ---------- 视口 ---------- */
+  .shot{max-width:1240px;margin:0 auto 30px}
+  .shot__lb{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:#8E7F71;
+    margin-bottom:9px;display:flex;align-items:center;gap:10px}
+  .shot__lb u{flex:1;height:1px;background:var(--line-2);text-decoration:none}
+  .shot__lb em{font-style:normal;color:var(--leaf-deep)}
+  .viewport{border:1px solid var(--line-2);border-radius:20px;overflow:hidden;background:var(--stage);
+    box-shadow:0 16px 44px rgba(70,50,34,.14)}
+  .chrome{display:flex;align-items:center;gap:7px;padding:9px 13px;background:#EFE2D4;
+    border-bottom:1px solid var(--line-2)}
+  .chrome i{width:9px;height:9px;border-radius:50%;background:#D8C7B4;display:block}
+  .chrome span{margin-left:8px;font-family:var(--mono);font-size:10px;color:#8E7F71}
+
+  .app{display:flex;height:650px;background:var(--stage);position:relative}
+  /* 左栏 */
+  .rail{width:226px;flex:none;background:var(--rail);display:flex;flex-direction:column}
+  .rail__hd{display:flex;align-items:center;gap:10px;padding:19px 16px 15px}
+  .mark{width:26px;height:26px;flex:none;border-radius:9px;background:var(--leaf);color:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .rail__brand{font-size:13px;font-weight:600}
+  .rail__brand small{display:block;margin-top:3px;font-size:9.5px;color:var(--ink-3);font-weight:400}
+  .rail__new{margin:4px 14px 15px;padding:12px 0;text-align:center;background:var(--leaf);color:#fff;
+    border-radius:12px;font-size:12.5px;letter-spacing:.1em;box-shadow:0 3px 10px rgba(31,138,112,.24)}
+  .rail__new:hover{background:var(--leaf-deep)}
+  .rail__lb{padding:0 16px 10px;font-size:10px;letter-spacing:.16em;color:var(--ink-2)}
+  .rail__lb b{color:var(--leaf-deep)}
+  .rail__tabs{display:flex;gap:7px;padding:0 13px 13px}
+  .rail__tabs span{font-size:11.5px;color:var(--ink-2);padding:6px 13px;border-radius:20px}
+  .rail__tabs span.on{background:var(--surface);color:var(--leaf-deep);font-weight:600;
+    box-shadow:0 1px 4px rgba(70,50,34,.07)}
+  .rail__list{flex:1;overflow:hidden;padding:0 7px}
+  .day{padding:11px 9px 5px;font-size:10px;letter-spacing:.14em;color:var(--ink-3)}
+  .it{display:block;width:100%;text-align:left;padding:11px;border-radius:12px}
+  .it:hover{background:rgba(255,255,255,.72)}
+  .it__q{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .it__m{display:flex;gap:9px;margin-top:5px;font-size:10px;color:var(--ink-3)}
+  .rail__ft{margin:0 8px 11px;padding:11px 12px;background:var(--surface);border-radius:14px;
+    display:flex;align-items:center;gap:10px}
+  .ava{width:28px;height:28px;border-radius:50%;background:var(--apricot-soft);color:#B8702A;
+    display:flex;align-items:center;justify-content:center;font-size:12.5px;flex:none;font-weight:600}
+  .rail__ft b{font-size:11.5px;display:block}
+  .rail__ft span{font-size:9.5px;color:var(--ink-3)}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .thread{flex:1;overflow:auto;padding:26px 46px 10px}
+  .thread::-webkit-scrollbar{width:0}
+  .u{max-width:64%;margin-left:auto;background:var(--leaf);color:#fff;padding:12px 16px;
+    border-radius:18px 18px 6px 18px;font-size:13.5px;line-height:1.85}
+  .a{margin-top:20px;display:flex;gap:11px}
+  .ava2{width:30px;height:30px;border-radius:50%;background:var(--leaf-soft);color:var(--leaf-deep);
+    flex:none;display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .a__bd{flex:1;min-width:0}
+  .a__who{font-size:10.5px;color:var(--leaf-deep);font-weight:600;margin-bottom:8px}
+  .a__who em{font-style:normal;color:var(--ink-3);font-weight:400}
+  .a p{font-size:14.5px;line-height:2;color:#392F27}
+  .a .ask{border-left:3px solid var(--leaf-soft);padding-left:14px;margin-top:10px;color:#4E4238}
+
+  /* ---------- 引导区（必填：先锁范围） ---------- */
+  .guide{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 46px 34px;gap:20px}
+  .hello{display:flex;align-items:center;gap:13px}
+  .hello__ava{width:44px;height:44px;border-radius:14px;background:var(--leaf);color:#fff;flex:none;
+    display:flex;align-items:center;justify-content:center}
+  .guide h2{font-size:25px;font-weight:600;line-height:1.4}
+  .guide__sub{font-size:13.5px;color:var(--ink-2);margin-top:8px;line-height:1.9}
+
+  .bigpick{display:flex;align-items:center;gap:14px;width:100%;padding:17px 20px;
+    background:var(--leaf);color:#fff;border-radius:18px;text-align:left;
+    box-shadow:0 6px 20px rgba(31,138,112,.26);transition:.18s ease}
+  .bigpick:hover{background:var(--leaf-deep);transform:translateY(-1px)}
+  .bigpick__ic{width:38px;height:38px;flex:none;border-radius:12px;background:rgba(255,255,255,.18);
+    display:flex;align-items:center;justify-content:center}
+  .bigpick__t{flex:1;min-width:0}
+  .bigpick__t b{display:block;font-size:15px;font-weight:600}
+  .bigpick__t small{display:block;margin-top:5px;font-size:11.5px;color:rgba(255,255,255,.82)}
+  .bigpick__ar{font-size:18px;flex:none;opacity:.85}
+
+  .slots{display:flex;gap:11px}
+  .slot{flex:1;position:relative;background:var(--surface);border:1px solid var(--line);
+    border-radius:15px;padding:14px}
+  .slot b{display:block;font-size:10px;letter-spacing:.14em;color:var(--ink-3);font-weight:600}
+  .slot span{display:block;margin-top:8px;font-size:12.5px;color:var(--ink-3);line-height:1.6}
+  .slot--req{border-color:var(--leaf);background:var(--leaf-soft)}
+  .slot--req b{color:var(--leaf-deep)}
+  .slot--req span{color:var(--leaf-deep);font-weight:600}
+  .slot__must{position:absolute;right:11px;top:11px;font-size:9.5px;color:#fff;background:var(--leaf);
+    border-radius:10px;padding:2px 7px;font-weight:600}
+  .slot__opt{position:absolute;right:11px;top:11px;font-size:9.5px;color:var(--ink-3);
+    border:1px solid var(--line-2);border-radius:10px;padding:2px 7px}
+
+  .demo{display:flex;gap:12px;font-size:12.5px;color:#4E4238;line-height:2;background:var(--surface);
+    border-radius:14px;padding:13px 16px;border-left:4px solid var(--leaf-soft)}
+  .chips{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{padding:8px 16px;background:var(--surface);border:1px solid var(--line);border-radius:22px;
+    font-size:12px;color:var(--ink-2);transition:.18s ease}
+  .chip:hover{border-color:var(--leaf);color:var(--leaf-deep);background:var(--leaf-soft)}
+  .chip em{font-style:normal;color:var(--leaf-deep);font-weight:600}
+
+  /* 锁定后 */
+  .locked{margin-top:2px}
+  .locked__row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--leaf-deep);
+    background:var(--leaf-soft);border-radius:14px;padding:11px 15px;line-height:1.7}
+  .locked__row b{font-weight:600}
+  .relink{margin-top:10px;font-size:11.5px;color:var(--ink-3);border-bottom:1px dashed var(--line-2);
+    padding-bottom:1px}
+  .relink:hover{color:var(--leaf-deep);border-color:var(--leaf)}
+
+  /* 写入区 */
+  .write{padding:14px 46px 18px;background:var(--stage)}
+  .wbox{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 3px 12px rgba(70,50,34,.06);transition:.18s ease}
+  .wbox.focus{border-color:var(--leaf);box-shadow:0 4px 18px rgba(31,138,112,.16)}
+  .ta{display:block;width:100%;height:56px;resize:none;border:none;outline:none;background:none;
+    padding:14px 17px 4px;font-family:inherit;font-size:13.5px;line-height:1.8;color:var(--ink);overflow:hidden}
+  .ta::placeholder{color:var(--ink-3)}
+  .ta[readonly]{cursor:default}
+  .wft{display:flex;align-items:center;justify-content:space-between;padding:0 11px 11px 17px}
+  .wleft{display:flex;align-items:center;gap:12px;min-width:0}
+  .wft small{font-size:10.5px;color:var(--ink-3)}
+  .tbtn{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--leaf-deep);
+    border:1px solid var(--line-2);border-radius:12px;padding:5px 11px;transition:.18s ease;white-space:nowrap}
+  .tbtn:hover{border-color:var(--leaf);background:var(--leaf-soft)}
+  .send{width:34px;height:34px;border-radius:11px;background:var(--leaf);color:#fff;flex:none;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(31,138,112,.24)}
+  .send:hover{background:var(--leaf-deep)}
+  .send[disabled],.send.dis{background:var(--rail);color:var(--ink-3);box-shadow:none;cursor:not-allowed}
+
+  /* 必填态：输入框禁用 */
+  .app.is-guide .wbox{background:var(--rail);border-color:var(--line);box-shadow:none}
+  .app.is-guide .wbox .ta::placeholder{color:var(--ink-3)}
+  .app.is-guide .tbtn{opacity:.45;pointer-events:none}
+  .app.is-guide .guide__ready{display:none}
+  .app.is-ready .guide__pick{display:none}
+  .guide__ready{display:none}
+  .app.is-ready .guide__ready{display:block}
+
+  /* ============ 人体图覆盖层 ============ */
+  .ovl{position:absolute;inset:0;background:rgba(46,38,32,.42);display:none;
+    align-items:center;justify-content:center;padding:16px}
+  .app.is-pick .ovl{display:flex}
+  .ovl__box{width:min(730px,100%);max-height:100%;background:var(--surface);border-radius:22px;
+    overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(46,38,32,.34)}
+  .ovl__hd{display:flex;align-items:flex-start;gap:12px;padding:17px 20px 14px;border-bottom:1px solid var(--line)}
+  .ovl__t{flex:1}
+  .ovl__t b{font-size:15px;font-weight:600}
+  .ovl__t b i{font-style:normal;font-size:11px;font-weight:600;color:#fff;background:var(--leaf);
+    border-radius:10px;padding:2px 8px;margin-left:8px;vertical-align:1px}
+  .ovl__t p{margin-top:6px;font-size:11.5px;color:var(--ink-2);line-height:1.7}
+
+  .ovl__bd{flex:1;min-height:0;display:flex;overflow:hidden}
+  .figwrap{flex:1;min-width:0;padding:14px 10px 10px 20px;display:flex;flex-direction:column;
+    align-items:center;gap:10px;overflow:hidden}
+  .figure{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+  .figure svg{height:100%;max-height:320px;width:auto;overflow:visible}
+  .rg{fill:var(--body);stroke:var(--body-line);stroke-width:1.5;cursor:pointer;transition:fill .16s ease,stroke .16s ease}
+  .rg:hover{fill:var(--body-on-soft);stroke:var(--leaf)}
+  .rg.sel{fill:var(--body-on);stroke:var(--leaf-deep)}
+  .rg.act{fill:var(--body-on-soft);stroke:var(--leaf);stroke-width:2.5}
+  .rg.sel.act{fill:var(--body-on);stroke:#F0B429;stroke-width:2.5}
+  .viewsw{display:flex;background:var(--rail);border-radius:12px;padding:3px;flex:none}
+  .viewsw button{padding:6px 18px;border-radius:9px;font-size:12px;color:var(--ink-2)}
+  .viewsw button.on{background:var(--surface);color:var(--leaf-deep);font-weight:600;
+    box-shadow:0 1px 4px rgba(70,50,34,.1)}
+
+  .pick{width:266px;flex:none;border-left:1px solid var(--line);background:#FDFBF8;overflow-y:auto}
+  .pick::-webkit-scrollbar{width:6px}
+  .pick::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px}
+  .pick__sec{padding:13px 16px 12px;border-bottom:1px solid var(--line)}
+  .pick__lb{font-size:10px;letter-spacing:.16em;color:var(--ink-2);font-weight:600;margin-bottom:10px}
+  .pick__lb em{font-style:normal;color:var(--ink-3);letter-spacing:0;font-weight:400;margin-left:6px}
+  .subchips{display:flex;flex-wrap:wrap;gap:7px}
+  .sc{padding:6px 13px;border:1px solid var(--line-2);border-radius:16px;font-size:12px;
+    color:var(--ink-2);background:var(--surface)}
+  .sc:hover{border-color:var(--leaf);color:var(--leaf-deep);background:var(--leaf-soft)}
+  .sc.on{background:var(--leaf);border-color:var(--leaf);color:#fff;font-weight:600}
+  .pick__hint{font-size:10.5px;color:var(--ink-3);line-height:1.7}
+  .pick__hint b{color:var(--ink-2);font-weight:600}
+  .picked{display:flex;flex-wrap:wrap;gap:7px;min-height:26px}
+  .pk{display:inline-flex;align-items:center;gap:6px;background:var(--leaf-soft);color:var(--leaf-deep);
+    border-radius:14px;padding:4px 8px 4px 12px;font-size:12px;font-weight:600}
+  .pk--feel{background:var(--apricot-soft);color:#8A5A1E}
+  .pk--side{background:var(--rail);color:var(--ink-2)}
+  .pk button{width:15px;height:15px;border-radius:50%;background:rgba(31,138,112,.2);color:var(--leaf-deep);
+    display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1;flex:none}
+  .pk--feel button{background:rgba(232,151,74,.28);color:#8A5A1E}
+  .pk--side button{background:rgba(122,106,94,.22);color:var(--ink-2)}
+  .pk button:hover{background:var(--leaf);color:#fff}
+  .pick__empty{font-size:11.5px;color:var(--ink-3)}
+  .pick__global{display:flex;flex-wrap:wrap;gap:7px}
+
+  .ovl__ft{border-top:1px solid var(--line);padding:12px 16px;background:var(--surface)}
+  .fill{display:flex;gap:9px;align-items:baseline;background:var(--apricot-soft);border-radius:12px;
+    padding:9px 13px;font-size:11.5px;color:#9A6B33;line-height:1.7}
+  .fill em{font-style:normal;font-weight:600;color:#7E5622;flex:none}
+  .fill b{color:#7E5622;font-weight:600}
+  .ovl__acts{display:flex;align-items:center;gap:10px;margin-top:11px}
+  .ovl__acts small{flex:1;font-size:10.5px;color:var(--ink-3);line-height:1.6}
+  .ghost{padding:9px 16px;border:1px solid var(--line-2);border-radius:12px;font-size:12.5px;
+    color:var(--ink-2);white-space:nowrap}
+  .ghost:hover{border-color:var(--leaf);color:var(--leaf-deep);background:var(--leaf-soft)}
+  .prime{padding:10px 24px;background:var(--leaf);color:#fff;border-radius:12px;font-size:13px;
+    font-weight:600;letter-spacing:.08em;box-shadow:0 3px 10px rgba(31,138,112,.24);white-space:nowrap}
+  .prime:disabled{background:var(--rail);color:var(--ink-3);box-shadow:none;cursor:not-allowed}
+  .prime:not(:disabled):hover{background:var(--leaf-deep)}
+
+  .callout{max-width:1240px;margin:0 auto 26px;padding:14px 18px;border-radius:14px;
+    background:var(--surface);border:1px solid var(--line-2);border-left:5px solid var(--apricot);
+    font-size:12.5px;line-height:1.95;color:#4E4238}
+  .callout b{color:var(--ink);font-weight:600}
+  .callout em{font-style:normal;color:var(--alert);font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="hd">
+  <h1><span>草案 06</span>陪诊伙伴 × 人体图选部位 <b style="font-weight:600">（必填）</b></h1>
+  <p>方向 04 的皮肤，加一层<b>人体图覆盖层</b>，并且<b>把"位置"做成必填的第一步</b> —— 先锁范围，再追问细节。
+    部位词来自后端 <b>medical_term（type=part）</b>，图只负责"形"；再给一排<b>「常见感觉」</b>（前端自持，表里只有"腹痛/胸痛"这类复合词）。</p>
+  <p><b>必填有一条前提</b>：必填的应是<b>"这一步动作"，不是"必须点中某个区域"</b>。覆盖层里保留
+    <b>「说不清在哪儿 · 直接描述」</b>出口 —— 发烧、乏力、浑身没劲、头晕这类主诉根本指不出位置，没有这个出口这批人会被挡死。
+    另外<b>常见主诉 chips 改成图的快捷入口</b>（点「肚子疼」直接打开图并选中"腹部"），让必填变成省事而不是拦路。</p>
+  <p>覆盖层里还能顺手点一个<b>「哪一侧」</b>（左 / 右 / 两侧）—— 左右在分诊里是有效信息（左上腹痛多在胃，右下腹痛要留意阑尾），
+    而且<b>「上腹 + 左」在临床上本来就写成「左上腹」</b>，组合出来的词比口语更规范。术语表里虽然没有左右词，但"左腹部 / 左上肢"都含部位词，照样命中白名单。</p>
+  <p><b>这一屏可以真的走完流程</b>：点大按钮或点任一 chip → 覆盖层 → 选部位 + 左右 + 感觉 → 填入 → 输入框启用并已填好。也可以点「说不清在哪儿」直接跳到输入框。</p>
+
+  <div class="cover">
+    <div class="cover__b">
+      <b>29 个部位词的覆盖情况（诚实的账）</b>
+      <div class="maprow">
+        <span class="w">图内可选 22</span>
+        <span class="w--out">全身 chip 2</span>
+        <span class="w--none">刻意不进图 5</span>
+      </div>
+      <div class="maprow">
+        <span class="w">头 眼 鼻 耳 咽 喉</span><span class="w">颈</span><span class="w">肩</span>
+        <span class="w">胸 胸口</span><span class="w">上腹 腹部 下腹</span><span class="w">髋</span>
+        <span class="w">上肢</span><span class="w">手</span><span class="w">腿 下肢</span>
+        <span class="w">膝</span><span class="w">脚</span><span class="w">背</span><span class="w">腰</span>
+      </div>
+      <div class="maprow">
+        <span class="w--out">皮肤</span><span class="w--out">关节</span>
+        <span class="w--none">腹 心 肺 胃 肠</span>
+      </div>
+    </div>
+    <div class="cover__b">
+      <b>八条约束</b>
+      ① 图上只出现<b>表里已有的词</b>，否则拼出的句子不命中术语白名单；<br>
+      ② <b>心 / 肺 / 胃 / 肠 刻意不进图</b> —— 器官不是体表位置，让患者自己指"心的位置"等于诱导自我诊断；<b>「腹」</b>是「腹部」的单字形式，不重复给；<br>
+      ③ <b>「感觉」那排是前端自持的</b> —— 表里症状词全是「部位+症状」复合词（腹痛/胸痛/头痛/腰痛），<b>没有"绞痛/刺痛"这类纯形容词</b>，无法同源。不影响判定：句子里已有部位词兜住术语命中；<br>
+      ④ <b>「哪一侧」只是前缀，不是新词</b> —— 表里没有左/右，但"左腹部 / 左上肢"含部位词仍命中；<b>全身性词（皮肤 / 关节）不加前缀</b>（"左皮肤"没有意义）；<br>
+      ⑤ <b>必填的出口必须有</b> ——「说不清在哪儿 · 直接描述」，否则说不清位置的人进不来；<br>
+      ⑥ <b>必填的是动作，不是区域</b> —— 点了出口也算完成"声明"，输入框随即启用；<br>
+      ⑦ <b>常见主诉 chips 改为图的快捷入口</b>（只保留能明确对应区域的 5 个），必填才不会变成拦路；<br>
+      ⑧ 选完只<b>填进输入框、不自动发送</b>，患者还能接着补"两天了，一阵一阵的"，也能补"左手更明显"这种图上表达不了的细节。
+    </div>
+  </div>
+</header>
+
+<!-- ============ 屏 1 · 全流程（可交互） ============ -->
+<section class="shot">
+  <div class="shot__lb">屏幕 1 · 引导 → 选图 → 锁定<u></u><em>这一屏可以真的走完流程</em></div>
+  <div class="viewport">
+    <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
+
+    <div class="app is-guide" id="app">
+      <aside class="rail">
+        <div class="rail__hd">
+          <span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
+          <span class="rail__brand">智能导诊<small>您的陪诊助手</small></span>
+        </div>
+        <div class="rail__new">＋ 开始新的咨询</div>
+        <div class="rail__lb">我 的 就 诊 · <b>7 次</b></div>
+        <div class="rail__tabs"><span class="on">全部对话</span><span>挂号历史</span></div>
+        <div class="rail__list">
+          <div class="day">今 天</div>
+          <button class="it"><span class="it__q">这两天手腕一转就疼…</span><span class="it__m">3 问 · 09:41</span></button>
+          <button class="it"><span class="it__q">最近总是头晕，站起来发黑</span><span class="it__m">2 问 · 08:12</span></button>
+          <div class="day">10 月 6 日</div>
+          <button class="it"><span class="it__q">孩子发烧 38.5 该挂什么科</span><span class="it__m">4 问 · 20:30</span></button>
+        </div>
+        <div class="rail__ft"><span class="ava">陈</span><span><b>陈先生</b><span>健 康 档 案</span></span></div>
+      </aside>
+
+      <div class="main">
+        <div class="guide">
+          <div class="hello">
+            <span class="hello__ava"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
+            <div>
+              <h2>先告诉我，哪里不舒服</h2>
+              <p class="guide__sub">在人体图上点一下位置，我才好帮您判断该去哪个科；细节我们后面慢慢说。</p>
+            </div>
+          </div>
+
+          <div class="guide__pick">
+            <button class="bigpick" id="btnOpen">
+              <span class="bigpick__ic">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="5" r="2.4"/><path d="M12 7.6v6M12 13.6l-3.2 6M12 13.6l3.2 6M7.6 10h8.8"/></svg>
+              </span>
+              <span class="bigpick__t">
+                <b>在人体图上选部位</b>
+                <small>第一步 · 大约 10 秒</small>
+              </span>
+              <span class="bigpick__ar">→</span>
+            </button>
+          </div>
+
+          <div class="slots">
+            <div class="slot slot--req"><span class="slot__must">必填</span>
+              <b>① 部 位</b><span id="slotPart">在图上选，或说"说不清"</span></div>
+            <div class="slot"><span class="slot__opt">随后问</span>
+              <b>② 时 间</b><span>大概多久了</span></div>
+            <div class="slot"><span class="slot__opt">随后问</span>
+              <b>③ 感 觉</b><span>是怎么个难受法</span></div>
+          </div>
+
+          <div class="guide__pick">
+            <p class="demo">"右下方肚子疼了两天，一阵一阵的，还伴着恶心，没发烧。"</p>
+          </div>
+
+          <div class="guide__pick">
+            <div class="pick__lb" style="margin-bottom:11px">常 见 主 诉 · 点 了 直 接 在 图 上 选 中</div>
+            <div class="chips" id="chips">
+              <button class="chip" data-r="abd" data-w="腹部">肚子疼 <em>→ 腹部</em></button>
+              <button class="chip" data-r="head" data-w="头">头疼头晕 <em>→ 头</em></button>
+              <button class="chip" data-r="chest" data-w="胸口">心慌胸闷 <em>→ 胸口</em></button>
+              <button class="chip" data-r="waist" data-w="腰">腰背酸痛 <em>→ 腰</em></button>
+              <button class="chip" data-w="皮肤">皮肤起疹 <em>→ 皮肤</em></button>
+            </div>
+          </div>
+
+          <div class="guide__ready">
+            <div class="locked">
+              <div class="locked__row">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+                <span id="lockedTx"><b>位置已锁定</b> —— 接着说一句就行，剩下来的我来问。</span>
+              </div>
+              <button class="relink" id="btnReset">位置选错了？重新选</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="write">
+          <div class="wbox" id="wbox">
+            <textarea class="ta" id="ta" readonly placeholder="先在上面选好位置，就能开始说了…"></textarea>
+            <div class="wft">
+              <div class="wleft">
+                <button class="tbtn" id="btnOpen2">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="5" r="2.4"/><path d="M12 7.6v6M12 13.6l-3.2 6M12 13.6l3.2 6M7.6 10h8.8"/></svg>
+                  人体图选部位
+                </button>
+                <small>分诊建议，不能替代医生诊断</small>
+              </div>
+              <button class="send dis" id="btnSend" aria-label="发送">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 覆盖层 -->
+      <div class="ovl">
+        <div class="ovl__box">
+          <div class="ovl__hd">
+            <div class="ovl__t">
+              <b>身上哪里不舒服？<i>必填</i></b>
+              <p>先锁住位置，我才能帮您判断科室。点一下图上不舒服的位置（可以选多个），再点一下是什么感觉。找不到就点下面的「说不清在哪儿」。</p>
+            </div>
+          </div>
+
+          <div class="ovl__bd">
+            <div class="figwrap">
+              <div class="figure">
+                <svg id="svgFront" viewBox="0 0 220 360" role="group" aria-label="正面人体图">
+                  <ellipse class="rg" data-r="head" cx="110" cy="36" rx="26" ry="31"/>
+                  <rect class="rg" data-r="neck" x="100" y="69" width="20" height="14" rx="4"/>
+                  <rect class="rg" data-r="shoulder" x="46" y="84" width="30" height="24" rx="7"/>
+                  <rect class="rg" data-r="shoulder" x="144" y="84" width="30" height="24" rx="7"/>
+                  <rect class="rg" data-r="chest" x="77" y="84" width="66" height="48" rx="7"/>
+                  <rect class="rg" data-r="arm" x="48" y="110" width="24" height="96" rx="10"/>
+                  <rect class="rg" data-r="arm" x="148" y="110" width="24" height="96" rx="10"/>
+                  <circle class="rg" data-r="hand" cx="60" cy="220" r="12"/>
+                  <circle class="rg" data-r="hand" cx="160" cy="220" r="12"/>
+                  <rect class="rg" data-r="abd" x="80" y="134" width="60" height="62" rx="7"/>
+                  <rect class="rg" data-r="hip" x="76" y="198" width="68" height="26" rx="7"/>
+                  <rect class="rg" data-r="leg" x="82" y="226" width="24" height="44" rx="8"/>
+                  <rect class="rg" data-r="leg" x="114" y="226" width="24" height="44" rx="8"/>
+                  <circle class="rg" data-r="knee" cx="94" cy="286" r="14"/>
+                  <circle class="rg" data-r="knee" cx="126" cy="286" r="14"/>
+                  <rect class="rg" data-r="leg" x="82" y="302" width="24" height="34" rx="8"/>
+                  <rect class="rg" data-r="leg" x="114" y="302" width="24" height="34" rx="8"/>
+                  <rect class="rg" data-r="foot" x="78" y="338" width="30" height="15" rx="6"/>
+                  <rect class="rg" data-r="foot" x="112" y="338" width="30" height="15" rx="6"/>
+                </svg>
+                <svg id="svgBack" viewBox="0 0 220 360" style="display:none" role="group" aria-label="背面人体图">
+                  <ellipse class="rg" data-r="head" cx="110" cy="36" rx="26" ry="31"/>
+                  <rect class="rg" data-r="neck" x="100" y="69" width="20" height="14" rx="4"/>
+                  <rect class="rg" data-r="shoulder" x="46" y="84" width="30" height="24" rx="7"/>
+                  <rect class="rg" data-r="shoulder" x="144" y="84" width="30" height="24" rx="7"/>
+                  <rect class="rg" data-r="back" x="77" y="84" width="66" height="70" rx="7"/>
+                  <rect class="rg" data-r="arm" x="48" y="110" width="24" height="96" rx="10"/>
+                  <rect class="rg" data-r="arm" x="148" y="110" width="24" height="96" rx="10"/>
+                  <circle class="rg" data-r="hand" cx="60" cy="220" r="12"/>
+                  <circle class="rg" data-r="hand" cx="160" cy="220" r="12"/>
+                  <rect class="rg" data-r="waist" x="80" y="156" width="60" height="68" rx="7"/>
+                  <rect class="rg" data-r="leg" x="82" y="226" width="24" height="44" rx="8"/>
+                  <rect class="rg" data-r="leg" x="114" y="226" width="24" height="44" rx="8"/>
+                  <circle class="rg" data-r="knee" cx="94" cy="286" r="14"/>
+                  <circle class="rg" data-r="knee" cx="126" cy="286" r="14"/>
+                  <rect class="rg" data-r="leg" x="82" y="302" width="24" height="34" rx="8"/>
+                  <rect class="rg" data-r="leg" x="114" y="302" width="24" height="34" rx="8"/>
+                  <rect class="rg" data-r="foot" x="78" y="338" width="30" height="15" rx="6"/>
+                  <rect class="rg" data-r="foot" x="112" y="338" width="30" height="15" rx="6"/>
+                </svg>
+              </div>
+              <div class="viewsw">
+                <button id="btnFront" class="on">正面</button>
+                <button id="btnBack">背面</button>
+              </div>
+            </div>
+
+            <div class="pick">
+              <div class="pick__sec">
+                <div class="pick__lb">这 一 片 具 体 是 哪 儿<em id="pickWhere">先点一下图</em></div>
+                <div class="subchips" id="subchips">
+                  <span class="pick__hint">点图上任意一块，这里会列出它包含的部位词。</span>
+                </div>
+              </div>
+
+              <div class="pick__sec">
+                <div class="pick__lb">哪 一 侧<em>选填 · 单选</em></div>
+                <div class="subchips" id="sidechips"></div>
+                <p class="pick__hint" style="margin-top:9px">左右在分诊里是有效信息：左上腹痛多在胃，右下腹痛要留意阑尾。</p>
+              </div>
+
+              <div class="pick__sec">
+                <div class="pick__lb">再 点 一 下 什 么 感 觉<em>选填 · 可多选</em></div>
+                <div class="subchips" id="feelchips"></div>
+                <p class="pick__hint" style="margin-top:9px">没有合适的？先随便点一个，回头在输入框里补。</p>
+              </div>
+
+              <div class="pick__sec">
+                <div class="pick__lb">已 选 <em>位置至少选一个</em></div>
+                <div class="picked" id="picked"><span class="pick__empty">还没选</span></div>
+              </div>
+
+              <div class="pick__sec" style="border-bottom:none">
+                <div class="pick__lb">全 身 性 的</div>
+                <div class="pick__global" id="globals">
+                  <button class="sc" data-w="皮肤">皮肤</button>
+                  <button class="sc" data-w="关节">关节</button>
+                </div>
+                <p class="pick__hint" style="margin-top:10px">
+                  <b>心 / 肺 / 胃 / 肠 不在图上</b> —— 它们是器官，不是体表位置。等进了对话直接打字说"胃疼"就行。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="ovl__ft">
+            <div class="fill">
+              <em>会填进输入框</em>
+              <span id="preview">还没选，先点一下图上不舒服的位置</span>
+            </div>
+            <div class="ovl__acts">
+              <button class="ghost" id="btnEsc">说不清在哪儿 · 直接描述</button>
+              <small>选完只填进输入框、不自动发送。</small>
+              <button class="prime" id="btnFill" disabled>填 入</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="callout">
+  <b>屏幕 2 想说的收益</b> —— 位置锁定后发出「左腹部疼，两天了，一阵一阵的」，助手的<b>第一句追问是"疼起来是一阵一阵还是持续"</b>，
+  <em>不会</em>再问"具体是哪个部位"。这就是"必填"换来的东西：<b>范围先落在图里，细节才交给对话</b>。
+</div>
+
+<!-- ============ 屏 2 · 发出去之后 ============ -->
+<section class="shot">
+  <div class="shot__lb">屏幕 2 · 发出去之后 —— 追问的是"性质"，不是"部位"<u></u></div>
+  <div class="viewport">
+    <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
+    <div class="app" style="height:470px">
+      <aside class="rail">
+        <div class="rail__hd">
+          <span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
+          <span class="rail__brand">智能导诊<small>您的陪诊助手</small></span>
+        </div>
+        <div class="rail__new">＋ 开始新的咨询</div>
+        <div class="rail__lb">我 的 就 诊 · <b>8 次</b></div>
+        <div class="rail__tabs"><span class="on">全部对话</span><span>挂号历史</span></div>
+        <div class="rail__list">
+          <div class="day">今 天</div>
+          <button class="it on"><span class="it__q">左腹部疼，两天了…</span><span class="it__m">1 问 · 13:05</span></button>
+          <button class="it"><span class="it__q">这两天手腕一转就疼…</span><span class="it__m">3 问 · 09:41</span></button>
+        </div>
+        <div class="rail__ft"><span class="ava">陈</span><span><b>陈先生</b><span>健 康 档 案</span></span></div>
+      </aside>
+      <div class="main">
+        <div class="thread">
+          <div class="u">左腹部疼，两天了，一阵一阵的。</div>
+          <div class="a">
+            <span class="ava2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg></span>
+            <div class="a__bd">
+              <div class="a__who">陪 诊 助 手 <em>· 想再问一句</em></div>
+              <p class="ask">左侧腹部、两天、一阵一阵的 —— 记下了。<b style="font-weight:600">位置已经有了，不再问部位</b>，直接往下问：疼的时候有没有往别处窜？饭后会不会更明显？</p>
+            </div>
+          </div>
+        </div>
+        <div class="write">
+          <div class="wbox"><textarea class="ta" placeholder="回答，或者补充别的…"></textarea>
+            <div class="wft"><div class="wleft"><small>分诊建议，不能替代医生诊断</small></div>
+            <button class="send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  // 「形 ↔ 词」映射：前端自持。词必须都在 medical_term(type=part) 里。
+  var REG = {
+    head:{name:'头部', words:['头','眼','鼻','耳','咽','喉']},
+    neck:{name:'颈部', words:['颈']},
+    shoulder:{name:'肩部', words:['肩']},
+    chest:{name:'胸部', words:['胸','胸口']},
+    abd:{name:'腹部', words:['上腹','腹部','下腹']},
+    hip:{name:'髋部', words:['髋']},
+    back:{name:'背部', words:['背']},
+    waist:{name:'腰部', words:['腰']},
+    arm:{name:'上肢', words:['上肢']},
+    hand:{name:'手部', words:['手']},
+    leg:{name:'下肢', words:['腿','下肢']},
+    knee:{name:'膝部', words:['膝']},
+    foot:{name:'足部', words:['脚']}
+  };
+  // 「感觉」词：前端自持。表里只有"腹痛/胸痛"这类「部位+症状」复合词，没有纯形容词。
+  // 不影响判定：拼出来的句子里已有部位词兜住术语命中。
+  var FEELS = ['疼','胀','酸','麻','灼热','绞痛','刺痛','说不上来'];
+  // 「哪一侧」：左 / 右 / 两侧。表里**没有**左右词，但"左腹部/左上腹/左上肢"都含部位词 ⇒ 仍命中白名单。
+  // 而且「上腹 + 左」在临床上本来就写成「左上腹」，组合出来的词比口语更规范。
+  var SIDES = ['左','右','两侧'];
+  // 全身性词：挂在"全身性的"那一段，**不加方位前缀**（"左皮肤"没有意义）
+  var GLOBAL_WORDS = ['皮肤','关节'];
+
+  var app = document.getElementById('app');
+  var svgFront = document.getElementById('svgFront');
+  var svgBack  = document.getElementById('svgBack');
+  var subBox   = document.getElementById('subchips');
+  var sideBox  = document.getElementById('sidechips');
+  var feelBox  = document.getElementById('feelchips');
+  var pickedBox= document.getElementById('picked');
+  var whereLb  = document.getElementById('pickWhere');
+  var preview  = document.getElementById('preview');
+  var btnFill  = document.getElementById('btnFill');
+  var btnEsc   = document.getElementById('btnEsc');
+  var btnOpen  = document.getElementById('btnOpen');
+  var btnOpen2 = document.getElementById('btnOpen2');
+  var btnReset = document.getElementById('btnReset');
+  var btnFront = document.getElementById('btnFront');
+  var btnBack  = document.getElementById('btnBack');
+  var globals  = document.getElementById('globals');
+  var chips    = document.getElementById('chips');
+  var ta       = document.getElementById('ta');
+  var wbox     = document.getElementById('wbox');
+  var btnSend  = document.getElementById('btnSend');
+  var lockedTx = document.getElementById('lockedTx');
+  var slotPart = document.getElementById('slotPart');
+
+  var state = { view:'front', act:null, picked:[], feels:[], side:null };
+
+  function el(tag, cls, txt){ var n=document.createElement(tag); if(cls) n.className=cls; if(txt!=null) n.textContent=txt; return n; }
+
+  // 拼句规则：方位前缀 + 图内部位词（顿号连接）+ 全身词 + 感觉（没有则"不舒服"）+ 逗号
+  function locationText(){
+    var pre = state.side || '';
+    return state.picked.map(function(w){
+      return GLOBAL_WORDS.indexOf(w)>-1 ? w : (pre + w);
+    }).join('、');
+  }
+  function sentence(){
+    var loc = locationText();
+    var feels = state.feels.filter(function(f){ return f!=='说不上来'; }).join('、');
+    return loc ? (loc + (feels || '不舒服') + '，') : '';
+  }
+
+  function paint(){
+    var all = document.querySelectorAll('.rg');
+    for (var k=0;k<all.length;k++){
+      var node = all[k];
+      node.classList.remove('sel','act');
+      if (state.act === node.getAttribute('data-r')) node.classList.add('act');
+      var r = REG[node.getAttribute('data-r')];
+      if (r.words.some(function(w){ return state.picked.indexOf(w)>-1; })) node.classList.add('sel');
+    }
+    var gc = globals.querySelectorAll('.sc');
+    for (var j=0;j<gc.length;j++){
+      if (state.picked.indexOf(gc[j].getAttribute('data-w'))>-1) gc[j].classList.add('on');
+      else gc[j].classList.remove('on');
+    }
+  }
+
+  function renderSub(){
+    subBox.innerHTML='';
+    if (!state.act){ whereLb.textContent='先点一下图';
+      subBox.appendChild(el('span','pick__hint','点图上任意一块，这里会列出它包含的部位词。')); return; }
+    var r = REG[state.act];
+    whereLb.textContent = r.name;
+    r.words.forEach(function(w){
+      var b = el('button','sc',w);
+      if (state.picked.indexOf(w)>-1) b.classList.add('on');
+      b.onclick = function(){ toggle(w); };
+      subBox.appendChild(b);
+    });
+  }
+
+  function renderFeel(){
+    feelBox.innerHTML='';
+    FEELS.forEach(function(w){
+      var b = el('button','sc',w);
+      if (state.feels.indexOf(w)>-1) b.classList.add('on');
+      b.onclick = function(){ toggleFeel(w); };
+      feelBox.appendChild(b);
+    });
+  }
+
+  function renderSide(){
+    sideBox.innerHTML='';
+    SIDES.forEach(function(w){
+      var b = el('button','sc',w);
+      if (state.side === w) b.classList.add('on');
+      b.onclick = function(){
+        state.side = (state.side === w) ? null : w;
+        renderSide(); renderPicked();
+      };
+      sideBox.appendChild(b);
+    });
+  }
+
+  function sideLabel(){ return state.side === '两侧' ? '两侧' : (state.side ? state.side + '侧' : ''); }
+
+  function renderPicked(){
+    pickedBox.innerHTML='';
+    if (!state.picked.length && !state.feels.length && !state.side){
+      pickedBox.appendChild(el('span','pick__empty','还没选'));
+    }
+    if (state.side){
+      var cs = el('span','pk pk--side', sideLabel());
+      var xs = el('button',null,'×'); xs.title='移除';
+      xs.onclick=function(){ state.side=null; renderSide(); renderPicked(); };
+      cs.appendChild(xs); pickedBox.appendChild(cs);
+    }
+    state.picked.forEach(function(w){
+      var c = el('span','pk',w);
+      var x = el('button',null,'×'); x.title='移除'; x.onclick=function(){ toggle(w); };
+      c.appendChild(x); pickedBox.appendChild(c);
+    });
+    state.feels.forEach(function(w){
+      var c = el('span','pk pk--feel',w);
+      var x = el('button',null,'×'); x.title='移除'; x.onclick=function(){ toggleFeel(w); };
+      c.appendChild(x); pickedBox.appendChild(c);
+    });
+    var s = sentence();
+    preview.textContent = s || '还没选，先点一下图上不舒服的位置';
+    btnFill.disabled = !state.picked.length;
+  }
+
+  function toggle(w){
+    var i = state.picked.indexOf(w);
+    if (i>-1) state.picked.splice(i,1); else state.picked.push(w);
+    paint(); renderSub(); renderPicked();
+  }
+  function toggleFeel(w){
+    var i = state.feels.indexOf(w);
+    if (i>-1) state.feels.splice(i,1); else state.feels.push(w);
+    renderFeel(); renderPicked();
+  }
+
+  function setStage(s){ app.className = 'app is-' + s; }
+
+  function openPick(){ setStage('pick'); }
+
+  // 「填 入」：必填完成 → 输入框启用并填好句子
+  btnFill.onclick=function(){
+    if (!state.picked.length) return;
+    var s = sentence();
+    ta.value = s; ta.readOnly = false;
+    wbox.classList.add('focus'); btnSend.classList.remove('dis');
+    lockedTx.innerHTML = '<b>位置已锁定：' + locationText() + '</b> —— 接着说一句就行，剩下来的我来问。';
+    slotPart.textContent = locationText() + ' ✓';
+    setStage('ready');
+    ta.focus();
+    try { ta.setSelectionRange(s.length, s.length); } catch(e){}
+  };
+
+  // 「说不清在哪儿 · 直接描述」：必填的出口 —— 点了也算完成"声明"
+  btnEsc.onclick=function(){
+    ta.value = ''; ta.readOnly = false;
+    ta.placeholder = '直接说说哪里不舒服，越具体越好…';
+    wbox.classList.add('focus'); btnSend.classList.remove('dis');
+    lockedTx.innerHTML = '<b>没选位置，直接描述也行</b> —— 我会边听边判断该往哪个科靠。';
+    slotPart.textContent = '说不清位置，直接描述';
+    setStage('ready');
+    ta.focus();
+  };
+
+  btnOpen.onclick = openPick;
+  btnOpen2.onclick = openPick;
+  btnReset.onclick=function(){
+    state.picked=[]; state.feels=[]; state.side=null; state.act=null;
+    ta.value=''; ta.readOnly=true;
+    ta.placeholder='先在上面选好位置，就能开始说了…';
+    wbox.classList.remove('focus'); btnSend.classList.add('dis');
+    slotPart.textContent='在图上选，或说"说不清"';
+    paint(); renderSub(); renderSide(); renderFeel(); renderPicked();
+    setStage('guide');
+  };
+
+  document.querySelectorAll('.rg').forEach(function(node){
+    node.addEventListener('click', function(){ state.act = node.getAttribute('data-r'); paint(); renderSub(); });
+  });
+  globals.querySelectorAll('.sc').forEach(function(b){
+    b.onclick=function(){ toggle(b.getAttribute('data-w')); };
+  });
+  // 常见主诉 chips = 图的快捷入口：点了直接选中对应区域/部位，再打开图
+  chips.querySelectorAll('.chip').forEach(function(c){
+    c.onclick=function(){
+      var r = c.getAttribute('data-r'), w = c.getAttribute('data-w');
+      if (r){ state.act = r; }
+      if (w && state.picked.indexOf(w)===-1) state.picked.push(w);
+      paint(); renderSub(); renderSide(); renderFeel(); renderPicked();
+      openPick();
+    };
+  });
+  btnFront.onclick=function(){ svgFront.style.display=''; svgBack.style.display='none';
+    btnFront.classList.add('on'); btnBack.classList.remove('on'); paint(); };
+  btnBack.onclick=function(){ svgBack.style.display=''; svgFront.style.display='none';
+    btnBack.classList.add('on'); btnFront.classList.remove('on'); paint(); };
+
+  // 初始：引导态、什么都没选 —— 打开图后从零开始点
+  paint(); renderSub(); renderSide(); renderFeel(); renderPicked();
+})();
+</script>
+</body>
+</html>

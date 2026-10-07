@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>患者端重设计 · 四方向草案总览</title>
+<style>
+  :root{
+    --bg:#EFF2F5; --surface:#FFFFFF; --ink:#151C22; --ink-2:#5E6B76; --ink-3:#93A0AC;
+    --line:#DCE3E9; --line-2:#C7D1DA; --accent:#1B4A7A;
+    --sans:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    --mono:ui-monospace,Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+    padding:32px 24px 60px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1260px;margin:0 auto}
+  header.hd{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--accent)}
+  h1{font-size:29px;font-weight:700;letter-spacing:.01em;margin-top:12px}
+  .sub{margin-top:12px;font-size:13.5px;line-height:1.95;color:var(--ink-2);max-width:800px}
+  .sub b{color:var(--ink);font-weight:600}
+  .rule{display:flex;flex-wrap:wrap;gap:22px;margin-top:18px;font-size:12px;color:var(--ink-2)}
+  .rule span b{color:var(--ink)}
+
+  h2{font-size:15px;font-weight:700;letter-spacing:.02em;margin:34px 0 14px;
+    display:flex;align-items:center;gap:10px}
+  h2 u{flex:1;height:1px;background:var(--line-2);text-decoration:none}
+
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;overflow:hidden}
+  th{background:#F5F8FA;font-size:11px;letter-spacing:.08em;color:var(--ink-2);text-align:left;
+    padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}
+  td{padding:12px 14px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top;
+    line-height:1.7;color:#2B343B}
+  tr:last-child td{border-bottom:none}
+  td.no{font-family:var(--mono);font-size:11px;color:var(--ink-3);width:44px}
+  td.nm{font-weight:600;white-space:nowrap}
+  .sw{display:flex;gap:4px;margin-top:5px}
+  .sw i{width:14px;height:14px;border-radius:3px;display:block;border:1px solid rgba(0,0,0,.08)}
+  .tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid var(--line-2);
+    color:var(--ink-2);white-space:nowrap}
+  .tag.rec{background:#E8F0F8;border-color:#9FBBD8;color:#1B4A7A;font-weight:600}
+
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+    display:flex;flex-direction:column}
+  .card__hd{padding:15px 17px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:11px}
+  .card__hd .no{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.12em;
+    border:1px solid var(--line-2);padding:2px 7px;border-radius:3px}
+  .card__hd b{font-size:15px}
+  .card__hd small{margin-left:auto;font-size:11px;color:var(--ink-3)}
+  .card__txt{padding:14px 17px;font-size:12.5px;line-height:1.85;color:var(--ink-2);flex:none}
+  .card__txt b{color:var(--ink)}
+  .card__txt em{font-style:normal;color:#A8541F}
+  .frame{height:250px;overflow:hidden;background:#DDE3E8;border-top:1px solid var(--line);position:relative}
+  .frame iframe{width:1240px;height:660px;border:0;transform:scale(.395);transform-origin:top left;
+    background:#fff;position:absolute;top:0;left:0}
+  .frame__hint{position:absolute;right:9px;bottom:9px;font-family:var(--mono);font-size:10px;
+    color:#5E6B76;background:rgba(255,255,255,.9);border-radius:3px;padding:3px 7px}
+  .frame--wide{height:500px}
+  .frame--wide iframe{width:1300px;height:690px;transform:scale(.72)}
+  code{font-family:var(--mono);font-size:11px;background:#EEF2F6;border-radius:3px;padding:1px 5px}
+  .card__ft{padding:13px 17px;border-top:1px solid var(--line);margin-top:auto}
+  .card__ft a{display:inline-block;font-size:12.5px;font-weight:600;color:var(--accent);
+    text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:1px}
+
+  .next{margin-top:36px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:8px;padding:20px 22px}
+  .next h3{font-size:14px;font-weight:700;margin-bottom:12px}
+  .next ol{margin-left:18px;font-size:13px;line-height:2.05;color:#2B343B}
+  .next ol b{color:var(--ink)}
+  .next p{margin-top:12px;font-size:12.5px;line-height:1.9;color:var(--ink-2)}
+  footer{margin-top:30px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hd">
+    <div class="kicker">智 能 导 诊 系 统 · 患 者 端 重 设 计</div>
+    <h1>四方向草案 · 总览</h1>
+    <p class="sub">
+      现有患者端（方案 A2「临床纸感」）定位为<b>基础保底方案</b>，本次做<b>皮 + 骨全量重设计</b>：
+      配色、字体、页面骨架与留白节奏都可以推翻重画。<b>功能点、交互行为与数据流一条不动</b> ——
+      该有的按钮、该跳的页、SSE 该收的事件一个不少。管理端（冷靛控制台）本次不动。
+    </p>
+    <div class="rule">
+      <span>范围 · <b>患者端全部页面</b></span>
+      <span>深度 · <b>视觉 + 布局骨架</b></span>
+      <span>冻结 · <b>功能 / 交互 / 双端隔离</b></span>
+      <span>流程 · <b>草案 → 你选定 → 再动真代码</b></span>
+    </div>
+  </header>
+
+  <h2>并排对比<u></u></h2>
+  <table>
+    <thead>
+      <tr><th>#</th><th>方向</th><th>一句话</th><th>主色</th><th>签名部件</th><th>更适合</th><th>风险</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="no">01</td>
+        <td class="nm">暗室读数</td>
+        <td>阅片室 / 监护仪的暗环境，亮只亮在活数据上</td>
+        <td><div class="sw"><i style="background:#060B0D"></i><i style="background:#45E0BC"></i><i style="background:#0E5F51"></i><i style="background:#FF7A5A"></i></div></td>
+        <td>解析轨迹条<br>监护仪式结论读数</td>
+        <td>强调"会推理的 AI 系统"</td>
+        <td>投影仪上容易糊；患者端偏暗</td>
+      </tr>
+      <tr>
+        <td class="no">02</td>
+        <td class="nm">参考区间</td>
+        <td>按一份化验单的规矩来：冷白、克制、大量留白</td>
+        <td><div class="sw"><i style="background:#F8FBFB"></i><i style="background:#12A594"></i><i style="background:#0A7C6E"></i><i style="background:#E4F4F0"></i></div></td>
+        <td>置信度尺（三个科室落在同一把尺上）</td>
+        <td>把可读性当头号目标</td>
+        <td>辨识度偏中性，靠细节取胜</td>
+      </tr>
+      <tr>
+        <td class="no">03</td>
+        <td class="nm">导视系统</td>
+        <td>医院大厅的科室指示牌：深蓝、高对比、指向箭头</td>
+        <td><div class="sw"><i style="background:#12396B"></i><i style="background:#5C7CA8"></i><i style="background:#93A9C7"></i><i style="background:#F0B429"></i></div></td>
+        <td>箭头链（宽度即置信度，首选最大最亮）</td>
+        <td>专业度最高、与题目咬合最紧</td>
+        <td>机构感偏冷，需留白救温度</td>
+      </tr>
+      <tr>
+        <td class="no">04</td>
+        <td class="nm">陪诊伙伴</td>
+        <td>把系统当成陪你走完流程的人，而不是查询机</td>
+        <td><div class="sw"><i style="background:#FDFAF6"></i><i style="background:#1F8A70"></i><i style="background:#E8974A"></i><i style="background:#E6F3EF"></i></div></td>
+        <td>三步陪伴带 + 助手语气与头像</td>
+        <td>患者友好、老年与焦虑患者</td>
+        <td>亲和过头会被读成不专业</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>逐份看<u></u><span class="tag">区块内可直接滚动</span></h2>
+  <div class="cards">
+
+    <article class="card">
+      <div class="card__hd"><span class="no">01</span><b>暗室读数</b><small>深色 AI 舱</small></div>
+      <div class="card__txt">
+        全屏近黑，只有读数与轨迹发亮。AI 的检索过程被画成监护仪上的一条信号：
+        <b>召回 5 → 重排 3 → 引用 2 → 生成 1</b>。结论卡是仪表读数，置信度用 38px 等宽数字。
+        <br><b>适合</b>：答辩要"AI 感"。<em>风险</em>：暗色投影易糊，且患者端偏暗需要你确认。
+      </div>
+      <div class="frame"><iframe src="01-暗室读数-深色AI舱.html" loading="lazy" title="草案 01"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="01-暗室读数-深色AI舱.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+
+    <article class="card">
+      <div class="card__hd"><span class="no">02</span><b>参考区间</b><small>洁净数字健康</small></div>
+      <div class="card__txt">
+        冷白底 + 单一薄荷强调色 + 大量留白。置信度不再是进度条，而是<b>一把带刻度的参考范围尺</b>，
+        三个候选科室落在同一把尺上，首选那颗用实心大点标出，典型区间淡淡铺在底下。
+        <br><b>适合</b>：干净、专业、几乎不出错。<em>风险</em>：辨识度中性，靠留白与细节拉开差距。
+      </div>
+      <div class="frame"><iframe src="02-参考区间-洁净数字健康.html" loading="lazy" title="草案 02"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="02-参考区间-洁净数字健康.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+
+    <article class="card">
+      <div class="card__hd"><span class="no">03</span><b>导视系统</b><small>现代临床台</small></div>
+      <div class="card__txt">
+        深蓝牌面 + 导视黄，白字高对比，楼层诊室编号（0102）。签名部件是<b>箭头链</b>：
+        Top3 排成一条指向箭头，<b>宽度就是置信度</b>，首选那块最大最亮 —— 导诊本来就是给你指方向。
+        <br><b>适合</b>：专业度与题目咬合最紧。<em>风险</em>：机构感偏冷，需要用留白把温度找回来。
+      </div>
+      <div class="frame"><iframe src="03-导视系统-现代临床台.html" loading="lazy" title="草案 03"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="03-导视系统-现代临床台.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+
+    <article class="card">
+      <div class="card__hd"><span class="no">04</span><b>陪诊伙伴</b><small>亲和陪伴</small></div>
+      <div class="card__txt">
+        暖沙纸感 + 柔和青绿与杏色、大圆角、慢节奏。助手有了自己的头像与语气：
+        不写"导诊完成"，写"下一步我陪您去挂号"。签名部件是结论卡下方的<b>三步陪伴带</b>，
+        把冷进度条换成一句"我陪您走完这三步"。
+        <br><b>适合</b>：把患者友好当卖点。<em>风险</em>：亲和过头容易被读成不专业。
+      </div>
+      <div class="frame"><iframe src="04-陪诊伙伴-亲和陪伴.html" loading="lazy" title="草案 04"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="04-陪诊伙伴-亲和陪伴.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+
+  </div>
+
+  <h2>形态对比 · 纯聊天 vs 混合<u></u><span class="tag">新增</span></h2>
+  <div class="cards" style="grid-template-columns:1fr">
+    <article class="card">
+      <div class="card__hd"><span class="no">05</span><b>导视系统 × 实时问诊单</b><small>混合形态 · 主视觉同 03</small></div>
+      <div class="card__txt">
+        主视觉沿用 03，右侧加出一张<b>被 AI 一格格填满的问诊单</b>。对话负责问，单子负责收集 ——
+        患者不用往上翻就知道"系统问到了什么"。两条设计约定：
+        <b>① 信息不重复</b>（单子只收集，结论仍只在对话流出卡）；
+        <b>② 正在问的那格有连接键</b>（追问气泡挂「填 06 · 缓解情况」，右侧同一格同时点亮）。
+        每格下方标注来源（来自您的描述 / 追问 / 健康档案），与结论卡「依据 vs 档案」同一套区分逻辑。
+        <br><b>后端零改动</b>：<code>question</code> 点亮一格、<code>delta</code> 走对话流、<code>result</code> 出结论卡。
+      </div>
+      <div class="frame frame--wide"><iframe src="05-导视系统-混合形态-实时问诊单.html" loading="lazy" title="草案 05"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="05-导视系统-混合形态-实时问诊单.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+  </div>
+
+  <h2>新交互 · 人体图选部位<u></u><span class="tag">缩略图里可直接点</span></h2>
+  <div class="cards" style="grid-template-columns:1fr">
+    <article class="card">
+      <div class="card__hd"><span class="no">06</span><b>陪诊伙伴 × 人体图选部位</b><small>主视觉同 04</small></div>
+      <div class="card__txt">
+        方向 04 的皮肤上加一层<b>人体图覆盖层</b>，并把<b>「位置」做成必填的第一步</b> —— 先锁范围，再追问细节。一次填掉三格：<b>部位</b>（词来自后端 <code>medical_term(type=part)</code>）+ <b>哪一侧</b>（左 / 右 / 两侧）+ 一排<b>「常见感觉」</b>（前端自持，表里只有"腹痛/胸痛"这类复合词）。
+        左右不是装饰：左上腹痛多在胃、右下腹痛要留意阑尾，且「上腹 + 左」本来就说成<b>「左上腹」</b>；表里虽无左右词，但"左腹部 / 左上肢"含部位词仍命中白名单。图上表达不了的（比如"左手更明显"）就接着在输入框里补。
+        <b>29 个部位词</b>的账：图内可选 22 / 全身 chip 2（皮肤、关节）/ 刻意不进图 5（腹、心、肺、胃、肠 —— 器官不是体表位置）。
+        <br><b>必填有一条前提</b>：必填的是<b>"这一步动作"，不是"必须点中某个区域"</b> —— 覆盖层里保留「说不清在哪儿 · 直接描述」出口，否则发烧 / 乏力 / 浑身没劲 / 头晕这批人会被挡死。常见主诉 chips 同时改成图的快捷入口（点「肚子疼」直接选中"腹部"），让必填变成省事而不是拦路。
+        选完<b>只填进输入框、不自动发送</b>，患者还能接着补"两天了，一阵一阵的"。收益在屏幕 2：助手的<b>第一句追问是"性质"而不是"哪个部位"</b>。
+        <br><em>这一屏可以真的走完流程</em> —— 点大按钮或点任一 chip → 选部位 + 感觉 → 填入 → 输入框启用；也可以点「说不清在哪儿」直接跳过去。
+      </div>
+      <div class="frame frame--wide"><iframe src="06-陪诊伙伴-人体图选部位.html#s2" loading="lazy" title="草案 06"></iframe><span class="frame__hint">缩略 · 点击下方打开</span></div>
+      <div class="card__ft"><a href="06-陪诊伙伴-人体图选部位.html" target="_blank">打开完整草案 →</a></div>
+    </article>
+  </div>
+
+  <div class="next">
+    <h3>怎么选 &amp; 选完之后</h3>
+    <ol>
+      <li>先只看<b>推荐卡</b>那一块 —— 它是患者端唯一的记忆点，四个方向的差别全在这儿（读数 / 尺 / 箭头链 / 陪伴带）。</li>
+      <li>再看<b>空状态</b>：这里是患者见到产品的第一秒，最能看出一个方向的气质。</li>
+      <li>最后看<b>挂号页</b>：验证这套语言能不能延伸到第二个页面，还是只在一页好看。</li>
+    </ol>
+    <p>
+      选定之后我会做三件事：<b>①</b> 把选定方向固化成令牌与部件规范，重写《前端设计方案》患者端部分；
+      <b>②</b> 按页面分批改 <code>Chat.vue</code> / <code>SimRegister.vue</code> / <code>Login.vue</code>，每批独立可回退；
+      <b>③</b> 每批给你看一次真机效果，你点头再进下一批。
+      也可以只挑其中一处（比如"要 03 的结论卡 + 02 的留白"）—— 混搭是允许的，告诉我怎么配就行。
+    </p>
+  </div>
+
+  <footer>前端方案 / 重设计-四方向草案 · 2026-10-07 · 仅患者端，管理端不动</footer>
+</div>
+</body>
+</html>

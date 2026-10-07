@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>草案 05 · 导视系统 + 实时问诊单（混合形态）</title>
+<style>
+  /* ============================================================
+     方向 03「导视系统」× 混合形态：对话流在中间，右侧一张问诊单被 AI 一格格填满。
+     核心约束：
+       ① 信息不重复——问诊单只负责"收集"，结论只在对话流里出卡；
+       ② 正在问的那一格有"连接键"——对话气泡上的标签 ↔ 单子上点亮的那行。
+     后端零改动：question → 点亮一格；delta → 对话流；result → 出结论卡。
+     ============================================================ */
+  :root{
+    --bg:#E9EDF2; --stage:#F4F6F9; --surface:#FFFFFF; --sheet:#FBFCFD;
+    --ink:#0C1319; --ink-2:#586673; --ink-3:#8B98A5; --line:#D4DCE5; --line-2:#BFCAD6;
+    --navy:#12396B; --navy-deep:#0A2650; --navy-mid:#5C7CA8; --navy-soft:#93A9C7;
+    --sign:#F0B429; --sign-soft:#FDF3D9;
+    --alert:#B23A2B; --ok:#2E7D5B; --ok-soft:#E4F0EA; --soft:#E9EDF3;
+    --sans:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    --mono:ui-monospace,"JetBrains Mono",Consolas,monospace;
+    --r:3px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13.5px;
+    padding:10px 10px 40px;-webkit-font-smoothing:antialiased}
+  :focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  button{font-family:inherit;cursor:pointer;background:none;border:none;color:inherit;font-size:inherit}
+
+  .hd{max-width:1300px;margin:0 auto 26px;padding:20px 22px;border:1px solid var(--line-2);
+    border-radius:4px;background:var(--surface)}
+  .hd h1{font-size:18px;font-weight:700;letter-spacing:.02em}
+  .hd h1 span{font-family:var(--mono);font-size:11px;color:var(--navy);letter-spacing:.16em;
+    border:1px solid var(--line-2);padding:2px 7px;border-radius:2px;vertical-align:2px;margin-right:10px}
+  .hd p{margin-top:8px;font-size:12.5px;line-height:1.9;color:var(--ink-2);max-width:820px}
+  .hd p b{color:var(--ink);font-weight:600}
+  .rules{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);display:grid;
+    grid-template-columns:1fr 1fr;gap:12px 26px}
+  .rule{font-size:12px;line-height:1.8;color:var(--ink-2)}
+  .rule b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px;font-size:12.5px}
+
+  .shot{max-width:1300px;margin:0 auto 30px}
+  .shot__lb{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--ink-2);
+    margin-bottom:9px;display:flex;align-items:center;gap:10px}
+  .shot__lb u{flex:1;height:1px;background:var(--line-2);text-decoration:none}
+  .viewport{border:1px solid var(--line-2);border-radius:4px;overflow:hidden;background:var(--stage);
+    box-shadow:0 14px 40px rgba(12,19,25,.16)}
+  .chrome{display:flex;align-items:center;gap:7px;padding:9px 13px;background:#DCE2EA;
+    border-bottom:1px solid var(--line-2)}
+  .chrome i{width:9px;height:9px;border-radius:50%;background:#BCC7D3;display:block}
+  .chrome span{margin-left:8px;font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+
+  /* ============ 三栏 ============ */
+  .app{display:flex;height:690px;background:var(--stage)}
+
+  /* 左：导视牌面 */
+  .rail{width:214px;flex:none;background:var(--navy);color:#fff;display:flex;flex-direction:column}
+  .rail__hd{display:flex;align-items:center;gap:10px;padding:19px 16px 15px;
+    border-bottom:1px solid rgba(255,255,255,.14)}
+  .mark{width:24px;flex:none;display:flex;flex-direction:column;gap:3px}
+  .mark i{display:block;height:3px;background:var(--sign);border-radius:1px}
+  .mark i:nth-child(1){width:24px}.mark i:nth-child(2){width:16px;opacity:.62}.mark i:nth-child(3){width:10px;opacity:.34}
+  .rail__brand{font-size:12.5px;font-weight:700;letter-spacing:.1em}
+  .rail__brand small{display:block;margin-top:4px;font-family:var(--mono);font-size:8.5px;
+    letter-spacing:.18em;color:rgba(255,255,255,.55);font-weight:400}
+  .rail__new{margin:13px 14px 14px;padding:10px 0;text-align:center;background:var(--sign);color:#231803;
+    border-radius:var(--r);font-size:12px;font-weight:700;letter-spacing:.14em}
+  .rail__new:hover{background:#FFC84D}
+  .rail__tabs{display:flex;border-top:1px solid rgba(255,255,255,.14);
+    border-bottom:1px solid rgba(255,255,255,.14)}
+  .rail__tabs span{flex:1;text-align:center;padding:10px 0;font-size:11px;letter-spacing:.06em;
+    color:rgba(255,255,255,.6);border-bottom:2px solid transparent}
+  .rail__tabs span.on{color:#fff;border-bottom-color:var(--sign);font-weight:600}
+  .rail__list{flex:1;overflow:hidden;padding:6px 0}
+  .day{padding:11px 16px 5px;font-family:var(--mono);font-size:9px;letter-spacing:.2em;
+    color:rgba(255,255,255,.44)}
+  .it{display:block;width:100%;text-align:left;padding:9px 14px;border-left:3px solid transparent}
+  .it:hover{background:rgba(255,255,255,.08)}
+  .it.on{background:rgba(255,255,255,.13);border-left-color:var(--sign)}
+  .it__q{font-size:12px;color:rgba(255,255,255,.9);white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;display:block}
+  .it.on .it__q{color:#fff;font-weight:600}
+  .it__m{display:flex;gap:8px;margin-top:4px;font-family:var(--mono);font-size:9.5px;
+    color:rgba(255,255,255,.48)}
+  .rail__ft{border-top:1px solid rgba(255,255,255,.16);padding:12px 14px;display:flex;align-items:center;gap:9px}
+  .ava{width:25px;height:25px;border-radius:2px;background:rgba(255,255,255,.16);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:11.5px;flex:none;font-weight:600}
+  .rail__ft b{font-size:11px;font-weight:600;display:block}
+  .rail__ft span{font-size:9px;color:rgba(255,255,255,.55);letter-spacing:.08em}
+
+  /* 中：对话流 */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .thread{flex:1;overflow:auto;padding:22px 26px 8px}
+  .thread::-webkit-scrollbar{width:0}
+  .t-time{text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);
+    letter-spacing:.18em;margin-bottom:18px}
+  .u{max-width:80%;margin-left:auto;background:var(--navy);color:#fff;padding:10px 14px;
+    border-radius:var(--r);font-size:13px;line-height:1.8}
+  .a{margin-top:17px}
+  .a__who{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.2em;color:var(--navy);margin-bottom:8px;font-weight:600}
+  .a__who::before{content:"";width:13px;height:2px;background:var(--sign);display:block}
+  .a p{font-size:13.5px;line-height:1.9}
+  /* 连接键：追问气泡上的标签 */
+  .qtag{display:inline-flex;align-items:center;gap:6px;margin:10px 0 0;font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.12em;color:#231803;background:var(--sign);
+    padding:3px 9px;border-radius:2px;font-weight:700}
+  .qtag i{width:5px;height:5px;border-radius:50%;background:#231803;display:block;
+    animation:blink 1.6s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  .a .ask{border-left:3px solid var(--soft);padding-left:12px;margin-top:8px;color:#41505C;font-size:13px}
+
+  /* 结论卡（与 03 同款，宽度自适应窄栏） */
+  .signpost{margin-top:16px;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r);overflow:hidden;box-shadow:0 2px 10px rgba(12,19,25,.06)}
+  .sp__hd{display:flex;align-items:center;gap:12px;padding:15px 16px;background:var(--navy);color:#fff}
+  .sp__band{width:5px;height:38px;background:var(--sign);flex:none;border-radius:1px}
+  .sp__t{flex:1;min-width:0}
+  .sp__t h3{font-size:21px;font-weight:700;letter-spacing:.02em;line-height:1.2}
+  .sp__t small{display:block;margin-top:5px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.12em;color:rgba(255,255,255,.66)}
+  .sp__num{flex:none;text-align:right}
+  .sp__num b{font-family:var(--mono);font-size:30px;font-weight:500;color:var(--sign);line-height:1;letter-spacing:-.02em}
+  .sp__num i{font-style:normal;font-family:var(--mono);font-size:12px;color:var(--sign);opacity:.72}
+  .sp__num span{display:block;margin-top:5px;font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;
+    color:rgba(255,255,255,.6)}
+  .chain{display:flex;height:48px;background:#EEF2F7}
+  .arw{position:relative;display:flex;align-items:center;gap:7px;padding-left:19px;padding-right:12px;
+    clip-path:polygon(0 0,calc(100% - 13px) 0,100% 50%,calc(100% - 13px) 100%,0 100%,13px 50%);
+    margin-right:-7px}
+  .arw.c1{background:var(--navy);color:#fff}
+  .arw.c2{background:var(--navy-mid);color:#fff}
+  .arw.c3{background:var(--navy-soft);color:#0A2650}
+  .arw__n{font-family:var(--mono);font-size:9px;opacity:.72;flex:none}
+  .arw__nm{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .arw.c1 .arw__nm{font-weight:700;font-size:12.5px}
+  .arw__pc{font-family:var(--mono);font-size:11px;flex:none;font-weight:600}
+  .arw.c1 .arw__pc{color:var(--sign);font-size:12.5px}
+  .sp__body{padding:12px 16px 0;font-size:12.5px;line-height:1.85;color:#37464F}
+  .sp__row{display:flex;gap:10px;padding:8px 16px;font-size:11.5px;color:var(--ink-2);
+    border-top:1px solid var(--line);align-items:baseline}
+  .sp__row em{font-style:normal;font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+    color:var(--ink-3);width:58px;flex:none}
+  .sp__row b{color:var(--ink);font-weight:600}
+  .sp__row.arch{background:#FAFBFD}
+  .sp__row.arch i{font-style:normal;color:var(--navy);font-weight:600;flex:none}
+  .sp__row.arch b{font-weight:400;color:#37464F}
+  .go{display:block;width:100%;padding:13px;background:var(--navy);color:#fff;font-size:13px;
+    font-weight:700;letter-spacing:.2em}
+  .go:hover{background:var(--navy-deep)}
+
+  .steps{display:flex;align-items:center;padding:10px 26px;border-top:1px solid var(--line);
+    background:var(--surface)}
+  .steps span{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);letter-spacing:.08em;white-space:nowrap}
+  .steps span.on{color:var(--navy);font-weight:700}
+  .steps u{flex:1;height:1px;background:var(--line);margin:0 10px}
+
+  .write{padding:12px 26px 16px;background:var(--stage)}
+  .wbox{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r)}
+  .wbox:focus-within{border-color:var(--navy);box-shadow:0 0 0 3px rgba(18,57,107,.10)}
+  .wbox textarea{width:100%;height:50px;resize:none;background:none;border:none;outline:none;
+    padding:12px 15px 4px;color:var(--ink);font-family:inherit;font-size:13px;line-height:1.7}
+  .wbox textarea::placeholder{color:var(--ink-3)}
+  .wft{display:flex;align-items:center;justify-content:space-between;padding:0 9px 9px 15px}
+  .wft small{font-size:10px;color:var(--ink-3)}
+  .send{width:30px;height:30px;border-radius:var(--r);background:var(--navy);color:#fff;
+    display:flex;align-items:center;justify-content:center}
+  .send:hover{background:var(--navy-deep)}
+
+  /* ============ 右：实时问诊单 ============ */
+  .sheet{width:322px;flex:none;background:var(--sheet);border-left:1px solid var(--line-2);
+    display:flex;flex-direction:column}
+  .sheet__hd{padding:15px 16px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+  .sheet__t{display:flex;align-items:baseline;justify-content:space-between}
+  .sheet__t b{font-size:13.5px;letter-spacing:.06em;font-weight:700}
+  .sheet__t span{font-family:var(--mono);font-size:10px;color:var(--ink-2);letter-spacing:.08em}
+  .sheet__t span b{font-size:12px;color:var(--navy)}
+  .bar{margin-top:10px;height:4px;background:var(--soft);border-radius:2px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--navy);border-radius:2px;transition:width .3s ease}
+  .sheet__sub{margin-top:8px;font-size:10.5px;color:var(--ink-3);line-height:1.6}
+
+  .fields{flex:1;overflow:hidden;padding:6px 0}
+  .fld{display:flex;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
+    align-items:flex-start;position:relative}
+  .fld__n{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);width:18px;flex:none;padding-top:2px}
+  .fld__b{flex:1;min-width:0}
+  .fld__b b{display:block;font-size:10px;letter-spacing:.14em;color:var(--ink-2);font-weight:600}
+  .fld__b span{display:block;margin-top:5px;font-size:13px;line-height:1.6;color:var(--ink)}
+  .fld.done .fld__b span{font-weight:600}
+  .fld__src{font-style:normal;font-size:9.5px;color:var(--ink-3);margin-top:5px;display:block}
+  /* 正在问：与对话气泡同一个连接键 */
+  .fld.asking{background:var(--sign-soft);border-left:4px solid var(--sign);padding-left:12px}
+  .fld.asking .fld__n{color:#231803;font-weight:700}
+  .fld.asking .fld__b b{color:#8A6008}
+  .fld.asking .fld__b span{color:#231803;font-weight:600;display:flex;align-items:center;gap:7px}
+  .fld.asking .fld__b span i{width:6px;height:6px;border-radius:50%;background:#231803;display:block;
+    animation:blink 1.6s ease-in-out infinite}
+  /* 未填 */
+  .fld.todo .fld__b span{color:var(--ink-3);font-weight:400}
+  .blank{display:block;border-bottom:1px dashed var(--line-2);height:16px;margin-bottom:5px}
+
+  .sheet__ft{border-top:1px solid var(--line-2);background:var(--surface);padding:13px 16px}
+  .sheet__ft .lb{font-family:var(--mono);font-size:9px;letter-spacing:.22em;color:var(--ink-2);
+    font-weight:600;margin-bottom:9px}
+  .state{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ink-2);line-height:1.6}
+  .state i{width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:none;display:block}
+  .state.ok{color:var(--ok)}
+  .state.ok i{background:var(--ok)}
+  .state.ok b{color:var(--ok);font-weight:600}
+  .jump{margin-top:10px;display:block;width:100%;padding:9px;text-align:center;border:1px solid var(--navy);
+    color:var(--navy);border-radius:var(--r);font-size:11.5px;font-weight:700;letter-spacing:.12em}
+  .jump:hover{background:var(--navy);color:#fff}
+  .note{margin-top:10px;font-size:10px;color:var(--ink-3);line-height:1.6}
+</style>
+</head>
+<body>
+
+<header class="hd">
+  <h1><span>草案 05</span>导视系统 × 实时问诊单（混合形态）</h1>
+  <p>主视觉沿用方向 03，把右侧加出一张<b>被 AI 一格格填满的问诊单</b>。
+    对话负责问，单子负责收集 —— 患者不用往上翻就能看到"系统到底问到了什么"。</p>
+  <div class="rules">
+    <div class="rule"><b>① 信息不重复</b>问诊单只做「收集」，结论仍然只在对话流里出卡。同一份信息只出现一次，单子底部只留一个状态行。</div>
+    <div class="rule"><b>② 正在问的那一格有连接键</b>追问气泡上挂「填 06 · 缓解情况」，右侧同一格同时点亮 —— 让"AI 在抽结构"这件事可见。</div>
+    <div class="rule"><b>③ 后端零改动</b><code>question</code> 点亮一格、<code>delta</code> 走对话流、<code>result</code> 出结论卡、<code>info</code> 不填格。SSE 五类事件都能承接。</div>
+    <div class="rule"><b>④ 出自哪里要标清</b>每格下方注明来源：来自您的描述 / 来自追问 / 来自健康档案 —— 与结论卡的"判断依据 vs 档案"同一套区分逻辑。</div>
+  </div>
+</header>
+
+<!-- ============ 1. 对话进行中 ============ -->
+<section class="shot">
+  <div class="shot__lb">屏幕 1 · 追问进行中（问诊单正在被填满）<u></u></div>
+  <div class="viewport">
+    <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
+    <div class="app">
+      <aside class="rail">
+        <div class="rail__hd">
+          <span class="mark"><i></i><i></i><i></i></span>
+          <span class="rail__brand">智能导诊<small>OUTPATIENT GUIDE</small></span>
+        </div>
+        <div class="rail__new">＋ 新的咨询</div>
+        <div class="rail__tabs"><span class="on">全部对话</span><span>挂号历史</span></div>
+        <div class="rail__list">
+          <div class="day">今 天 · 10/07</div>
+          <button class="it on"><span class="it__q">这两天手腕一转就疼…</span><span class="it__m">3 问 · 09:41</span></button>
+          <button class="it"><span class="it__q">最近总是头晕，站起来发黑</span><span class="it__m">2 问 · 08:12</span></button>
+          <div class="day">10/06</div>
+          <button class="it"><span class="it__q">孩子发烧 38.5 该挂什么科</span><span class="it__m">4 问 · 20:30</span></button>
+        </div>
+        <div class="rail__ft"><span class="ava">陈</span><span><b>陈先生</b><span>健 康 档 案</span></span></div>
+      </aside>
+
+      <div class="main">
+        <div class="thread">
+          <div class="t-time">上 午 9:41</div>
+          <div class="u">这两天手腕一转就疼，早上起来还有点僵，是怎么回事？</div>
+
+          <div class="a">
+            <div class="a__who">分 诊 助 理 · 追 问</div>
+            <p class="ask">记下了：右手腕、两天、转腕时疼并伴晨僵。再确认一件事 —— 早上那种僵硬，大概多久能缓过来？</p>
+            <div class="qtag"><i></i>填 06 · 缓 解 情 况</div>
+          </div>
+        </div>
+
+        <div class="steps"><span class="on">① 导诊结论</span><u></u><span>② 模拟挂号</span><u></u><span>③ 确认完成</span></div>
+        <div class="write">
+          <div class="wbox">
+            <textarea placeholder="回答，或补充别的症状…"></textarea>
+            <div class="wft"><small>分诊建议，不能替代医生诊断</small>
+              <button class="send" aria-label="发送">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sheet">
+        <div class="sheet__hd">
+          <div class="sheet__t"><b>问 诊 单</b><span>已填 <b>5</b> / 7</span></div>
+          <div class="bar"><i style="width:71%"></i></div>
+          <p class="sheet__sub">系统边聊边把信息填进这张单子，齐了才出结论。</p>
+        </div>
+        <div class="fields">
+          <div class="fld done"><span class="fld__n">01</span>
+            <div class="fld__b"><b>部 位</b><span>右手腕关节</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">02</span>
+            <div class="fld__b"><b>持 续 时 间</b><span>2 天</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">03</span>
+            <div class="fld__b"><b>感 觉</b><span>转腕时疼痛</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">04</span>
+            <div class="fld__b"><b>伴 随 表 现</b><span>晨起僵硬</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">05</span>
+            <div class="fld__b"><b>既 往 病 史</b><span>2 型糖尿病 · 服用二甲双胍</span><em class="fld__src">来自您的健康档案</em></div></div>
+          <div class="fld asking"><span class="fld__n">06</span>
+            <div class="fld__b"><b>缓 解 情 况</b><span><i></i>正在问…</span></div></div>
+          <div class="fld todo"><span class="fld__n">07</span>
+            <div class="fld__b"><b>外 伤 史</b><span><span class="blank"></span>待补充</span></div></div>
+        </div>
+        <div class="sheet__ft">
+          <div class="lb">分 诊 结 论</div>
+          <div class="state"><i></i>资料还没齐，齐了会自动出结论</div>
+          <p class="note">结论只在左侧对话里生成，这里不重复显示。</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. 结论已出 ============ -->
+<section class="shot">
+  <div class="shot__lb">屏幕 2 · 资料齐了，结论已出（单子收口）<u></u></div>
+  <div class="viewport">
+    <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
+    <div class="app">
+      <aside class="rail">
+        <div class="rail__hd">
+          <span class="mark"><i></i><i></i><i></i></span>
+          <span class="rail__brand">智能导诊<small>OUTPATIENT GUIDE</small></span>
+        </div>
+        <div class="rail__new">＋ 新的咨询</div>
+        <div class="rail__tabs"><span class="on">全部对话</span><span>挂号历史</span></div>
+        <div class="rail__list">
+          <div class="day">今 天 · 10/07</div>
+          <button class="it on"><span class="it__q">这两天手腕一转就疼…</span><span class="it__m">3 问 · 09:41</span></button>
+          <button class="it"><span class="it__q">最近总是头晕，站起来发黑</span><span class="it__m">2 问 · 08:12</span></button>
+        </div>
+        <div class="rail__ft"><span class="ava">陈</span><span><b>陈先生</b><span>健 康 档 案</span></span></div>
+      </aside>
+
+      <div class="main">
+        <div class="thread">
+          <div class="t-time">上 午 9:41</div>
+          <div class="u">大概半小时吧，没受过伤。</div>
+
+          <div class="a">
+            <div class="a__who">分 诊 助 理 · 结 论</div>
+            <p>信息齐了，我给您分诊结果：</p>
+
+            <section class="signpost">
+              <div class="sp__hd">
+                <span class="sp__band"></span>
+                <div class="sp__t"><h3>骨科 · 手外科</h3><small>门诊楼 3 层 · 东区 08 诊室</small></div>
+                <div class="sp__num"><b>87</b><i>%</i><span>置 信 度</span></div>
+              </div>
+              <div class="chain">
+                <div class="arw c1" style="flex:87"><span class="arw__n">01</span><span class="arw__nm">骨科 · 手外科</span><span class="arw__pc">87%</span></div>
+                <div class="arw c2" style="flex:64"><span class="arw__n">02</span><span class="arw__nm">康复医学科</span><span class="arw__pc">64%</span></div>
+                <div class="arw c3" style="flex:52"><span class="arw__n">03</span><span class="arw__nm">疼痛科</span><span class="arw__pc">52%</span></div>
+              </div>
+              <p class="sp__body">晨起僵硬半小时内缓解、无明显外伤史，符合腱鞘炎典型表现，建议手外科评估。</p>
+              <div class="sp__row"><em>判 断 依 据</em><span>
+                <b>注1</b> 骨科科室介绍 · 腕关节疾病<br>
+                <b>注2</b> 常见腱鞘炎分诊指引</span></div>
+              <div class="sp__row arch"><i>档案</i><b>已参考您的健康档案：男、45-59 岁、2 型糖尿病、二甲双胍</b></div>
+              <button class="go">下一步 · 模拟挂号</button>
+            </section>
+          </div>
+        </div>
+
+        <div class="steps"><span class="on">① 导诊结论</span><u></u><span>② 模拟挂号</span><u></u><span>③ 确认完成</span></div>
+        <div class="write">
+          <div class="wbox">
+            <textarea placeholder="继续描述症状，或追问依据…"></textarea>
+            <div class="wft"><small>分诊建议，不能替代医生诊断</small>
+              <button class="send" aria-label="发送">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sheet">
+        <div class="sheet__hd">
+          <div class="sheet__t"><b>问 诊 单</b><span>已填 <b>7</b> / 7</span></div>
+          <div class="bar"><i style="width:100%;background:var(--ok)"></i></div>
+          <p class="sheet__sub">这份单子会随本次就诊存下来，复诊时可对照。</p>
+        </div>
+        <div class="fields">
+          <div class="fld done"><span class="fld__n">01</span>
+            <div class="fld__b"><b>部 位</b><span>右手腕关节</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">02</span>
+            <div class="fld__b"><b>持 续 时 间</b><span>2 天</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">03</span>
+            <div class="fld__b"><b>感 觉</b><span>转腕时疼痛</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">04</span>
+            <div class="fld__b"><b>伴 随 表 现</b><span>晨起僵硬</span><em class="fld__src">来自您的描述</em></div></div>
+          <div class="fld done"><span class="fld__n">05</span>
+            <div class="fld__b"><b>既 往 病 史</b><span>2 型糖尿病 · 服用二甲双胍</span><em class="fld__src">来自您的健康档案</em></div></div>
+          <div class="fld done"><span class="fld__n">06</span>
+            <div class="fld__b"><b>缓 解 情 况</b><span>晨僵约 30 分钟缓解</span><em class="fld__src">来自追问</em></div></div>
+          <div class="fld done"><span class="fld__n">07</span>
+            <div class="fld__b"><b>外 伤 史</b><span>无</span><em class="fld__src">来自追问</em></div></div>
+        </div>
+        <div class="sheet__ft">
+          <div class="lb">分 诊 结 论</div>
+          <div class="state ok"><i></i><b>资料齐了</b>　结论已在左侧生成</div>
+          <button class="jump">定位到结论</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. 空状态 ============ -->
+<section class="shot">
+  <div class="shot__lb">屏幕 3 · 空状态（单子全空，等着被填）<u></u></div>
+  <div class="viewport">
+    <div class="chrome"><i></i><i></i><i></i><span>localhost:5173 / chat</span></div>
+    <div class="app" style="height:560px">
+      <aside class="rail">
+        <div class="rail__hd">
+          <span class="mark"><i></i><i></i><i></i></span>
+          <span class="rail__brand">智能导诊<small>OUTPATIENT GUIDE</small></span>
+        </div>
+        <div class="rail__new">＋ 新的咨询</div>
+        <div class="rail__tabs"><span class="on">全部对话</span><span>挂号历史</span></div>
+        <div class="rail__list">
+          <div class="day">今 天 · 10/07</div>
+          <button class="it"><span class="it__q">这两天手腕一转就疼…</span><span class="it__m">3 问 · 09:41</span></button>
+        </div>
+        <div class="rail__ft"><span class="ava">陈</span><span><b>陈先生</b><span>健 康 档 案</span></span></div>
+      </aside>
+
+      <div class="main">
+        <div class="thread" style="display:flex;flex-direction:column;justify-content:center;padding-bottom:30px">
+          <div class="a" style="margin-top:0">
+            <div class="a__who">导 诊 台 · 0 1</div>
+            <p style="font-size:24px;font-weight:700;line-height:1.4">说说哪里不舒服</p>
+            <p style="margin-top:9px;color:var(--ink-2)">您随便说，我一边听一边把要点填进右边的单子。</p>
+            <p class="ask" style="margin-top:14px">"右下方肚子疼了两天，一阵一阵的，还伴着恶心，没发烧。"</p>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">发热咳嗽</span>
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">肚子疼</span>
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">头疼头晕</span>
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">皮肤起疹</span>
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">心慌胸闷</span>
+              <span style="padding:7px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:3px;font-size:12px;color:var(--ink-2)">腰背酸痛</span>
+            </div>
+          </div>
+        </div>
+        <div class="write">
+          <div class="wbox">
+            <textarea placeholder="说说什么地方不舒服…"></textarea>
+            <div class="wft"><small>分诊建议，不能替代医生诊断</small>
+              <button class="send" aria-label="发送">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </button></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sheet">
+        <div class="sheet__hd">
+          <div class="sheet__t"><b>问 诊 单</b><span>已填 <b>0</b> / 7</span></div>
+          <div class="bar"><i style="width:0%"></i></div>
+          <p class="sheet__sub">这张单子现在是空的 —— 您每说一句，它就多填一格。</p>
+        </div>
+        <div class="fields">
+          <div class="fld todo"><span class="fld__n">01</span>
+            <div class="fld__b"><b>部 位</b><span><span class="blank"></span>待补充</span></div></div>
+          <div class="fld todo"><span class="fld__n">02</span>
+            <div class="fld__b"><b>持 续 时 间</b><span><span class="blank"></span>待补充</span></div></div>
+          <div class="fld todo"><span class="fld__n">03</span>
+            <div class="fld__b"><b>感 觉</b><span><span class="blank"></span>待补充</span></div></div>
+          <div class="fld todo"><span class="fld__n">04</span>
+            <div class="fld__b"><b>伴 随 表 现</b><span><span class="blank"></span>待补充</span></div></div>
+          <div class="fld todo"><span class="fld__n">05</span>
+            <div class="fld__b"><b>既 往 病 史</b><span><span class="blank"></span>体检或档案（选填）</span></div></div>
+          <div class="fld todo"><span class="fld__n">06</span>
+            <div class="fld__b"><b>缓 解 情 况</b><span><span class="blank"></span>待补充</span></div></div>
+          <div class="fld todo"><span class="fld__n">07</span>
+            <div class="fld__b"><b>外 伤 史</b><span><span class="blank"></span>待补充</span></div></div>
+        </div>
+        <div class="sheet__ft">
+          <div class="lb">分 诊 结 论</div>
+          <div class="state"><i></i>还没开始，先从左侧跟我说一句</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
