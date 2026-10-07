@@ -88,7 +88,10 @@ class PromptProfileBlockTest {
     void emptyPartsLeavesNoSectionNorBlankGap() {
         String prompt = system(request(null, List.of()));
 
-        assertThat(prompt).doesNotContain("【患者标明的位置】");
+        // 断言的是**成节形态**（前后换行 + 标题独占一行），不是"这个字符串出现过没有"：
+        // 【已标位置】那节静态文字里本来就提到「【患者标明的位置】」这个名字，
+        // 拿裸字符串去doesNotContain 会把一句说明误判成内容节——曾经就这么写错了。
+        assertThat(prompt).doesNotContain("\n\n【患者标明的位置】\n");
         assertThat(prompt).doesNotContain("\n\n\n");
     }
 

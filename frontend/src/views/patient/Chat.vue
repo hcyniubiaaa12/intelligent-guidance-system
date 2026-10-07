@@ -265,8 +265,13 @@ const profileOpen = ref(false)
  * 患者随后改掉那句话，"他在图上标过 X"这个事实仍然为真，所以两者不互相覆盖。
  * 声明只随**新会话的首条输入**提交一次（sse.js 与后端各按自己的口径挡一次）。
  */
-const parts = ref({ locations: [], sentence: '' })
+const parts = ref(emptyParts())
 const mapOpen = ref(false)
+
+/** 空声明：开新咨询、登出、重选三处都要用，字面量只写这一处 */
+function emptyParts() {
+  return { locations: [], sentence: '' }
+}
 
 /** 覆盖层交回来的结果：句子落进输入框，声明单独存着 */
 function onPartsSubmit(result) {
@@ -277,14 +282,6 @@ function onPartsSubmit(result) {
     nextTick(autoGrow)
   }
   inputEl.value?.focus()
-}
-
-/** 「位置选错了」：清空已锁定的声明，回到"还没声明"（工单 05 才把它接成门禁） */
-function resetParts() {
-  parts.value = { locations: [], sentence: '' }
-  draft.value = ''
-  mapOpen.value = true
-  nextTick(() => inputEl.value?.focus())
 }
 
 /** 常见主诉：点一下填进输入框——**不直接发**（患者还能补一句"还伴着恶心"，也不至于误触烧掉一次模型调用） */
@@ -360,7 +357,7 @@ function startNew() {
   sideOpen.value = false
   chat.reset()
   // 声明必须一起清：上一轮选过的部位漏进新会话，会让模型拿到一条与新主诉无关的"已知位置"
-  parts.value = { locations: [], sentence: '' }
+  parts.value = emptyParts()
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }

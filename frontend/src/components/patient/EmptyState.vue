@@ -12,7 +12,16 @@
 
     <div class="p-hello__label">说 清 这 三 件 事 就 够 了</div>
     <div class="p-hello__three">
-      <div class="p-hello__bub"><b>① 部 位</b><span>哪里不舒服</span></div>
+      <!-- 「部位」是真入口（人体图选部位）：它是这三件事里唯一患者**用不着回忆**的——
+           别人问"你疼在哪儿"患者答得出来，让他自己描述反而费劲。
+           另两格仍是提示不是控件：做成按钮的样子会被当成快捷入口去点。 -->
+      <button type="button" class="p-hello__bub p-hello__bub--act" @click="emit('pickPart')">
+        <b>① 部 位</b>
+        <span class="p-hello__bubact">
+          在人体图上点一下
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 8h9M8.5 4.2 12.4 8l-3.9 3.8" /></svg>
+        </span>
+      </button>
       <div class="p-hello__bub"><b>② 时 间</b><span>大概多久了</span></div>
       <div class="p-hello__bub"><b>③ 感 觉</b><span>是怎么个难受法</span></div>
     </div>

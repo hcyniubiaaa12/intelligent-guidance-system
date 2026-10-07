@@ -14,8 +14,17 @@
         </header>
 
         <div class="p-map__bd">
+          <!-- 全停用：图上的词一个都不剩。与"取词失败"是两回事，页面必须说得清 -->
+          <div v-if="allDisabled" class="p-map__dead">
+            <p class="p-map__deadt">部位词暂时都下架了</p>
+            <p class="p-map__deads">
+              管理员在知识库里停用了全部部位词，所以现在点不出位置。<br>
+              您可以点下面的<b>「说不清在哪儿 · 直接描述」</b>直接说话——那样也能正常问诊。
+            </p>
+          </div>
+
           <!-- 左：正反两面人体图 -->
-          <div class="p-map__fig">
+          <div v-else class="p-map__fig">
             <div class="p-map__canvas">
               <svg
                 v-for="face in FACES"
@@ -58,7 +67,7 @@
           </div>
 
           <!-- 右：细分词 / 方位 / 感觉 / 已选 -->
-          <div class="p-map__pick">
+          <div v-if="!allDisabled" class="p-map__pick">
             <section class="p-map__sec">
               <h3 class="p-map__lb">
                 这 一 片 具 体 是 哪 儿
@@ -153,12 +162,12 @@
         <footer class="p-overlay__foot p-map__ft">
           <p class="p-map__preview">
             <span class="p-map__previewk">会填进输入框</span>
-            <b>{{ previewText }}</b>
+            <b>{{ allDisabled ? '词都下架了，用「说不清在哪儿」直接说也行' : previewText }}</b>
           </p>
           <div class="p-map__acts">
             <button type="button" class="p-btn p-btn--ghost" @click="giveUp">说不清在哪儿 · 直接描述</button>
-            <small>选完只填进输入框、不自动发送。</small>
-            <button type="button" class="p-btn" :disabled="!canFill" @click="fill">填 入</button>
+            <small>{{ allDisabled ? '' : '选完只填进输入框、不自动发送。' }}</small>
+            <button type="button" class="p-btn" :disabled="!canFill || allDisabled" @click="fill">填 入</button>
           </div>
         </footer>
       </div>
@@ -171,7 +180,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
 import {
   GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT,
-  regionById, isGlobalWord, sentence, sideLabel,
+  regionById, sentence, sideLabel, declarationLocations,
   visibleWords, regionHasWords,
   emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll
 } from '../../utils/bodyMap'
@@ -201,13 +210,23 @@ const FACES = [{ id: 'front', label: '正面' }, { id: 'back', label: '背面' }
 const state = ref(emptyState())
 const vocabulary = ref([])
 const loading = ref(false)
-const loadError = ref('')
+/**
+ * 词表状态三态，**不是两个**：
+ *   'ready'  取到了（可能为空数组——管理员把部位词全停用了，那也是一种"取到了"）
+ *   'failed' 取不到（网络/服务异常）→ 回落到本地点位，功能照常可用
+ *   'loading'
+ * 合并"失败"与"全停用"会犯一个方向相反的错：全停用时回落到全量，等于把管理员刚做的决定
+ * 当成没发生，患者还能点到一个已下架的词。
+ */
+const loadState = ref('loading')
 
 const activeRegion = computed(() => (state.value.act ? regionById(state.value.act) : null))
 const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.value))
 const globalWords = computed(() => visibleWords({ words: [...GLOBAL_WORDS] }, vocabulary.value))
 const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.side) || NO_LOCATION_HINT)
 const canFill = computed(() => state.value.picked.length > 0)
+/** 部位词真的一份都没了：告诉患者怎么回事，而不是给一个点不动的空图 */
+const allDisabled = computed(() => loadState.value === 'ready' && !vocabulary.value.length)
 
 /** 已选区：部位（含方位前缀的显示形态）、方位、感觉三类，各自带一个删除口 */
 const pickedItems = computed(() => {
@@ -216,13 +235,15 @@ const pickedItems = computed(() => {
   if (s.side) {
     out.push({ key: `side:${s.side}`, text: sideLabel(s.side), kind: 'side', remove: () => { state.value = { ...s, side: null } } })
   }
-  const pre = s.side ? s.side : ''
-  s.picked.forEach((w) => {
+  // 逐条对回声明里的同一个位置：声明与"已选"显示的是同一份事实，序号对得上，
+  // 患者删第 2 条时不必自己在脑内换算"左腹部"是第几个词
+  const locations = declarationLocations(s.picked, s.side)
+  s.picked.forEach((word, i) => {
     out.push({
-      key: `part:${w}`,
-      text: isGlobalWord(w) ? w : pre + w,
+      key: `part:${word}`,
+      text: locations[i],
       kind: 'part',
-      remove: () => { state.value = removeWord(s, w) }
+      remove: () => { state.value = removeWord(s, word) }
     })
   })
   s.feelings.forEach((f) => {
@@ -308,7 +329,8 @@ function shapesFor(faceId) {
 function fill() {
   if (!canFill.value) return
   emit('submit', {
-    locations: state.value.picked.map((w) => (isGlobalWord(w) ? w : (state.value.side || '') + w)),
+    // 两个字段都取自 bodyMap 的同一组函数，不在这里另拼一遍——前缀规则一改就会漏掉这一处
+    locations: declarationLocations(state.value.picked, state.value.side),
     sentence: sentence(state.value.picked, state.value.feelings, state.value.side)
   })
   close()
@@ -328,23 +350,42 @@ function close() {
   emit('update:open', false)
 }
 
-/** 每次打开都从零开始：上一次选过的部位不该在这一次里幽灵般地预选着 */
+/**
+ * 每次打开都重取，**不做会话内缓存**。
+ *
+ * 后端那边管理端一停用就refresh()，是即时的；前端缓存一层就把这个即时性抵消了——
+ * 患者重开浮层仍看到刚被停用的词，而管理端界面上明明白白写着它已停用。
+ * 这个接口很轻（读一份内存词表），不值得为省它而让"停用"看起来没生效。
+ *
+ * ⚠️ `immediate: true` 不能省：**组件可能挂载时就是打开的**（首屏由父组件直接传 open=true），
+ * 那时 `open` 从 true 变 true，watch 一次都不触发 ⇒ 词表永远不加载、界面退回本地点位。
+ * 省掉它不会报错，只是"静默降级"——正是这个仓库反复记的那类故障。
+ */
 watch(() => props.open, async (open) => {
   if (!open) return
+  // 每次打开都从零开始：上一次选过的部位不该在这一次里幽灵般地预选着
   state.value = emptyState()
   await loadVocabulary()
-})
+}, { immediate: true })
 
+/**
+ * **每次打开都重取**，不做会话内缓存。
+ *
+ * 后端那边管理端一停用就 refresh()，是即时的；前端缓存一层就把这个即时性抵消了——
+ * 患者重开浮层仍看到刚被停用的词，而管理端界面上明明白白写着它已停用。
+ * 这个接口很轻（读一份内存词表），不值得为省它而让"停用"看起来没生效。
+ */
 async function loadVocabulary() {
-  if (vocabulary.value.length) return
   loading.value = true
-  loadError.value = ''
+  loadState.value = 'loading'
   try {
-    vocabulary.value = await listBodyParts()
+    const list = await listBodyParts()
+    vocabulary.value = Array.isArray(list) ? list : []
+    loadState.value = 'ready'
   } catch (e) {
-    // 取不到词表时**照常可用**：bodyMap 的 visibleWords 在空表时回落到全量词，
-    // 否则一次网络抖动就把"选部位"这个功能整个锁死
-    loadError.value = '部位词表没取到，暂时按本地点位显示'
+    // 取不到就清空词表：visibleWords 在空表时回落到本地点位，功能不锁死
+    vocabulary.value = []
+    loadState.value = 'failed'
   } finally {
     loading.value = false
   }
@@ -361,7 +402,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 <style scoped>
 /* 组件私有样式：外壳全吃共享件，这里只有图与选栏。
    同名类不许两处实现——所以下面凡带 p-map__ 前缀的都是本组件独有的部件。*/
-.p-map__box { max-width: 760px; }
+/* container-type: inline-size —— 让下面那条 @container 能按**浮层自身宽度**切布局。
+   浮层是 width:100% + max-width:760px，所以它的实际宽度在手机上约 335、桌面 760，
+   而视口宽度未必同步（分屏、内嵌宿主容器），只按视口判会漏。*/
+.p-map__box { max-width: 760px; container-type: inline-size; }
 
 .p-map__bd {
   flex: 1;
@@ -485,6 +529,22 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-weight: 600;
 }
 
+/* 全停用：占满整个身体区的一句话说明 + 那个出口。刻意不给"图"——
+   一个点下去什么都不发生的图，比没有图更让人以为系统坏了 */
+.p-map__dead {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 32px;
+  text-align: center;
+}
+.p-map__deadt { font-size: 15px; font-weight: 600; color: var(--ink); }
+.p-map__deads { font-size: 12.5px; line-height: 1.9; color: var(--ink-2); }
+.p-map__deads b { color: var(--leaf-deep); font-weight: 600; }
+
 .p-map__picked { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .p-map__pill {
   display: inline-flex;
@@ -498,20 +558,37 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-weight: 600;
 }
 .p-map__pill--feel { background: var(--apricot-soft); color: var(--apricot-deep); }
+/* 移除按钮：视觉上是 22px 的小圆点，但**可点区域撑到 44px**——
+   小 × 是"看着不挤"的常规做法，直接给 44px 圆点会把已选区撑成一串大按钮。
+   撑法是 padding + 负 margin（不改变布局），触屏与鼠标都拿到 44px。 */
 .p-map__x {
-  width: 22px;
-  height: 22px;
+  width: 44px;
+  height: 44px;
+  margin: -11px -11px -11px 0;
   border-radius: var(--r-full);
-  background: rgba(31, 138, 112, .2);
+  background: none;
   color: inherit;
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
   transition: background .18s ease, color .18s ease;
 }
-.p-map__x:hover { background: var(--leaf); color: var(--on-accent); }
-.p-map__pill--feel .p-map__x { background: rgba(232, 151, 74, .3); }
-.p-map__pill--feel .p-map__x:hover { background: var(--apricot); color: var(--on-accent); }
+/* 圆点本体用 ::before 画，尺寸回到 22px：小 × 是"看着不挤"的常规做法，
+   直接给 44px 圆点会把已选区撑成一串大按钮 */
+.p-map__x::before {
+  content: '×';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 11px;
+  border-radius: var(--r-full);
+  background: rgba(31, 138, 112, .2);
+}
+.p-map__x:hover::before { background: var(--leaf); color: var(--on-accent); }
+.p-map__pill--feel .p-map__x::before { background: rgba(232, 151, 74, .3); }
+.p-map__pill--feel .p-map__x:hover::before { background: var(--apricot); color: var(--on-accent); }
 .p-map__clear {
   min-height: 44px;
   padding: 0 6px;
@@ -539,15 +616,39 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 }
 .p-map__previewk { flex: none; font-weight: 600; }
 .p-map__preview b { font-weight: 600; }
-.p-map__acts { display: flex; align-items: center; gap: 10px; }
-.p-map__acts small { flex: 1; font-size: 10.5px; line-height: 1.6; color: var(--ink-3); }
+/* 两颗按钮在同一行，中间夹一句说明。
+   `.p-btn` 共享件是 **width:100%**（表单页脚那个"保存档案"就该通栏），这里三颗挤在一行，
+   必须改回内容宽——**只写 align-self 不够**，100% 是宽度不是拉伸。
+   宽度由内容决定后，那句说明才拿得到剩余空间（flex:1 + min-width：窄面板下换行，不被挤成
+   "一列一个字"——那是被挤没，不是断行）。 */
+.p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.p-map__acts small { flex: 1 1 200px; min-width: 200px; font-size: 10.5px; line-height: 1.6; color: var(--ink-3); }
+.p-map__acts .p-btn { width: auto; align-self: flex-start; }
 
-/* 窄屏：图与选栏改成上下（各占一半高度），避免选栏被压成一条 */
-@media (max-width: 640px) {
-  .p-map__bd { flex-direction: column; }
-  .p-map__fig { padding: 12px 16px 6px; }
-  .p-map__pick { width: auto; border-left: none; border-top: 1px solid var(--line); }
-  .p-map__acts { flex-wrap: wrap; }
-  .p-map__acts small { order: 3; flex-basis: 100%; }
+/* 窄屏：图与选栏改成上下。
+   断点按**浮层自身宽度**判（`@container`），不按视口——手机视口窄、桌面浮层宽，
+   但分屏或内嵌宿主容器时"视口宽、浮层窄"也会发生，只看视口会漏。
+
+   ⚠️ 竖排时**整列作为一个滚动容器**，两块各自按内容取高。走过三段弯路才定成这样：
+   ① 分高度（各 flex:1）——横排那套 min-height:0 的分高机制在竖排下失效，图只剩 18px；
+   ② 只给图 min-height ——图按比例撑到 493px，把选栏挤成 1px；
+   ③ 两块各自 auto 但父级不滚 ——超出容器的部分**压在底部动作条上面**（实测）。
+   单一滚动容器避开全部三个：内容多就滚，不互相挤压，也不会有东西溢出到别的区域。 */
+@container (max-width: 560px) {
+  .p-map__bd { flex-direction: column; overflow-y: auto; }
+  .p-map__fig { flex: 0 0 auto; padding: 12px 16px 6px; }
+  .p-map__canvas { overflow: hidden; }
+  /* 宽度定尺寸、高度按 220:360 的比例自己算。**不能给 height:100%**（按容器高缩，下半截被裁），
+     也不给 min-height（顶穿容器回到第③段那个坑）。 */
+  .p-map__svg { width: 100%; height: auto; max-height: none; }
+  .p-map__pick {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 0;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+  .p-map__acts small { order: 3; flex-basis: 100%; min-width: 0; }
 }
 </style>

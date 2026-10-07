@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -432,6 +433,23 @@ class ChatServiceTest {
 
         verify(ragService, never()).retrieve(any());
         verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("带声明时首轮**不进**模板追问：部位词已在句子里，信息充足性门槛放行（工单缝二的正向一侧）")
+    void declaredPartsLetFirstTurnSkipTemplateQuestion() {
+        // 反向那条（declaredPartsCannotBypassRuleGate）钉的是"声明救不了过于笼统的输入"；
+        // 这条钉"声明不拖累正常主诉"。两句合起来才是缝二要的完整语义。
+        when(sufficiencyRule.tooVague(anyString())).thenReturn(false);
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("左腹部疼，两天了", null, List.of("左腹部")));
+
+        // 门槛放行的标志是模型被调了。落库的 question 有两个来源（门槛的模板追问 /
+        // 模型自己的 ASK），这里要排除的是**前者**——那句模板话术正是开口问"哪个部位"。
+        verify(ragService).retrieve(any());
+        assertFalse(questions().contains(TEMPLATE), "带声明的正常主诉不应收到模板追问");
+        assertFalse(questions().contains(TEMPLATE_REPEAT), "也不应是第二档模板话术");
     }
 
     @Test

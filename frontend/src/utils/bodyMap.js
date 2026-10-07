@@ -123,12 +123,6 @@ export function sentence(picked = [], feelings = [], side = null) {
   return locations.join('、') + (feels.length ? feels.join('、') : DEFAULT_FEELING) + '，'
 }
 
-/** 「患者标明了位置」的回执文案（引导页与对话区那一行用） */
-export function pickedLabel(picked = [], side = null) {
-  const locations = declarationLocations(picked, side)
-  return locations.length ? locations.join('、') : ''
-}
-
 /**
  * 方位在"已选"区里的显示名：「左」显示成「左侧」更像人话，「两侧」原样。
  * 纯展示，与拼句无关（拼句里前缀就是「左」本身，"左腹部"才规范）。
@@ -166,6 +160,11 @@ export function assertVocabulary() {
  * 图上"形"是前端资产、"词"来自后端，所以管理员停用一个词后，图上那块区域可能只剩两三个词甚至一个。
  * 刻意**不做**"某区域全被停用就隐藏该区域"——患者可能正在别处指着自己的肚子说"这儿"，
  * 区域突然消失比选项少更难解释。
+ *
+ * ⚠️ `available` 为空时**回落到全量**，这是刻意的，但只该由"取不到词表"触发：
+ * 两种空值必须分开——① 请求失败（回全量，功能照常可用，一次网络抖动不该锁死"选部位"）；
+ * ② 管理员把部位词全停用了（回全量就是**违背他刚刚做的决定**，患者会点到已下架的词）。
+ * 调用方据此区分：失败走回落、全停用走"无可选项"，见BodyMapOverlay 的 loadState。
  */
 export function visibleWords(region, available) {
   const allowed = new Set(Array.isArray(available) && available.length ? available : PARTS)
