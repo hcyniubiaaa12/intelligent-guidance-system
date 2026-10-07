@@ -401,6 +401,9 @@ textarea.a-input { resize: vertical; line-height: 1.6; }
 }
 .a-chip:hover { border-color: var(--blue); color: var(--blue); }
 .a-chip--on { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* 选中后鼠标仍停在按钮上：.a-chip:hover 的特异性（0,2,0）高于 .a-chip--on（0,1,0），
+   会把白字压成蓝字 —— 蓝底蓝字什么都看不见。选中态必须显式压过 hover。 */
+.a-chip--on:hover { color: #fff; }
 
 /* ---------- 进度条（5px 圆角轨道） ---------- */
 .a-progress { height: 5px; border-radius: 4px; background: var(--wash); overflow: hidden; }

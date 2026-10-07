@@ -43,26 +43,46 @@
                   <div v-if="!detail.samples.length" class="a-panel__hint">
                     这个桶还没有挂上记录（归桶发生在本页接通之前）。可以驳回或忽略。
                   </div>
-                  <div v-for="sample in detail.samples" :key="sample.recordId" class="rev__sample">
-                    <div class="rev__sample-head">
-                      <span class="rev__symptom">{{ sample.symptom || '（主诉为空）' }}</span>
-                      <button class="a-btn a-btn--ghost" @click="saveSampleCauses(sample)">
-                        保存本条根因
-                      </button>
-                    </div>
-                    <div class="a-chips">
-                      <button
-                        v-for="option in causeOptions"
-                        :key="option.key"
-                        class="a-chip"
-                        :class="{ 'a-chip--on': sample.causes.includes(option.key) }"
-                        @click="toggleCause(sample.causes, option.key)"
+                  <!-- 样本默认只占一行：主诉 + 结论摘要 + 有无检索-引用错位。
+                       证据、根因、原始数据都收在展开里——一屏塞不下 5 份证据，是这一页最挤的根源 -->
+                  <div v-for="sample in orderedSamples" :key="sample.recordId" class="rev__sample">
+                    <button
+                      class="rev__sample-head"
+                      :class="{ 'rev__sample-head--open': isSampleOpen(sample.recordId) }"
+                      @click="toggleSample(sample.recordId)"
+                    >
+                      <span
+                        class="rev__flag"
+                        :class="summary(sample).drift ? 'rev__flag--warn' : 'rev__flag--plain'"
                       >
-                        {{ option.label }}
-                      </button>
-                    </div>
-                    <EvidenceReplay v-if="sample.evidence" :evidence="sample.evidence" />
-                    <div v-else class="a-panel__hint">这条记录没有证据快照</div>
+                        {{ summary(sample).drift ? '错位' : '正常' }}
+                      </span>
+                      <span class="rev__symptom">{{ sample.symptom || '（主诉为空）' }}</span>
+                      <span class="rev__sum">{{ sampleSummaryText(sample) }}</span>
+                      <span class="rev__toggle">{{ isSampleOpen(sample.recordId) ? '收起 ▴' : '证据 ▸' }}</span>
+                    </button>
+
+                    <template v-if="isSampleOpen(sample.recordId)">
+                      <div class="rev__sample-ops">
+                        <span class="rev__label">本条根因</span>
+                        <button class="a-btn a-btn--ghost" @click="saveSampleCauses(sample)">
+                          保存本条根因
+                        </button>
+                      </div>
+                      <div class="a-chips">
+                        <button
+                          v-for="option in causeOptions"
+                          :key="option.key"
+                          class="a-chip"
+                          :class="{ 'a-chip--on': sample.causes.includes(option.key) }"
+                          @click="toggleCause(sample.causes, option.key)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      </div>
+                      <EvidenceReplay v-if="sample.evidence" :evidence="sample.evidence" />
+                      <div v-else class="a-panel__hint">这条记录没有证据快照</div>
+                    </template>
                   </div>
 
                   <!-- 桶级套用：与 approve / 驳回互不代劳 -->
@@ -206,6 +226,7 @@ import {
   approveBucket, rejectBucket, dismissBucket, reReviewBucket
 } from '../../api/admin'
 import { useReviewStore } from '../../stores/review'
+import { evidenceHint, parseEvidence } from '../../utils/evidenceReplay'
 import EvidenceReplay from './EvidenceReplay.vue'
 
 // 待归桶样本数 + 待审桶数（侧栏徽标）都从 store 读：本页的动作会同时改这两个数
@@ -245,6 +266,60 @@ const form = reactive({
 })
 
 const crossOptions = computed(() => depts.value.filter((dept) => dept.id !== form.mainDeptId))
+
+// —— 样本折叠 + 异常置顶 ——
+// 折叠那一行要显示的东西全在 evidence 里；这里复用与 EvidenceReplay 同一套纯函数，
+// 判定口径只有一处。父子各解析一次（一条 5KB 的 JSON），不值得为此改组件接口。
+const sampleSummaries = computed(() => {
+  const map = {}
+  for (const sample of detail.value.samples || []) {
+    const parsed = parseEvidence(sample.evidence)
+    const model = parsed.model
+    map[sample.recordId] = {
+      ok: parsed.ok,
+      drift: Boolean(evidenceHint(parsed)),
+      dept: model ? model.dept : '',
+      confidence: model ? model.confidence : null,
+      citedText: parsed.cited.length
+        ? `引用 ${parsed.cited.map((no) => `注${no}`).join('、')}`
+        : '未引用任何注'
+    }
+  }
+  return map
+})
+
+function summary(sample) {
+  return sampleSummaries.value[sample.recordId]
+    || { ok: false, drift: false, dept: '', confidence: null, citedText: '' }
+}
+
+function sampleSummaryText(sample) {
+  const info = summary(sample)
+  if (!info.ok) return '证据结构不可解析'
+  const parts = []
+  if (info.dept) parts.push(info.dept)
+  if (info.confidence !== null) parts.push(`置信度 ${info.confidence.toFixed(2)}`)
+  if (info.citedText) parts.push(info.citedText)
+  return parts.join(' · ')
+}
+
+// 错位样本排前面——归因先看异常。Array.prototype.sort 在现代引擎里稳定，同组内保持原顺序
+const orderedSamples = computed(() => {
+  const list = [...(detail.value.samples || [])]
+  return list.sort((a, b) => Number(summary(b).drift) - Number(summary(a).drift))
+})
+
+const openSamples = ref([])
+
+function isSampleOpen(recordId) {
+  return openSamples.value.includes(recordId)
+}
+
+function toggleSample(recordId) {
+  const pos = openSamples.value.indexOf(recordId)
+  if (pos >= 0) openSamples.value.splice(pos, 1)
+  else openSamples.value.push(recordId)
+}
 
 function errText(e) {
   return e?.message || '操作失败，请稍后重试'
@@ -373,6 +448,8 @@ async function loadBuckets(pageNo = page.current) {
 function collapse() {
   expandedId.value = ''
   detail.value = null
+  // 换桶/收起时把展开的样本也收掉：留下的 recordId 属于上一个桶，留着只是噪音
+  openSamples.value = []
 }
 
 /** 展开一个桶：拉详情 + 预填表单。三角与「审核」按钮共用这一段 */
@@ -616,15 +693,66 @@ onMounted(async () => {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+/* 折叠头：整行可点。默认按钮有 padding/border/background，全部复位 */
 .rev__sample-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--sans);
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rev__sample-head--open {
+  color: var(--blue);
+}
+.rev__flag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.rev__flag--warn {
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+.rev__flag--plain {
+  background: var(--wash);
+  color: var(--ink-2);
 }
 .rev__symptom {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   color: var(--ink);
+}
+.rev__sum {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.rev__toggle {
+  flex: none;
+  font-size: 11px;
+  color: var(--blue);
+}
+.rev__sample-ops {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
 }
 .rev__form {
   display: flex;
