@@ -207,10 +207,8 @@ onMounted(loadDepts)
 .p-reg__done .p-card__dept { margin-top: 2px; }
 /* 页面内提示：与科室列表保持 12px 间距，不挤在一起 */
 .p-reg__tip { margin-bottom: 12px; }
-.p-dept__loc { display: block; font-size: 11.5px; }
-/* 选中态已改成「主色描边 + 主色浅底」（不再是实心主色底），
-   位置文字跟着回到次要文字色——旧方案那行半透明白在浅青底上会看不见 */
-.p-dept--on .p-dept__loc { color: var(--ink-2); }
+/* 科室位置文字（`.p-dept__loc`）与选中态的配色都已进共享件 patient.css，
+   这里不再各写一份——规则分裂在两处，改了共享件这页还会悄悄用旧的 */
 /* 确认按钮禁用态（未选科室 / 提交中 / 缺记录） */
 .p-reg .p-btn:disabled {
   background: var(--line);

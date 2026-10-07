@@ -403,23 +403,25 @@
         </div>
       </nav>
 
-      <!-- ---------- 健康档案（选填）：覆盖层抽屉，纸感方案 A ----------
-           复用既有覆盖层模式（手机端会话抽屉那套），不引入任何组件库。
+      <!-- ---------- 健康档案（选填）：浮层 ----------
+           外壳（遮罩 / 容器 / 抬头的关闭 / 进出节奏）走 patient.css 的**共享浮层语言**
+           `.p-overlay*`，本页不再自己实现那几样——见设计文档 §3.8。
+           表单内部（__row / __chip / __select…）仍是本页私有，等 B-03 对话页换皮再收拾。
            上限直接在源头挡住：标签多选到顶写不进、自由文本走 maxlength，并显示剩余额度 -->
       <Transition name="p-fade">
-        <div v-if="profileOpen" class="p-prof" @click.self="closeProfile">
-          <div class="p-prof__box" role="dialog" aria-label="我的健康档案">
-            <header class="p-prof__hd">
+        <div v-if="profileOpen" class="p-overlay p-overlay--wide" @click.self="closeProfile">
+          <div class="p-overlay__box" role="dialog" aria-label="我的健康档案">
+            <header class="p-overlay__head">
               <div>
-                <div class="p-eyebrow">健 康 档 案</div>
-                <p class="p-prof__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
+                <div class="p-overlay__title">健 康 档 案</div>
+                <p class="p-overlay__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
               </div>
-              <button class="p-prof__close" aria-label="关闭健康档案" @click="closeProfile">关 闭</button>
+              <button class="p-overlay__close" aria-label="关闭健康档案" @click="closeProfile">关 闭</button>
             </header>
 
             <div v-if="profileLoading" class="p-prof__loading">正在加载…</div>
 
-            <div v-else class="p-prof__body">
+            <div v-else class="p-overlay__body">
               <div class="p-prof__row">
                 <label class="p-prof__label">性　别</label>
                 <select v-model="profileForm.gender" class="p-prof__select">
@@ -466,7 +468,7 @@
               <p v-if="profileError" class="p-prof__err">{{ profileError }}</p>
             </div>
 
-            <footer class="p-prof__ft">
+            <footer class="p-overlay__foot">
               <button class="p-btn" :disabled="profileLoading || profileSaving" @click="saveProfile">
                 {{ profileSaving ? '保 存 中…' : '保 存 档 案' }}
               </button>
@@ -1972,66 +1974,14 @@ onBeforeUnmount(() => {
 }
 .p-chat__uprof:hover { color: var(--teal); border-bottom-color: var(--teal); }
 
-.p-prof {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  overflow-y: auto;
-  padding: 24px 16px;
-  background: rgba(28, 43, 40, .28);
-}
-.p-prof__box {
-  width: 100%;
-  max-width: 560px;
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 48px);
-  background: var(--card);
-  border: 1px solid var(--line);
-}
-.p-prof__hd {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.p-prof__sub {
-  margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.p-prof__close {
-  flex: none;
-  min-height: 44px; /* 触控目标 ≥ 44px */
-  padding: 6px 12px;
-  border: 1px solid var(--line);
-  background: none;
-  cursor: pointer;
-  font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .16em;
-  color: var(--ink-2);
-  transition: color .18s ease, border-color .18s ease;
-}
-.p-prof__close:hover { color: var(--err); border-color: var(--err); }
+/* 健康档案浮层的**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）已提到共享件
+   patient.css 的 .p-overlay* 与 .p-fade-*，本页只留表单内部。见设计文档 §3.8。 */
 .p-prof__loading {
   padding: 32px 16px;
   font-family: var(--sans);
   font-size: 12px;
   letter-spacing: .1em;
   color: var(--ink-2);
-}
-.p-prof__body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px 16px 8px;
 }
 .p-prof__row {
   display: flex;
@@ -2143,13 +2093,4 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
   line-height: 1.7;
 }
-.p-prof__ft {
-  flex: none;
-  padding: 12px 16px;
-  border-top: 1px solid var(--line);
-}
-.p-fade-enter-active,
-.p-fade-leave-active { transition: opacity .18s ease; }
-.p-fade-enter-from,
-.p-fade-leave-to { opacity: 0; }
 </style>
