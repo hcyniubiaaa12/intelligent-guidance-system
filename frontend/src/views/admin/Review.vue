@@ -176,13 +176,12 @@
     <div class="a-panel__head" style="margin-top: 18px">
       <span class="a-panel__title">审核过的桶</span>
       <div class="a-panel__ops">
-        <span class="a-panel__hint">共 {{ terminalPage.total }} 个 · 修正重审回到待审</span>
-        <!-- 三种终态混在同一张表里，不筛就得靠肉眼翻 -->
+        <!-- 三种终态混在同一张表里，不筛就得靠肉眼翻。
+             刻意不加 collapse-tags：它只显示第一个标签 + "+N"，容器一窄那个 "+N" 就被裁掉，
+             看着就像"只能单选"。选项本来就只有三个，全部露出来更省事（规则见前端设计方案 §3.5） -->
         <el-select
           v-model="terminalStatuses"
           multiple
-          collapse-tags
-          collapse-tags-tooltip
           clearable
           placeholder="全部状态"
           class="rev__filter"
@@ -797,7 +796,7 @@ onMounted(async () => {
   width: 320px;
 }
 .rev__filter {
-  width: 210px;
+  width: 260px;
 }
 .rev__form {
   display: flex;
