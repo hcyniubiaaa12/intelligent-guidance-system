@@ -170,9 +170,11 @@
       />
     </template>
 
-    <!-- 终态桶：修正重审是人工动作，不受自动升级的幂等限制 -->
+    <!-- 分区标题用「审核过的桶」而不是「已终态」：终态是词表里的状态机术语，
+           而这一栏里还含「已忽略」（其确认文案明说"没审就关闭"），叫"已审核"对不上。
+           修正重审是人工动作，不受自动升级的幂等限制 -->
     <div class="a-panel__head" style="margin-top: 18px">
-      <span class="a-panel__title">已终态</span>
+      <span class="a-panel__title">审核过的桶</span>
       <div class="a-panel__ops">
         <span class="a-panel__hint">共 {{ terminalPage.total }} 个 · 修正重审回到待审</span>
         <!-- 三种终态混在同一张表里，不筛就得靠肉眼翻 -->
