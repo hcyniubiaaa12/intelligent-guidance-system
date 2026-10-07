@@ -77,24 +77,17 @@ public class ReviewService {
         if (bucket == null) {
             return null;
         }
-        List<GuideRecord> records = members(bucketId, REPRESENTATIVE_SAMPLE_SIZE);
+        List<GuideRecord> records = members(bucketId);
         List<RepresentativeSample> samples = records.stream().map(this::toSample).toList();
         return new BucketDetail(bucket, samples);
     }
 
-    /** 桶内全部记录（桶级套用根因用，不限条数） */
+    /** 桶内代表样本：最近 {@link #REPRESENTATIVE_SAMPLE_SIZE} 条，倒序 */
     public List<GuideRecord> members(String bucketId) {
-        return members(bucketId, null);
-    }
-
-    private List<GuideRecord> members(String bucketId, Integer limit) {
-        var query = Wrappers.<GuideRecord>lambdaQuery()
+        return guideRecordMapper.selectList(Wrappers.<GuideRecord>lambdaQuery()
                 .eq(GuideRecord::getBucketId, bucketId)
-                .orderByDesc(GuideRecord::getCreatedAt);
-        if (limit != null) {
-            query.last("LIMIT " + limit);
-        }
-        return guideRecordMapper.selectList(query);
+                .orderByDesc(GuideRecord::getCreatedAt)
+                .last("LIMIT " + REPRESENTATIVE_SAMPLE_SIZE));
     }
 
     private RepresentativeSample toSample(GuideRecord record) {

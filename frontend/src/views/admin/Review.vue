@@ -82,23 +82,9 @@
                     </template>
                   </div>
 
-                  <!-- 桶级套用：与 approve / 驳回互不代劳 -->
-                  <div class="rev__label">桶级根因 · 套用到桶内全部记录</div>
-                  <div class="a-chips">
-                    <button
-                      v-for="option in causeOptions"
-                      :key="option.key"
-                      class="a-chip"
-                      :class="{ 'a-chip--on': bucketCauses.includes(option.key) }"
-                      @click="toggleCause(bucketCauses, option.key)"
-                    >
-                      {{ option.label }}
-                    </button>
-                  </div>
-                  <button class="a-btn a-btn--ghost rev__fit" :disabled="acting" @click="applyBucket">
-                    套用根因
-                  </button>
-
+                  <!-- 桶级一键套用已移除（2026-07-11）：它会把桶内每条记录整份覆盖成同一组根因，
+                       包括管理员已逐条改过的；同方向一个桶里的样本未必是同一成因。
+                       归因一律逐条设，在上方每条样本的展开区里 -->
                   <!-- 审核：主科室 + 交叉科室 + 回流预览 -->
                   <div class="rev__label">回流</div>
                   <div class="rev__form">
@@ -227,7 +213,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   aggregateBuckets, pagePendingBuckets, pageTerminalBuckets, getReviewBucket, listRootCauses, listReviewDepts,
-  applyBucketCauses, updateRecordCauses, previewSyntheticChunk,
+  updateRecordCauses, previewSyntheticChunk,
   approveBucket, rejectBucket, dismissBucket, reReviewBucket
 } from '../../api/admin'
 import { useReviewStore } from '../../stores/review'
@@ -262,7 +248,6 @@ const acting = ref(false)
 
 const causeOptions = ref([])
 const depts = ref([])
-const bucketCauses = ref([])
 const form = reactive({
   mainDeptId: '',
   crossDeptIds: [],
@@ -456,17 +441,13 @@ async function loadBuckets(pageNo = page.current) {
 /** 收起前把表单存进 per-bucket 缓存。直接切桶也走这里，所以 A→B→A 回来内容还在 */
 function stashForm() {
   if (!expandedId.value) return
-  formCache[expandedId.value] = {
-    form: { ...form },
-    bucketCauses: [...bucketCauses.value]
-  }
+  formCache[expandedId.value] = { ...form }
 }
 
 function restoreForm(bucketId) {
   const cached = formCache[bucketId]
   if (!cached) return false
-  Object.assign(form, cached.form)
-  bucketCauses.value = [...cached.bucketCauses]
+  Object.assign(form, cached)
   return true
 }
 
@@ -547,7 +528,6 @@ function resetForm() {
   form.crossDeptIds = []
   form.syntheticText = ''
   form.previewed = false
-  bucketCauses.value = []
 }
 
 /** 主科室一变，预填按集合差重算：方向里去掉新的主科室 */
@@ -561,35 +541,7 @@ function onMainDeptChange() {
   form.previewed = false
 }
 
-/**
- * 桶级套用：**整份覆盖**桶内全部记录的根因——逐条保存过的归因也会被改掉。
- * 所以必须先确认并说清影响条数（§3.8 破坏性操作先 confirm）。这里的条数取桶的样本数，
- * 不是详情页显示的代表样本数（那个只有最近 5 条）。
- */
-async function applyBucket() {
-  const total = detail.value?.bucket?.count ?? 0
-  try {
-    await ElMessageBox.confirm(
-      `将把桶内 ${total} 条记录的根因整份覆盖为上面选中的组合` +
-        '——之前逐条保存过的归因也会被改掉（每条都会留一条改前改后的审计）。',
-      '套用到桶内全部记录',
-      { confirmButtonText: '确认套用', cancelButtonText: '取消', type: 'warning' }
-    )
-  } catch {
-    return
-  }
-  acting.value = true
-  try {
-    const affected = await applyBucketCauses(expandedId.value, bucketCauses.value)
-    ElMessage.success(`已套用到 ${affected} 条记录`)
-    detail.value = await getReviewBucket(expandedId.value)
-  } catch (e) {
-    ElMessage.error(errText(e))
-  } finally {
-    acting.value = false
-  }
-}
-
+/** 逐条保存根因：只写这一条记录，不动同桶其他样本 */
 async function saveSampleCauses(sample) {
   try {
     await updateRecordCauses(sample.recordId, sample.causes)
@@ -802,11 +754,6 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   margin-top: 10px;
-}
-/* .rev 是 flex 列容器，子元素默认 stretch —— 单独一个按钮会被拉成整行宽。
-   凡是"不该占满一行"的直接子元素都要显式收窄 */
-.rev__fit {
-  align-self: flex-start;
 }
 /* el-select 的宽度在组件上给（EP 不吃 max-width），样式交给 element-override.css */
 .rev__select {

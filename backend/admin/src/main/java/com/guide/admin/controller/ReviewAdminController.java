@@ -170,15 +170,7 @@ public class ReviewAdminController {
         return Result.ok(options);
     }
 
-    /** 桶级套用根因（独立保存，不改桶状态） */
-    @PostMapping("/buckets/{id}/causes")
-    public Result<Integer> applyCauses(@PathVariable String id,
-                                        @RequestBody ReviewAdminDTO.CausesRequest request) {
-        int affected = rootCauseService.applyToBucket(id, request.getCauses(), currentUserId());
-        return Result.ok(affected);
-    }
-
-    /** 逐条覆盖根因 */
+    /** 逐条覆盖根因（归因只写到单条记录上没有"桶级一键套用"——一刀切会用统计口径覆盖事实判断） */
     @PostMapping("/records/{id}/causes")
     public Result<Void> updateRecordCauses(@PathVariable String id,
                                             @RequestBody ReviewAdminDTO.CausesRequest request) {

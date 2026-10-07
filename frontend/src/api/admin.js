@@ -190,12 +190,7 @@ export function listReviewDepts() {
   return http.get('/admin/review/depts')
 }
 
-// 桶级套用根因（独立保存，不改桶状态）
-export function applyBucketCauses(id, causes) {
-  return http.post(`/admin/review/buckets/${id}/causes`, { causes })
-}
-
-// 逐条覆盖根因
+// 逐条覆盖根因（归因只写到单条记录上，没有桶级一键套用）
 export function updateRecordCauses(recordId, causes) {
   return http.post(`/admin/review/records/${recordId}/causes`, { causes })
 }

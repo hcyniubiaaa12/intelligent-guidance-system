@@ -4,11 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.common.exception.BizException;
-import com.guide.feedback.entity.ClusterBucket;
 import com.guide.feedback.entity.RootCause;
 import com.guide.feedback.mapper.RootCauseLogMapper;
 import com.guide.feedback.mapper.RootCauseMapper;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,7 +25,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** 根因：桶级套用按桶取记录，字典外的 key 拒绝，修改追加审计日志。 */
+/** 根因：字典外的 key 拒绝、记录不存在即报错、修改追加审计并记下改前的值。 */
 @ExtendWith(MockitoExtension.class)
 class RootCauseServiceTest {
 
@@ -37,47 +35,19 @@ class RootCauseServiceTest {
     private RootCauseLogMapper rootCauseLogMapper;
     @Mock
     private GuideRecordMapper guideRecordMapper;
-    @Mock
-    private ReviewService reviewService;
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private RootCauseService rootCauseService;
 
-    @BeforeEach
-    void setUp() {
-        // ObjectMapper 是 @Spy，@InjectMocks 会把它注入
-    }
-
-    @Test
-    @DisplayName("桶级套用写入桶内全部记录，并各留一条审计")
-    void applyWritesEveryMember() {
-        GuideRecord first = record("rec-1");
-        GuideRecord second = record("rec-2");
-        when(reviewService.requireBucket("bucket-1")).thenReturn(new ClusterBucket());
-        when(reviewService.members("bucket-1")).thenReturn(List.of(first, second));
-        when(rootCauseMapper.selectOne(any())).thenReturn(null);
-
-        int affected = rootCauseService.applyToBucket("bucket-1",
-                List.of("chunk_broken", "chunk_broken", "retrieval_fail"), "admin-1");
-
-        assertThat(affected).isEqualTo(2);
-        ArgumentCaptor<RootCause> causes = ArgumentCaptor.forClass(RootCause.class);
-        verify(rootCauseMapper, org.mockito.Mockito.times(2)).insert(causes.capture());
-        assertThat(causes.getAllValues())
-                .allSatisfy(cause -> assertThat(cause.getCauses())
-                        .isEqualTo("[\"chunk_broken\",\"retrieval_fail\"]"))
-                .extracting(RootCause::getRecordId)
-                .containsExactly("rec-1", "rec-2");
-        verify(rootCauseLogMapper, org.mockito.Mockito.times(2)).insert(any());
-    }
-
     @Test
     @DisplayName("字典外的 key 拒绝，不写库")
     void unknownKeyRejected() {
-        assertThatThrownBy(() -> rootCauseService.applyToBucket("bucket-1",
-                List.of("symptom_ambiguous"), "admin-1"))
+        when(guideRecordMapper.selectById("rec-1")).thenReturn(record("rec-1"));
+
+        assertThatThrownBy(() -> rootCauseService.updateSingle(
+                "rec-1", List.of("symptom_ambiguous"), "admin-1"))
                 .isInstanceOf(BizException.class);
 
         verify(rootCauseMapper, never()).insert(any(RootCause.class));
@@ -90,6 +60,19 @@ class RootCauseServiceTest {
 
         assertThatThrownBy(() -> rootCauseService.updateSingle("rec-1", List.of(), "admin-1"))
                 .isInstanceOf(BizException.class);
+    }
+
+    @Test
+    @DisplayName("去重并按字典序归一：重复 key 只留一个")
+    void duplicateKeysDeduped() {
+        when(guideRecordMapper.selectById("rec-1")).thenReturn(record("rec-1"));
+        when(rootCauseMapper.selectOne(any())).thenReturn(null);
+
+        rootCauseService.updateSingle("rec-1", List.of("chunk_broken", "chunk_broken"), "admin-1");
+
+        ArgumentCaptor<RootCause> saved = ArgumentCaptor.forClass(RootCause.class);
+        verify(rootCauseMapper).insert(saved.capture());
+        assertThat(saved.getValue().getCauses()).isEqualTo("[\"chunk_broken\"]");
     }
 
     @Test

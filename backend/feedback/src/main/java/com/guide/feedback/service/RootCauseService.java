@@ -24,9 +24,14 @@ import java.util.List;
 /**
  * 根因归因（链路 C）。
  *
- * <p>桶级套用写入桶内每条记录，展开后可逐条覆盖。归因与 approve / 驳回是两个独立动作，
- * 互不代劳：驳回的桶也要归因（「患者挂错」要从看板 miss 口径里排除），标了归因不改桶状态。
- * 每次修改追加一条 {@code root_cause_log}，不覆盖。
+ * <p><b>逐条标注</b>：归因写在每条导诊记录（{@code root_cause}）上，审核时展开代表样本逐条设置。
+ * 归因与 approve / 驳回是两个独立动作，互不代劳：驳回的桶也要归因（「患者挂错」要从看板 miss
+ * 口径里排除），标了归因不改桶状态。每次修改追加一条 {@code root_cause_log}，不覆盖。
+ *
+ * <p>为什么没有「桶级一键套用」（2026-07-11 移除）：它会把桶内**每条**记录整份覆盖成同一组根因，
+ * 包括管理员已经逐条改过的——同方向一个桶里的样本未必是同一个成因（例如"主诉太含糊"与
+ * "患者描述与推荐科室不符"可以同时存在于一个方向桶里），一刀切等于用统计口径覆盖事实判断。
+ * 归因本来就是给人判断的，宁可多花两次点击。
  *
  * <p>字典外的 key 直接拒绝。存量值仍不校验（看板对字典外 key 原样显示），
  * 但新写入的必须在 {@link RootCauseKey} 里——否则看板口径会静默漂移。
@@ -39,32 +44,7 @@ public class RootCauseService {
     private final RootCauseMapper rootCauseMapper;
     private final RootCauseLogMapper rootCauseLogMapper;
     private final GuideRecordMapper guideRecordMapper;
-    private final ReviewService reviewService;
     private final ObjectMapper objectMapper;
-
-    /**
-     * 桶级套用：写入该桶的全部记录。
-     *
-     * @return 影响的记录数
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public int applyToBucket(String bucketId, List<String> causes, String updatedBy) {
-        // 先校验字典：空桶也要拒绝非法 key，不能因为没有记录可写就把错误吞掉
-        String causesJson = toJson(normalize(causes));
-        if (reviewService.requireBucket(bucketId) == null) {
-            throw new BizException(ErrorCode.BUCKET_NOT_FOUND);
-        }
-        List<GuideRecord> records = reviewService.members(bucketId);
-        if (records.isEmpty()) {
-            log.warn("桶 {} 内无记录，跳过根因套用", bucketId);
-            return 0;
-        }
-        for (GuideRecord record : records) {
-            upsert(record.getId(), causesJson, updatedBy);
-        }
-        log.info("桶 {} 套用根因完成，影响 {} 条记录", bucketId, records.size());
-        return records.size();
-    }
 
     /** 逐条覆盖 */
     @Transactional(rollbackFor = Exception.class)
