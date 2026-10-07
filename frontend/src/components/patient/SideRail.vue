@@ -382,12 +382,18 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
    一张压在侧栏底上的白卡，与选中条目同一层次。里面三件事按重要性排成两行：
    昵称（12.5px 600，"看挂号历史"的入口）在上、「健 康 档 案」（10px，作为副标）在下，
    退出收在右端的小字——**静息态不画下划线**，靠 hover 变色给可点提示，
-   否则四条带下划线的文字并排会把底卡变成一堵字墙 */
+   否则四条带下划线的文字并排会把底卡变成一堵字墙。
+
+   **那两行不给高度、只给行高**：44px 是"手指够得着的地方"的下限，可这两行是**竖着叠
+   起来**的——各撑到 44px 底卡就变成 116px（实测），比一条会话条目高两倍，整块侧栏的
+   节奏断了；草图那张卡只有 51px。所以按输入方式分档：鼠标端贴着文字高度（`min-height: 0`
+   + `line-height: 1.3`，实测底卡 **212×57**），触屏端才补到 44px。与共享件 `.p-act__btn`
+   同一口径，两处都登记在设计文档 §5 的豁免清单里。 */
 .p-chat__user {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin: 0 8px 12px;
   padding: 12px;
   border-radius: var(--r-sm);
@@ -415,30 +421,44 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   align-items: flex-start;
   gap: 4px;
 }
+/* 两行之间的 `gap` 只是底线的一半——真正把两行撑开的是**行高**：
+   `line-height: 1.3` 之下两行的半行距各只有 ~2px，字与字之间看着是连着的；
+   若跟着全局的 1.85 走，半行距各 4~5px，加上 gap 就成了"两行之间隔一条带"。 */
 .p-chat__unick,
 .p-chat__uprof,
 .p-chat__uout {
   max-width: 100%;
-  min-height: 44px; /* 触控目标 ≥ 44px */
+  min-height: 0;
   padding: 0;
   border: none;
   background: none;
   cursor: pointer;
   font-family: var(--sans);
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: color .18s ease;
 }
+/* 触屏没有 hover：这两行这时候是手指要按的真控件，命中区补到 44px */
+@media (hover: none) {
+  .p-chat__unick,
+  .p-chat__uprof,
+  .p-chat__uout { min-height: 44px; }
+}
+/* 昵称用 `--ink-2` 而不是 `--ink`：它是**身份标识**，不是当前要读的内容——
+   底卡已经因为有白底和主色头像而被凸显了，再加一行近黑的名字会跟上面的会话条目
+   抢"这里是要看的东西"这份注意力（`.p-i__x` 才是正文色）。
+   层级靠 12.5px/600 与下面 10px/`--ink-3` 的字号差撑。 */
 .p-chat__unick {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-2);
 }
 .p-chat__unick:hover { color: var(--leaf-deep); text-decoration: underline; text-underline-offset: 3px; }
 .p-chat__uprof { font-size: 10px; letter-spacing: .1em; color: var(--ink-3); }
 .p-chat__uprof:hover { color: var(--leaf-deep); }
-.p-chat__uout { flex: none; min-height: 44px; font-size: 10px; letter-spacing: .1em; color: var(--ink-3); }
+.p-chat__uout { flex: none; font-size: 10px; letter-spacing: .1em; color: var(--ink-3); }
 .p-chat__uout:hover { color: var(--alert); }
 
 /* ---------- 目录条目：天头 + 条目 + 折叠条。侧栏底是 `--rail`，所以选中行用**实白卡片**
