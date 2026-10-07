@@ -51,13 +51,10 @@
                       :class="{ 'rev__sample-head--open': isSampleOpen(sample.recordId) }"
                       @click="toggleSample(sample.recordId)"
                     >
-                      <span
-                        class="rev__flag"
-                        :class="summary(sample).drift ? 'rev__flag--warn' : 'rev__flag--plain'"
-                      >
-                        {{ summary(sample).drift ? '错位' : '正常' }}
-                      </span>
                       <span class="rev__symptom">{{ sample.symptom || '（主诉为空）' }}</span>
+                      <!-- 只标异常、不标「正常」：这些记录进桶本身就因为系统错了，
+                           说它「正常」自相矛盾；而「没标」本身就是「无异常」 -->
+                      <span v-if="summary(sample).drift" class="rev__flag">引用错位</span>
                       <span class="rev__sum">{{ sampleSummaryText(sample) }}</span>
                       <span class="rev__toggle">{{ isSampleOpen(sample.recordId) ? '收起 ▴' : '证据 ▸' }}</span>
                     </button>
@@ -245,7 +242,7 @@ const page = reactive({ current: 1, size: 10, total: 0 })
 const terminalBuckets = ref([])
 const terminalPage = reactive({ current: 1, size: 10, total: 0 })
 
-const STATUS_LABELS = { approved: '已入库', rejected: '已驳回', dismissed: '已忽略' }
+const STATUS_LABELS = { approved: '已审核', rejected: '已驳回', dismissed: '已忽略' }
 
 function statusLabel(status) {
   return STATUS_LABELS[status] || status
@@ -564,7 +561,23 @@ function onMainDeptChange() {
   form.previewed = false
 }
 
+/**
+ * 桶级套用：**整份覆盖**桶内全部记录的根因——逐条保存过的归因也会被改掉。
+ * 所以必须先确认并说清影响条数（§3.8 破坏性操作先 confirm）。这里的条数取桶的样本数，
+ * 不是详情页显示的代表样本数（那个只有最近 5 条）。
+ */
 async function applyBucket() {
+  const total = detail.value?.bucket?.count ?? 0
+  try {
+    await ElMessageBox.confirm(
+      `将把桶内 ${total} 条记录的根因整份覆盖为上面选中的组合` +
+        '——之前逐条保存过的归因也会被改掉（每条都会留一条改前改后的审计）。',
+      '套用到桶内全部记录',
+      { confirmButtonText: '确认套用', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
   acting.value = true
   try {
     const affected = await applyBucketCauses(expandedId.value, bucketCauses.value)
@@ -751,19 +764,14 @@ onMounted(async () => {
 .rev__sample-head--open {
   color: var(--blue);
 }
+/* 异常标记：只在有引用错位时出现，且是这三行里唯一的彩色 pill */
 .rev__flag {
   flex: none;
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 11px;
-}
-.rev__flag--warn {
   background: var(--coral-soft);
   color: var(--coral);
-}
-.rev__flag--plain {
-  background: var(--wash);
-  color: var(--ink-2);
+  font-size: 11px;
 }
 .rev__symptom {
   flex: 0 1 auto;
