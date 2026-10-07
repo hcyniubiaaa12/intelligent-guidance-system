@@ -10,12 +10,30 @@
       </div>
     </div>
 
+    <!-- 「现在有没有活」得先看得见：这句话是**进度**口径（还有多少条没归桶），
+         聚合后 toast 那句是**结果**口径（归桶了几条），两者对不上是正常的。
+         整行常驻、四态，「加载中 / 真的没有 / 取不到」必须长得不一样——
+         把它们压成同一个「什么都不显示」，等于让人无从判断该不该点按钮 -->
+    <p class="rev__hint" :class="{ 'rev__hint--todo': reviewStore.pendingRecordCount > 0 }">
+      <template v-if="reviewStore.recordCountFailed">待归桶数量暂时取不到，可稍后重进本页</template>
+      <template v-else-if="reviewStore.pendingRecordCount === null">正在读取待归桶数量…</template>
+      <template v-else-if="reviewStore.pendingRecordCount > 0">
+        当前有 {{ reviewStore.pendingRecordCount }} 条错误样本待归桶，可点「立即聚合」
+      </template>
+      <template v-else>当前没有待聚合的错误样本</template>
+    </p>
+
     <div v-if="loading" class="a-empty">加载中…</div>
     <div v-else-if="!buckets.length" class="a-empty">
       没有待审的聚合桶。全错记录要等每小时的归桶任务累计到阈值才会出现在这里。
     </div>
     <template v-else>
-      <el-table :data="buckets" row-key="id" :expand-row-keys="expandedId ? [expandedId] : []">
+      <el-table
+        :data="buckets"
+        row-key="id"
+        :expand-row-keys="expandedId ? [expandedId] : []"
+        @expand-change="onExpandChange"
+      >
         <el-table-column type="expand">
           <template #default="{ row }">
             <div v-if="row.id !== expandedId || detailLoading" class="a-empty">加载中…</div>
@@ -109,6 +127,9 @@
                     />
                   </div>
             </div>
+            <!-- detail 为 null 又不在加载中：正常流程不会走到（取数失败会把行收起来），
+                 但不能留一个什么都不画的分支——空白比一句提示更让人困惑 -->
+            <div v-else class="a-empty">这个桶的内容没取到，收起后可重新点开</div>
           </template>
         </el-table-column>
         <el-table-column prop="recDeptName" label="推荐科室" min-width="120" />
@@ -184,6 +205,10 @@ import {
   applyBucketCauses, updateRecordCauses, previewSyntheticChunk,
   approveBucket, rejectBucket, dismissBucket, reReviewBucket
 } from '../../api/admin'
+import { useReviewStore } from '../../stores/review'
+
+// 待归桶样本数 + 待审桶数（侧栏徽标）都从 store 读：本页的动作会同时改这两个数
+const reviewStore = useReviewStore()
 
 const buckets = ref([])
 const page = reactive({ current: 1, size: 10, total: 0 })
@@ -279,24 +304,61 @@ async function reReview(bucket) {
   try {
     await reReviewBucket(bucket.id)
     ElMessage.success('已回到待审')
-    await Promise.all([loadBuckets(page.current), loadTerminal(terminalPage.current)])
+    await reloadAfterReview()
   } catch (e) {
     ElMessage.error(errText(e))
   }
 }
 
-/** 归桶是整点定时任务，演示与排查等不了那一小时，这里手动跑一次 */
+/**
+ * 归桶是整点定时任务，演示与排查等不了那一小时，这里手动跑一次。
+ * 这一路的超时单独放宽（见 api/admin.js）：聚合同步跑批、会被全局 15s 掐断。
+ */
 async function runAggregate() {
+  // 先记下提示行里的数字，聚合后拿它算差额
+  const before = reviewStore.pendingRecordCount
   aggregating.value = true
   try {
     const processed = await aggregateBuckets()
-    ElMessage.success(processed ? `已归桶 ${processed} 条记录` : '没有新的全错记录需要聚合')
-    await Promise.all([loadBuckets(1), loadTerminal(terminalPage.current)])
+    ElMessage.success(aggregateMessage(before, processed))
+    await Promise.all([
+      loadBuckets(1),
+      loadTerminal(terminalPage.current),
+      reviewStore.refreshAll()
+    ])
   } catch (e) {
     ElMessage.error(errText(e))
+    // 失败也可能是「已有聚合在跑」（6004）——那个任务同样会动这两个数，照样刷新
+    await reviewStore.refreshAll()
   } finally {
     aggregating.value = false
   }
+}
+
+/**
+ * 聚合结果话术。提示行说的是**进度**（待归桶 N 条），这句说的是**结果**（归桶 M 条）。
+ * M 小于 N 不算少算了——抽不出主诉的记录会被标记「已处理」但不进桶（ClusteringService.clusterOne），
+ * 把差额明说出来，否则用户会以为系统漏了一批。
+ */
+function aggregateMessage(before, processed) {
+  if (!processed) return '没有新的全错记录需要聚合'
+  const skipped = typeof before === 'number' ? before - processed : 0
+  return skipped > 0
+    ? `已归桶 ${processed} 条记录，另有 ${skipped} 条因无法提取主诉已跳过`
+    : `已归桶 ${processed} 条记录`
+}
+
+/**
+ * 审核动作后的统一收口：刷两个列表 + 刷侧栏徽标。
+ * 通过 / 驳回 / 忽略 / 修正重审这四个动作都会改变待审桶数。若各写一份 reload，
+ * 下次再加动作时极容易漏掉徽标那一行——那正是这次要修的「会说谎的徽标」的复发路径。
+ */
+async function reloadAfterReview() {
+  await Promise.all([
+    loadBuckets(page.current),
+    loadTerminal(terminalPage.current),
+    reviewStore.refreshPendingBuckets()
+  ])
 }
 
 async function loadBuckets(pageNo = page.current) {
@@ -307,8 +369,7 @@ async function loadBuckets(pageNo = page.current) {
     page.total = data.total || 0
     page.current = pageNo
     if (expandedId.value && !buckets.value.some((bucket) => bucket.id === expandedId.value)) {
-      expandedId.value = ''
-      detail.value = null
+      collapse()
     }
   } catch (e) {
     ElMessage.error(errText(e))
@@ -317,25 +378,62 @@ async function loadBuckets(pageNo = page.current) {
   }
 }
 
-async function toggle(bucket) {
-  if (expandedId.value === bucket.id) {
-    expandedId.value = ''
-    detail.value = null
-    return
-  }
-  expandedId.value = bucket.id
+function collapse() {
+  expandedId.value = ''
+  detail.value = null
+}
+
+/** 展开一个桶：拉详情 + 预填表单。三角与「审核」按钮共用这一段 */
+async function openBucket(bucket) {
+  if (expandedId.value === bucket.id && detail.value) return
+  const targetId = bucket.id
+  expandedId.value = targetId
   detail.value = null
   detailLoading.value = true
   resetForm()
   try {
-    detail.value = await getReviewBucket(bucket.id)
-    form.mainDeptId = detail.value.suggestedMainDeptId || ''
-    form.crossDeptIds = [...(detail.value.suggestedCrossDeptIds || [])]
+    const data = await getReviewBucket(targetId)
+    // 详情还没回来时用户可能已经切到别的桶了（点得快、或直接点了另一行的三角）——
+    // 迟到的响应不能盖到新版面上，否则展开的桶和显示的详情对不上
+    if (expandedId.value !== targetId) return
+    detail.value = data
+    form.mainDeptId = data.suggestedMainDeptId || ''
+    form.crossDeptIds = [...(data.suggestedCrossDeptIds || [])]
   } catch (e) {
-    expandedId.value = ''
+    if (expandedId.value !== targetId) return
+    collapse()
     ElMessage.error(errText(e))
   } finally {
-    detailLoading.value = false
+    // 已经换了桶就别关 loading，那是后一次请求的状态
+    if (expandedId.value === targetId) detailLoading.value = false
+  }
+}
+
+async function toggle(bucket) {
+  if (expandedId.value === bucket.id) {
+    collapse()
+    return
+  }
+  await openBucket(bucket)
+}
+
+/**
+ * 表格自带的展开三角点的是 Element Plus 内部的 toggleRowExpansion，它只动自己的 expandRows，
+ * 不会写我们的 expandedId —— 于是 :expand-row-keys 与子行的 row.id !== expandedId 恒为真，
+ * 子行永远停在「加载中…」。把三角的展开态同步回来，两个入口就走同一套逻辑。
+ *
+ * <p>第二个参数在「展开列」场景下是当前**已展开行的数组**（不是布尔值），见 element-plus
+ * store/expand.mjs：emit("expand-change", row, expandRows.slice())。
+ * 而 :expand-row-keys 变化走的 setExpandRowKeys 不发事件，所以这里不会和 toggle() 互相触发。
+ */
+function onExpandChange(row, expandedRows) {
+  const expanded = Array.isArray(expandedRows)
+    ? expandedRows.some((item) => item.id === row.id)
+    : Boolean(expandedRows)
+  if (expanded) {
+    openBucket(row)
+  } else if (expandedId.value === row.id) {
+    collapse()
   }
 }
 
@@ -421,7 +519,7 @@ async function approve() {
     })
     ElMessage.success('已入库。合成切片在后台写入，失败可在知识库页看到')
     expandedId.value = ''
-    await Promise.all([loadBuckets(page.current), loadTerminal(terminalPage.current)])
+    await reloadAfterReview()
   } catch (e) {
     ElMessage.error(errText(e))
   } finally {
@@ -461,7 +559,7 @@ async function act(call, success) {
     await call()
     ElMessage.success(success)
     expandedId.value = ''
-    await Promise.all([loadBuckets(page.current), loadTerminal(terminalPage.current)])
+    await reloadAfterReview()
   } catch (e) {
     ElMessage.error(errText(e))
   } finally {
@@ -477,11 +575,31 @@ onMounted(async () => {
   } catch (e) {
     ElMessage.error(errText(e))
   }
-  await Promise.all([loadBuckets(1), loadTerminal(1)])
+  await Promise.all([
+    loadBuckets(1),
+    loadTerminal(1),
+    // 无 keep-alive，每次进本页都会重新挂载：顺手把两个计数刷成最新的
+    reviewStore.refreshAll()
+  ])
 })
 </script>
 
 <style scoped>
+/* 待归桶提示：常驻一行，两种状态。有活时左侧竖条转 coral、数字加重——
+   「有没有活」要一眼看得出来，不能只靠读一句话 */
+.rev__hint {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--line);
+  font-size: 11px; /* 管理端字阶只有 15/13.5/13/11，这行是标签提示，跟 .a-panel__hint 同档 */
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.rev__hint--todo {
+  border-left-color: var(--coral);
+  color: var(--ink);
+  font-weight: 600;
+}
 .rev {
   display: flex;
   flex-direction: column;

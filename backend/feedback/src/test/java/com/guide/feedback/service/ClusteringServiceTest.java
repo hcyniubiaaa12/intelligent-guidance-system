@@ -1,5 +1,8 @@
 package com.guide.feedback.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.guide.auth.service.SysConfigService;
 import com.guide.chat.entity.ChatMessage;
 import com.guide.chat.entity.GuideRecord;
@@ -12,6 +15,8 @@ import com.guide.feedback.enums.BucketStatus;
 import com.guide.feedback.mapper.ClusterBucketMapper;
 import com.guide.feedback.mapper.ReviewTaskMapper;
 import com.guide.llm.client.EmbeddingModel;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +68,18 @@ class ClusteringServiceTest {
     private ClusteringService clusteringService;
 
     private GuideRecord record;
+
+    /**
+     * 纯单测没有 Spring 启动，MyBatis-Plus 的 TableInfo（含 lambda 列名缓存）是空的；
+     * 而 {@code getTargetSql()} 要在生成 SQL 的那一刻把 lambda 解析成列名 —— 不登记就抛
+     * {@code can not find lambda cache for this entity}。auth 模块另有一份等价的
+     * {@code MpTableInfoTestSupport}，同一个理由。
+     */
+    @BeforeAll
+    static void initTableInfoCache() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, GuideRecord.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -179,6 +196,36 @@ class ClusteringServiceTest {
         assertThat(ClusteringService.normalizeSymptom("头疼，发热了啊")).isEqualTo("头疼发热");
         assertThat(ClusteringService.normalizeSymptom("腹痛 3 次")).isEqualTo("腹痛3");
         assertThat(ClusteringService.normalizeSymptom("  ")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("计数与扫描同源：两条路传下去的是同一份查询条件")
+    @SuppressWarnings("unchecked")
+    void countPendingSharesScanCondition() {
+        when(guideRecordMapper.selectList(any())).thenReturn(List.of(record));
+        when(guideRecordMapper.selectCount(any())).thenReturn(1L);
+
+        assertThat(clusteringService.scanPending()).containsExactly(record);
+        assertThat(clusteringService.countPending()).isEqualTo(1L);
+
+        ArgumentCaptor<Wrapper<GuideRecord>> scanned = ArgumentCaptor.forClass(Wrapper.class);
+        ArgumentCaptor<Wrapper<GuideRecord>> counted = ArgumentCaptor.forClass(Wrapper.class);
+        verify(guideRecordMapper).selectList(scanned.capture());
+        verify(guideRecordMapper).selectCount(counted.capture());
+
+        // 这条断言是本次改动的全部意义：审核页那行提示的数字，和「立即聚合」会扫到的集合
+        // 必须由同一份条件产出。谁把条件抄成两份、只改一边，这里的 SQL 立刻对不上。
+        assertThat(counted.getValue().getTargetSql()).isEqualTo(scanned.getValue().getTargetSql());
+        assertThat(scanned.getValue().getTargetSql())
+                .contains("aggregated", "actual_dept_id", "top3_hit", "low_confidence");
+    }
+
+    @Test
+    @DisplayName("计数：mapper 给了 null 就当 0，不把 NPE 甩给页面")
+    void countPendingToleratesNullCount() {
+        when(guideRecordMapper.selectCount(any())).thenReturn(null);
+
+        assertThat(clusteringService.countPending()).isZero();
     }
 
     private ClusterBucket bucket(int count, BucketStatus status) {

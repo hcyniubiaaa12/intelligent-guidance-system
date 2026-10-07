@@ -86,13 +86,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Fold, Expand, ArrowUp } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
+import { useReviewStore } from '../../stores/review'
 import { logout as apiLogout } from '../../api/auth'
-import { countPendingBuckets } from '../../api/admin'
 import '../../styles/admin.css'
 
 const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
+const reviewStore = useReviewStore()
 
 // 侧栏折叠（默认展开）
 const collapsed = ref(false)
@@ -137,20 +138,16 @@ function switchRange(days) {
 
 // abbr 为折叠态两字缩写。
 // badge 是待办数，只挂审核队列，取待审桶的真实数量；取不到就显示 0，不写死一个数字。
-const pendingCount = ref(0)
+// 数字存在 review store 里而不是本组件——本组件只挂载一次，自己拉一次就再也不刷新了，
+// 聚合、审核这些动作改变待审数时徽标不会跟着变。store 由动作方负责刷新。
 const navs = computed(() => [
   { path: '/admin/dashboard', label: '数据看板', abbr: '看板', badge: 0 },
   { path: '/admin/kb', label: '知识库管理', abbr: '知识', badge: 0 },
-  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: pendingCount.value },
+  { path: '/admin/review', label: '审核队列', abbr: '审核', badge: reviewStore.pendingBucketCount },
   { path: '/admin/users', label: '用户管理', abbr: '用户', badge: 0 },
   { path: '/admin/llm', label: 'LLM 配置', abbr: '模型', badge: 0 }
 ])
 
-onMounted(async () => {
-  try {
-    pendingCount.value = (await countPendingBuckets()) || 0
-  } catch {
-    pendingCount.value = 0
-  }
-})
+// 进管理端取一次；之后由审核页在动作后刷新同一个 store
+onMounted(() => reviewStore.refreshPendingBuckets())
 </script>

@@ -146,9 +146,18 @@ export function toggleKbTerm(termId) {
 }
 
 // —— 审核队列（链路 C）——
-// 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数
+// 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数。
+// 这里单独放宽超时：聚合是同步跑批（每条记录还可能调一次 embedding），比普通 CRUD 慢得多，
+// 全局的 15s 会让它在跑完之前被前端掐断——后端其实归桶成功了，用户却看到超时失败，
+// 于是再点一次，撞上 6004「聚合任务正在运行」，前后矛盾。
 export function aggregateBuckets() {
-  return http.post('/admin/review/aggregate')
+  return http.post('/admin/review/aggregate', null, { timeout: 120000 })
+}
+
+// 待归桶记录数：审核页顶部那行提示。与「立即聚合」实际会扫到的集合同源（后端共用一份查询条件）。
+// 叫 records 不叫 samples——词表里「样本」是桶内代表样本，这里是还没归桶的导诊记录
+export function countPendingRecords() {
+  return http.get('/admin/review/pending-records/count')
 }
 
 // 待审桶按样本数降序；科室名由后端拼好，页面不拿科室 id 给人看

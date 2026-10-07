@@ -11,6 +11,7 @@ import com.guide.feedback.entity.ClusterBucket;
 import com.guide.feedback.enums.RootCauseKey;
 import com.guide.feedback.scheduler.AggregationScheduler;
 import com.guide.feedback.service.ApprovalService;
+import com.guide.feedback.service.ClusteringService;
 import com.guide.feedback.service.ReviewService;
 import com.guide.feedback.service.RootCauseService;
 import com.guide.kb.entity.Dept;
@@ -48,11 +49,29 @@ public class ReviewAdminController {
     private final ApprovalService approvalService;
     private final DeptService deptService;
     private final AggregationScheduler aggregationScheduler;
+    /**
+     * 计数直接问 feedback 的归桶服务，而不是让 ReviewService 转一手：
+     * 「哪些记录算待归桶」这条规则的属主是 {@code ClusteringService}，
+     * 多一层转发只会多一个会过期的地方。
+     */
+    private final ClusteringService clusteringService;
 
     /** 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数 */
     @PostMapping("/aggregate")
     public Result<Integer> aggregate() {
         return Result.ok(aggregationScheduler.aggregateNow());
+    }
+
+    /**
+     * 待归桶记录数：审核页顶部那行提示用。
+     * 与 {@code /aggregate} 实际会扫到的集合同源，见 {@code ClusteringService#countPending()}。
+     *
+     * <p>路径用 records 不用 samples：词表里「样本」是**桶内代表样本**（review 时看的成员），
+     * 这里是还没归桶的**导诊记录**，两个概念不能共用一个词。
+     */
+    @GetMapping("/pending-records/count")
+    public Result<Long> pendingRecordCount() {
+        return Result.ok(clusteringService.countPending());
     }
 
     /** 待审桶（按样本数降序） */

@@ -1,5 +1,6 @@
 package com.guide.feedback.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.guide.auth.service.SysConfigService;
 import com.guide.chat.entity.ChatMessage;
@@ -60,18 +61,41 @@ public class ClusteringService {
     private final SysConfigService sysConfigService;
 
     /**
-     * 扫描待归桶的记录：{@code actual_dept} 非空、{@code top3_hit=0}、{@code low_confidence=0}。
-     * 低置信度进盲区榜，不进聚合。
+     * 待归桶记录的查询条件：{@code aggregated=0}、{@code actual_dept} 非空、{@code top3_hit=0}、
+     * {@code low_confidence=0}。低置信度进盲区榜，不进聚合。
+     *
+     * <p>扫描（{@link #scanPending()}）与计数（{@link #countPending()}）共用这一份条件——
+     * 审核页那行「待归桶 N 条」和「立即聚合」真正会扫到的集合必须同源，
+     * 一旦拆成两份，改了一边忘了另一边，提示里的数字就开始说谎。
+     */
+    private static LambdaQueryWrapper<GuideRecord> pendingWrapper() {
+        return Wrappers.<GuideRecord>lambdaQuery()
+                .eq(GuideRecord::getAggregated, 0)
+                .isNotNull(GuideRecord::getActualDeptId)
+                .eq(GuideRecord::getTop3Hit, 0)
+                .eq(GuideRecord::getLowConfidence, 0);
+    }
+
+    /**
+     * 扫描待归桶的记录。低置信度进盲区榜，不进聚合。
      *
      * <p>只查不归——逐条归桶是独立事务（见 {@link #clusterOne}），循环由调用方驱动。
      * 本方法里再调 {@code clusterOne} 就成了自调用，绕开 AOP 代理，{@code @Transactional} 直接失效。
      */
     public List<GuideRecord> scanPending() {
-        return guideRecordMapper.selectList(Wrappers.<GuideRecord>lambdaQuery()
-                .eq(GuideRecord::getAggregated, 0)
-                .isNotNull(GuideRecord::getActualDeptId)
-                .eq(GuideRecord::getTop3Hit, 0)
-                .eq(GuideRecord::getLowConfidence, 0));
+        return guideRecordMapper.selectList(pendingWrapper());
+    }
+
+    /**
+     * 待归桶记录数：审核页顶部那行提示用，与 {@link #scanPending()} 同一份条件。
+     *
+     * <p>它说的是<b>进度</b>（还有多少条没归桶），不是<b>结果</b>（能归出多少个桶）——
+     * 归桶时抽不出主诉的记录会被「标记已处理」跳过（见 {@link #clusterOne}），
+     * 所以这个数会大于等于一次聚合真正归进桶的条数，两者对不上是正常的，不是漏算。
+     */
+    public long countPending() {
+        Long total = guideRecordMapper.selectCount(pendingWrapper());
+        return total == null ? 0L : total;
     }
 
     /**
