@@ -89,7 +89,7 @@
 
             <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
             <template v-if="archivedDaysShown.length">
-              <button class="p-fold p-fold--arch" @click="archOpen = !archOpen">
+              <button class="p-fold" @click="archOpen = !archOpen">
                 {{ archOpen ? '收 起 归 档' : `已 归 档 · ${archivedTotal} 次` }}
               </button>
               <template v-if="archOpen">
@@ -142,16 +142,25 @@
         <!-- 对话区：有消息时＝对话流＋流程条＋底部输入；空状态时＝欢迎块＋输入框＋免责 一起居中 -->
         <div class="p-chat__main" :class="{ 'is-empty': isEmpty }">
           <main ref="threadEl" class="p-thread p-chat__thread">
-            <!-- 空状态：一张还没填的接诊单——空状态是行动邀请，不是一句客套话 -->
+            <!-- 空状态：一张还没填的陪诊卡——空状态是行动邀请，不是一句客套话 -->
             <div v-if="isEmpty" class="p-hello">
-              <div class="p-eyebrow">分 诊 台</div>
-              <h2 class="p-hello__t">说说哪里不舒服</h2>
-              <p class="p-hello__lead">说清三件事，分诊会更准</p>
-              <div class="p-hello__three">
-                <span>部 位</span><span>多 久 了</span><span>什 么 感 觉</span>
+              <div class="p-hello__hd">
+                <span class="p-hello__ava" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
+                </span>
+                <div>
+                  <h2 class="p-hello__t">您好，我是您的陪诊助手</h2>
+                  <p class="p-hello__lead">先跟我说说哪里不舒服，我帮您判断该去哪个科。</p>
+                </div>
               </div>
-              <p class="p-hello__eg">例：右下腹隐隐作痛两天，一按就疼，还有点恶心</p>
-              <div class="p-eyebrow p-hello__eb2">常 见 主 诉</div>
+              <div class="p-hello__label">说 清 这 三 件 事 就 够 了</div>
+              <div class="p-hello__three">
+                <div class="p-hello__bub"><b>① 部 位</b><span>哪里不舒服</span></div>
+                <div class="p-hello__bub"><b>② 时 间</b><span>大概多久了</span></div>
+                <div class="p-hello__bub"><b>③ 感 觉</b><span>是怎么个难受法</span></div>
+              </div>
+              <p class="p-hello__eg">"右下方肚子疼了两天，一阵一阵的，还伴着恶心，没发烧。"</p>
+              <div class="p-hello__label">大 家 常 问 的</div>
               <div class="p-hello__chips">
                 <button v-for="c in COMMON" :key="c" class="p-hello__chip" @click="useChip(c)">{{ c }}</button>
               </div>
@@ -341,7 +350,7 @@
                 v-model="draft"
                 class="p-composer__input"
                 rows="1"
-                placeholder="说说哪里不舒服，我来帮您分诊"
+                :placeholder="isEmpty ? '说吧，我在听…' : '还有什么想补充的，慢慢说…'"
                 @input="autoGrow"
                 @keydown.enter.exact.prevent="send()"
               />
@@ -538,7 +547,7 @@ const archOpen = ref(false)
 
 // ---------- 侧栏收起/展开（学 DS：收起成一条只留「折叠图标＋新建对话」的精简轨） ----------
 const SIDE_HIDDEN_KEY = 'p-chat-side-hidden'
-const SIDE_W_DEFAULT = 248
+const SIDE_W_DEFAULT = 228
 
 const sideHidden = ref(localStorage.getItem(SIDE_HIDDEN_KEY) === '1')
 // 只有桌面才收起侧栏；手机侧栏是覆盖层，开关走的是 sideOpen
@@ -1159,21 +1168,24 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.p-chat {
-  height: 100vh;
-  background: var(--paper);
-}
-/* 两栏：会话目录 + 对话舞台；书签（回放时）再挂一列 */
-.p-chat__body {
-  position: relative;
-  display: flex;
-  height: 100%;
-}
+/* ============================================================
+   对话页 —— 方向 04「陪诊伙伴」
+   规范：.claude/rules/前端设计方案.md §3 / §4.1
+   本页只写「本页私有部件」与「页面布局」。共享部件（气泡 / 推荐卡 / 步进条 /
+   输入区 / 浮层 / 标签 / 按钮…）一律吃 patient.css 的定义，**同名类不在这里
+   重复实现**——两份定义里页面那份会静默覆盖全局，改一处漏一处（2026-10-07 收掉）。
+   ============================================================ */
+
+.p-chat { height: 100vh; background: var(--bg); }
+
+/* ---------- 两栏：会话目录 + 对话舞台 ---------- */
+.p-chat__body { position: relative; display: flex; height: 100%; }
 .p-chat__stage {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  background: var(--stage);
 }
 .p-chat__main {
   flex: 1;
@@ -1185,272 +1197,210 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 18px;
+  padding-bottom: 20px;
 }
-/* 滚动条：显式定宽 12px，并淡化成纸面上的一条灰线。
-   定宽是为了让问题导航的把手能精确停在它左边（宽度不定就只能靠猜）。
-   注意不能再用 scrollbar-width——Chromium 一旦认了那个标准属性，下面这套伪元素就整个失效 */
+
+/* 滚动条：显式定宽 12px 并淡化。定宽是为了让问题导航的把手能**精确**停在它左边
+   （宽度不定就只能靠猜）。**不能再写 `scrollbar-width`**——Chromium 一旦认了那个
+   标准属性，下面这套伪元素就整个失效。 */
 .p-chat__thread::-webkit-scrollbar,
 .p-chat__main::-webkit-scrollbar { width: 12px; }
 .p-chat__thread::-webkit-scrollbar-track,
 .p-chat__main::-webkit-scrollbar-track { background: transparent; }
 .p-chat__thread::-webkit-scrollbar-thumb,
 .p-chat__main::-webkit-scrollbar-thumb {
-  background: rgba(28, 43, 40, .16);
+  background: var(--scroll-thumb);
   border: 3px solid transparent; /* 12px 轨道里只画中间 6px */
   background-clip: content-box;
 }
 .p-chat__thread::-webkit-scrollbar-thumb:hover,
-.p-chat__main::-webkit-scrollbar-thumb:hover { background: rgba(28, 43, 40, .32); background-clip: content-box; }
-/* 空状态：欢迎块不撑满，输入框紧随其后，两块一起在这段高度里居中。
-   用 auto 外边距而不是 justify-content——空间不够时它退化成 0，不会把顶部裁掉 */
+.p-chat__main::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: content-box;
+}
+
+/* 空状态：接诊卡与输入区当一整块，在顶栏以下的空白里垂直居中。
+   用上下 auto 外边距而不是 justify-content——空间不够时它退化成 0，不会把顶部裁掉 */
 .p-chat__main.is-empty { overflow-y: auto; }
 .p-chat__main.is-empty .p-chat__thread {
   flex: 0 1 auto;
   margin-top: auto;
   padding-bottom: 0;
 }
-/* 紧跟在接诊单下面，不再画分隔线——它们本来就是同一张纸。
-   margin-bottom: auto 是空状态居中的下半截（配对话区的 margin-top: auto） */
+/* 空状态下输入区不在纸的底边（下方还有居中留白），别在那儿画一条假纸边 */
 .p-chat__main.is-empty .p-composer {
   border-top: none;
   background: none;
-  padding-top: 22px;
+  padding-top: 20px;
   margin-bottom: auto;
 }
 
-/* ---------- 输入区：一整块「书写区」----------
-   上写字、下排一行小字＋发送（学 DeepSeek 网页版那块输入卡片的排布），
-   但保持纸感的直角与细线：不圆角、不加阴影。 */
-.p-chat .p-composer {
-  display: block;
-  padding: 10px 16px 14px;
-  background: var(--paper);
-}
-.p-composer__box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px 8px;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  transition: border-color .18s ease;
-}
-.p-composer__box:focus-within { border-color: var(--teal); }
-.p-chat .p-composer__input {
-  width: 100%;
-  min-height: 24px;
-  max-height: 120px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: none;
-  resize: none;
-  overflow-y: auto;
-  font-family: var(--serif);
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--ink);
-}
-.p-chat .p-composer__input:focus { outline: none; border: none; }
-.p-chat .p-composer__input::placeholder { color: var(--ink-2); }
-.p-composer__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.p-composer__hint {
-  font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .08em;
-  color: var(--ink-2);
-  opacity: .85;
-}
-.p-chat .p-composer__send {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 0;
-  background: var(--teal);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background .18s ease;
-}
-.p-chat .p-composer__send:hover { background: var(--teal-deep); }
-
 /* ---------- 左：会话目录 ----------
-   底色比对话区暗两档（--side）：「我的就诊」与「对话」因此自然分成两块，
-   不用在两栏之间画任何一条线（画线会把一张纸隔成两间病房） */
-.p-chat__side {
-  display: none;
-}
+   `--rail` 比舞台 `--stage` 暗一档：「我的就诊」与「对话」因此自然分成两块，
+   两栏之间**一条线都不画**（画线会把一整块暖沙隔成两间病房） */
+.p-chat__side { display: none; }
 .p-chat__sidebox {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--side);
+  background: var(--rail);
 }
-/* 侧栏抬头：标识 ＋ 品牌名 ＋ 收起按钮，一行排在「+ 新的咨询」之上（学 DS） */
-.p-chat__hd {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 12px 10px;
-}
+/* 侧栏抬头：标识 ＋ 品牌名 ＋ 收起按钮（收起按钮靠 margin-left:auto 推到最右） */
+.p-chat__hd { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px 12px 12px; }
 .p-chat__logo {
   flex: none;
   display: flex;
-  color: var(--teal);
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-xs);
+  background: var(--leaf);
+  color: var(--on-accent);
 }
 .p-chat__brand {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-family: var(--serif);
-  font-size: 15px;
+  font-size: 13.5px;
+  font-weight: 600;
   letter-spacing: .04em;
   color: var(--ink);
 }
-.p-chat__sidehd {
-  padding: 16px 14px 0;
-  /* 侧栏底比 --line 深，原来的浅线在它上面等于不存在，改用 ink 的淡透明 */
-  border-bottom: 1px solid rgba(28, 43, 40, .09);
-}
+.p-chat__sidehd { padding: 12px 12px 0; border-bottom: 1px solid var(--line); }
 .p-chat__count {
-  font-family: var(--serif);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: .05em;
-  margin-top: 6px;
+  margin-top: 4px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--ink);
 }
-.p-chat__tabs {
-  display: flex;
-  margin-top: 11px;
-}
+.p-chat__tabs { display: flex; gap: 8px; margin-top: 12px; padding-bottom: 12px; }
 .p-chat__tabs button {
   flex: 1;
-  padding: 9px 2px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-full);
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .12em;
-  color: var(--ink-2);
-}
-.p-chat__tabs button:hover { color: var(--teal); }
-.p-chat__tabs button.on {
-  color: var(--teal);
-  font-weight: 700;
-  border-bottom-color: var(--teal);
-}
-.p-chat__list { flex: 1; min-height: 0; overflow-y: auto; }
-.p-chat__nores {
-  padding: 24px 14px;
-  font-family: var(--sans);
-  font-size: 11px;
+  font-size: 11.5px;
   letter-spacing: .1em;
   color: var(--ink-2);
+  transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.p-chat__tabs button:hover { color: var(--leaf-deep); }
+.p-chat__tabs button.on {
+  background: var(--surface);
+  color: var(--leaf-deep);
+  font-weight: 600;
+  box-shadow: var(--sh-raised);
+}
+.p-chat__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; }
+.p-chat__nores {
+  padding: 48px 12px;
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
   text-align: center;
 }
 .p-chat__new {
   flex: none;
-  margin: 4px 14px 14px;
-  min-height: 40px;
-  border: 1px solid var(--teal);
-  background: none;
+  margin: 4px 12px 12px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--leaf);
+  color: var(--on-accent);
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .16em;
-  color: var(--teal);
-  transition: background .18s ease, color .18s ease;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  box-shadow: var(--sh-primary);
+  transition: background .18s ease;
 }
-.p-chat__new:hover { background: var(--teal); color: #fff; }
+.p-chat__new:hover { background: var(--leaf-deep); }
 
-/* 底部用户区（桌面才有；手机在顶栏） */
+/* 底部用户区：一张压在侧栏底上的白卡，与选中条目同一层次 */
 .p-chat__user {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  border-top: 1px solid rgba(28, 43, 40, .09);
+  gap: 8px;
+  margin: 0 8px 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.p-chat__unick,
+.p-chat__uprof,
+.p-chat__uout {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: .1em;
+  transition: color .18s ease;
 }
 .p-chat__unick {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  border: none;
-  border-bottom: 1px dashed var(--ink-2);
-  background: none;
-  padding: 0 0 1px;
-  cursor: pointer;
-  font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .14em;
   color: var(--ink);
-  transition: color .18s ease, border-color .18s ease;
+  text-decoration: underline dashed var(--ink-3);
+  text-underline-offset: 3px;
 }
-.p-chat__unick:hover { color: var(--teal); border-bottom-color: var(--teal); }
-.p-chat__uout {
+.p-chat__unick:hover { color: var(--leaf-deep); }
+.p-chat__uprof {
   flex: none;
-  border: 1px solid rgba(28, 43, 40, .18);
-  background: none;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .16em;
   color: var(--ink-2);
-  transition: color .18s ease, border-color .18s ease;
+  text-decoration: underline dashed var(--ink-3);
+  text-underline-offset: 3px;
 }
-.p-chat__uout:hover { color: var(--err); border-color: var(--err); }
+.p-chat__uprof:hover { color: var(--leaf-deep); }
+.p-chat__uout { flex: none; color: var(--ink-3); }
+.p-chat__uout:hover { color: var(--alert); }
 
-/* 目录条目（与就诊记录页同一套）。
-   侧栏底是 --side，所以天头用半透明白、选中行用实白卡片——「压在纸面上」的层次才出得来 */
+/* 目录条目：天头 + 条目 + 折叠条。侧栏底是 `--rail`，所以选中行用**实白卡片**
+   ——「压上去」的层次靠这层明度关系出来，不是靠加边框 */
 .p-day {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 8px 14px 6px;
-  background: rgba(255, 255, 255, .5);
+  padding: 12px 8px 4px;
   font-family: var(--sans);
-  font-size: 9.5px;
-  letter-spacing: .2em;
-  color: var(--ink-2);
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: var(--ink-3);
 }
-.p-day .n { letter-spacing: .08em; opacity: .7; }
+.p-day .n { letter-spacing: .06em; }
 .p-i {
   width: 100%;
   display: flex;
   align-items: baseline;
-  gap: 9px;
-  padding: 9px 14px;
+  gap: 8px;
+  padding: 12px;
   border: none;
-  border-bottom: 1px solid rgba(28, 43, 40, .07);
+  border-radius: var(--r-sm);
   background: none;
   cursor: pointer;
   text-align: left;
-  transition: background .18s ease;
+  transition: background .18s ease, box-shadow .18s ease;
 }
-.p-i:hover { background: rgba(255, 255, 255, .62); }
-.p-i.on { background: var(--card); box-shadow: inset 3px 0 0 var(--teal); }
+.p-i:hover { background: var(--hover-rail); }
+.p-i.on { background: var(--surface); box-shadow: var(--sh-raised); }
 .p-i__x {
   flex: 1;
   min-width: 0;
-  font-family: var(--serif);
   font-size: 12.5px;
   color: var(--ink);
   white-space: nowrap;
@@ -1458,25 +1408,27 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .p-i.dim .p-i__x { color: var(--ink-2); }
+.p-i.on .p-i__x { color: var(--leaf-deep); font-weight: 600; }
 .p-i__q,
 .p-i__d {
   flex: none;
   font-family: var(--sans);
-  font-size: 9.5px;
-  color: var(--ink-2);
+  font-size: 10px;
+  color: var(--ink-3);
 }
-.p-i__q { opacity: .6; }
+.p-i__q { letter-spacing: .06em; }
 .p-fold {
   width: 100%;
-  padding: 8px 14px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 12px;
   border: none;
-  border-bottom: 1px dashed rgba(28, 43, 40, .16);
+  border-radius: var(--r-sm);
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .12em;
-  color: var(--teal);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  color: var(--leaf-deep);
 }
 .p-fold:hover { text-decoration: underline; }
 
@@ -1487,20 +1439,20 @@ onBeforeUnmount(() => {
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  padding: 2px 4px;
+  padding: 12px 4px;
   border: none;
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: .1em;
-  color: var(--teal);
+  color: var(--leaf-deep);
   opacity: 0;
   transition: opacity .18s ease;
 }
 .p-irow:hover .p-irow__act,
 .p-irow__act:focus-visible { opacity: 1; }
-/* hover 时把时间淡掉：归档按钮就压在那个位置，两条文字会叠 */
+/* hover 时把时间淡掉：归档动作就压在那个位置，两条文字会叠 */
 .p-i__d { transition: opacity .18s ease; }
 .p-irow:hover .p-i__d { opacity: 0; }
 /* 触屏没有 hover：常显动作，并让出时间的位置 */
@@ -1508,7 +1460,6 @@ onBeforeUnmount(() => {
   .p-irow__act { opacity: 1; }
   .p-irow .p-i__d { opacity: 0; }
 }
-.p-fold--arch { border-bottom-style: solid; }
 .p-irow.is-arch .p-i__x { color: var(--ink-2); }
 
 /* ---------- 回放时的只读条（替代输入区） ---------- */
@@ -1519,42 +1470,42 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  background: var(--paper);
+  background: var(--stage);
   border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
 }
 .p-chat__locktxt {
   font-family: var(--sans);
   font-size: 10.5px;
-  letter-spacing: .16em;
-  color: var(--ink-2);
+  letter-spacing: .14em;
+  color: var(--ink-3);
 }
 .p-chat__lockbtn {
   flex: none;
-  min-height: 38px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 0 16px;
   border: 0;
-  border-radius: 0;
-  background: var(--teal);
-  color: #fff;
+  border-radius: var(--r-sm);
+  background: var(--leaf);
+  color: var(--on-accent);
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 11.5px;
-  letter-spacing: .12em;
+  font-size: 12.5px;
+  letter-spacing: .1em;
   transition: background .18s ease;
 }
-.p-chat__lockbtn:hover { background: var(--teal-deep); }
+.p-chat__lockbtn:hover { background: var(--leaf-deep); }
+/* 回放里已挂号的结论卡，卡底补一行就诊信息 */
 .p-chat__visit {
-  border-top: 1px dashed var(--line);
-  margin-top: 10px;
-  padding-top: 9px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .1em;
+  font-size: 11.5px;
+  letter-spacing: .06em;
   color: var(--ink-2);
 }
 
-/* 书签跳到的那一问：左侧一条 teal 短竖线 */
+/* 书签跳到的那一问：左侧一条主色短竖线 */
 .p-q { position: relative; display: flex; justify-content: flex-end; }
 .p-q.is-active::before {
   content: '';
@@ -1563,12 +1514,12 @@ onBeforeUnmount(() => {
   top: 2px;
   bottom: 2px;
   width: 2px;
-  background: var(--teal);
+  background: var(--leaf);
 }
 
 /* ---------- 右缘：问题导航（悬浮面板） ----------
    absolute 而不是列：面板不占布局位，进出回放时正文那一列一动不动。
-   收起时右缘只留一根细把手，鼠标挨到就展开（学 DS 的问题导航） */
+   收起时右缘只留一根细把手，鼠标挨到就展开 */
 .p-chat__marks {
   position: absolute;
   /* 让开最右那条 12px 滚动条：把手停在它左边，两条竖线各归各位、互不打架 */
@@ -1597,11 +1548,11 @@ onBeforeUnmount(() => {
   content: '';
   width: 2px;
   height: 46px;
-  background: var(--teal-soft);
+  background: var(--leaf-line);
   transition: background .18s ease, height .18s ease;
 }
-.p-chat__marks:hover .p-chat__marksgrip::before { background: var(--teal); height: 62px; }
-.p-chat__marks.is-open .p-chat__marksgrip::before { background: var(--teal); }
+.p-chat__marks:hover .p-chat__marksgrip::before { background: var(--leaf); height: 62px; }
+.p-chat__marks.is-open .p-chat__marksgrip::before { background: var(--leaf); }
 
 .p-chat__markspanel {
   position: absolute;
@@ -1611,10 +1562,11 @@ onBeforeUnmount(() => {
   max-height: min(56vh, 318px);
   display: flex;
   flex-direction: column;
-  background: var(--card);
-  border: 1px solid var(--line);
-  /* 纸面部件一律不加阴影，但这一块是**浮在纸上**的——没阴影就和正文糊在一起了 */
-  box-shadow: 0 4px 18px rgba(28, 43, 40, .1);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  /* 这一块是**浮在纸上**的——没有阴影就和正文糊在一起 */
+  box-shadow: var(--sh-overlay);
   /* 收起态：往右挪一点 + 透明，不接收鼠标 */
   transform: translate(12px, -50%);
   opacity: 0;
@@ -1632,14 +1584,14 @@ onBeforeUnmount(() => {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px 8px;
+  padding: 12px;
   border-bottom: 1px solid var(--line);
 }
 .p-chat__marksno {
   font-family: var(--sans);
-  font-size: 9.5px;
-  letter-spacing: .1em;
-  color: var(--ink-2);
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
 }
 /* 放不下就在面板里自己滚；滚动条不画（220px 的一条卡片，画上滚动条更乱） */
 .p-chat__markset {
@@ -1651,29 +1603,30 @@ onBeforeUnmount(() => {
   padding: 4px 0;
 }
 .p-chat__markset::-webkit-scrollbar { display: none; }
-/* 溢出时上下渐隐——被截掉的那条不该看起来像正常的一条 */
+/* 溢出时上下渐隐——被截掉的那条不该看起来像正常的一条。
+   渐隐用的是**遮罩模板色**（任意不透明色都行），借 `--surface` 当"不透明"，
+   免得这里再散写一个 `#000` */
 .p-chat__markset.is-scroll {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--surface) 10px, var(--surface) calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, var(--surface) 10px, var(--surface) calc(100% - 10px), transparent 100%);
 }
 /* 一行 = 一个问题的正文首句 + 右缘一根横杠（当前那根长而粗） */
 .p-mark {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 12px;
+  gap: 12px;
+  padding: 12px;
   border: none;
   background: none;
   cursor: pointer;
   text-align: left;
-  transition: background .15s ease;
+  transition: background .18s ease;
 }
-.p-mark:hover { background: rgba(28, 43, 40, .045); }
+.p-mark:hover { background: var(--hover-soft); }
 .p-mark__x {
   flex: 1;
   min-width: 0;
-  font-family: var(--serif);
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--ink-2);
@@ -1684,88 +1637,102 @@ onBeforeUnmount(() => {
 .p-mark__bar {
   flex: none;
   width: 13px;
-  height: 2.5px;
-  background: var(--ink-2);
-  opacity: .32;
-  transition: all .16s ease;
+  height: 2px;
+  background: var(--ink-3);
+  transition: width .18s ease, height .18s ease, background .18s ease;
 }
-.p-mark.on .p-mark__x { color: var(--teal); }
+.p-mark.on .p-mark__x { color: var(--leaf-deep); }
 .p-mark.on .p-mark__bar {
   width: 20px;
-  height: 3.5px;
-  background: var(--teal);
-  opacity: 1;
+  height: 4px;
+  background: var(--leaf);
 }
 
-/* ---------- 空状态：一张还没填的接诊单 ---------- */
-.p-hello { display: flex; flex-direction: column; }
+/* ---------- 空状态：陪诊卡 ----------
+   问候行 + 「说清这三件事」+ 三张部件卡 + 示例句 + 常见主诉。
+   三个部件卡**不是按钮**——别让人以为要点（人体图功能会把「部位」那一格变成真入口） */
+.p-hello { display: flex; flex-direction: column; max-width: 640px; }
+.p-hello__hd { display: flex; align-items: center; gap: 12px; }
+.p-hello__ava {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  background: var(--leaf);
+  color: var(--on-accent);
+}
 .p-hello__t {
-  font-family: var(--serif);
-  font-size: 24px; /* 同结论科室名一阶 */
-  font-weight: 400;
-  letter-spacing: .03em;
-  line-height: 1.35;
-  margin-top: 9px;
+  font-size: 26px; /* 巨型：一屏最大的那句话 */
+  font-weight: 600;
+  letter-spacing: .01em;
+  line-height: 1.4;
 }
-.p-hello__lead {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-/* 三件该说的事：做成待填的空格，不是按钮——别让人以为要点 */
-.p-hello__three {
-  display: flex;
-  gap: 6px;
-  margin-top: 15px;
-  max-width: 430px; /* 桌面上别把三条虚线拉成一整行 */
-}
-.p-hello__three span {
-  flex: 1;
-  padding: 9px 4px 7px;
-  border-bottom: 1px dashed var(--line);
-  text-align: center;
+.p-hello__lead { margin-top: 4px; font-size: 13.5px; line-height: 1.85; color: var(--ink-2); }
+.p-hello__label {
+  margin: 28px 0 12px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 10px;
+  letter-spacing: .18em;
+  color: var(--ink-2);
+}
+.p-hello__three { display: flex; gap: 12px; }
+.p-hello__bub {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.p-hello__bub b {
+  display: block;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: .14em;
-  color: var(--ink-2);
+  color: var(--leaf-deep);
 }
+.p-hello__bub span { display: block; margin-top: 8px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
 .p-hello__eg {
-  margin-top: 13px;
-  padding-left: 11px;
-  border-left: 2px solid var(--teal-soft);
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--leaf-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface);
   font-size: 12.5px;
-  line-height: 1.75;
+  line-height: 1.85;
   color: var(--ink-2);
 }
-.p-hello__eb2 { margin-top: 20px; }
-.p-hello__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 10px;
-}
+.p-hello__chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .p-hello__chip {
   display: inline-flex;
   align-items: center;
-  min-height: 44px; /* 触控目标 ≥44px */
-  padding: 0 14px;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 0 16px;
   border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  font-family: var(--serif);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font-family: var(--sans);
   font-size: 12.5px;
-  color: var(--ink);
+  color: var(--ink-2);
   cursor: pointer;
-  transition: border-color .18s ease, color .18s ease;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
 }
-.p-hello__chip:hover { border-color: var(--teal); color: var(--teal); }
+.p-hello__chip:hover {
+  border-color: var(--leaf);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
+}
 
-/* ---------- 复制按钮（学 DS：悬停浮现，触屏常显；只借用交互，配色仍是现有色板） ---------- */
+/* ---------- 一键复制（学 DS：桌面 hover 才浮现，触屏常显） ---------- */
 .p-q__col {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  max-width: 82%;
+  max-width: 64%;
 }
 .p-q__col .p-user { max-width: 100%; }
 .p-act__btn {
@@ -1773,25 +1740,25 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   margin-top: 4px;
-  padding: 2px 0;
+  padding: 4px 0;
   border: none;
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .12em;
-  color: var(--ink-2);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  color: var(--ink-3);
   opacity: 0;
-  transition: opacity .15s ease, color .15s ease;
+  transition: opacity .18s ease, color .18s ease;
 }
 .p-q:hover .p-act__btn,
 .p-ai:hover .p-act__btn,
 .p-act__btn.is-copied,
 .p-act__btn:focus-visible { opacity: 1; }
-.p-act__btn:hover { color: var(--teal); }
-.p-act__btn.is-copied { color: var(--teal); }
-/* 结论卡的复制常显——卡是单据，hover 才出现会让人找不到 */
-.p-card__copy { margin-top: 10px; opacity: 1; }
+.p-act__btn:hover { color: var(--leaf-deep); }
+.p-act__btn.is-copied { color: var(--leaf-deep); }
+/* 结论卡的复制常显——卡是"交代"，hover 才出现会让人找不到 */
+.p-card__copy { margin-top: 12px; opacity: 1; }
 /* 触屏没有 hover：复制按钮常显 */
 @media (hover: none) {
   .p-act__btn { opacity: 1; }
@@ -1805,31 +1772,33 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 30px;
   border: none;
+  border-radius: var(--r-xs);
   background: none;
   padding: 0;
   cursor: pointer;
   color: var(--ink-2);
   transition: color .18s ease, background .18s ease;
 }
-.p-chat__iconbtn:hover { color: var(--teal); background: var(--card); }
+.p-chat__iconbtn:hover { color: var(--leaf-deep); background: var(--surface); }
 /* 收起按钮在侧栏抬头里（桌面）；精简轨：收起态才出现，与展开态的 sidebox 互换 */
 .p-chat__foldbtn { display: none; }
 .p-chat__rail { display: none; }
 @media (min-width: 768px) {
   .p-chat__foldbtn { display: inline-flex; margin-left: auto; }
   /* 收起后侧栏只剩横向一条：标识（点它展开）＋ 展开图标 ＋ 新建。
-     宽度写定值而不是 fit-content——fit-content 不参与 width 插值，收起会「啪」地跳过去，
-     0.2s 的过渡等于白写。min-width 兜底：图标有增减时轨不会挤坏。 */
-  .p-chat__side.is-collapsed { width: 127px; min-width: fit-content; }
+     宽度写**定值**而不是 fit-content——`fit-content` 不参与 width 插值，收起会「啪」地
+     跳过去，0.2s 的过渡等于白写（实测采样只有 [248, 127] 两帧）。
+     min-width 兜底：图标有增减时轨不会挤坏。当前 123 = 24(内边距) + 26(标识) + 4 + 1(分隔) + 4 + 30 + 4 + 30。 */
+  .p-chat__side.is-collapsed { width: 123px; min-width: fit-content; }
   .p-chat__side.is-collapsed .p-chat__sidebox { display: none; }
   .p-chat__side.is-collapsed .p-chat__rail {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
-    padding: 10px 11px;
-    color: var(--teal);
-    /* 贴在顶部，不要撑满高度居中（DS 的悬浮条就在左上角） */
+    gap: 4px;
+    padding: 12px;
+    color: var(--leaf-deep);
+    /* 贴在顶部，不要撑满高度居中 */
     height: auto;
   }
   /* 收起态的标识：它本身就是展开入口 */
@@ -1844,41 +1813,25 @@ onBeforeUnmount(() => {
     background: none;
     padding: 0;
     cursor: pointer;
-    color: var(--teal);
+    color: var(--leaf-deep);
     transition: opacity .18s ease;
   }
   .p-chat__railbrand:hover { opacity: .7; }
-  .p-chat__railsep {
-    flex: none;
-    width: 1px;
-    height: 16px;
-    background: rgba(28, 43, 40, .16);
-  }
+  .p-chat__railsep { flex: none; width: 1px; height: 16px; background: var(--line-2); }
 }
 
 /* 流式等待：首字到达前的轻提示，随 delta 填充自动消失 */
 .p-ai__wait {
   font-family: var(--sans);
-  font-size: 12px;
-  letter-spacing: .1em;
-  color: var(--ink-2);
-}
-/* 流式中不可重复提交；历史结论卡的按钮同理（只有最新一张可点） */
-.p-chat .p-btn:disabled,
-.p-chat .p-composer__send:disabled {
-  background: var(--line);
-  color: var(--ink-2);
-  cursor: not-allowed;
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
 }
 
-/* ---------- 桌面 ≥768px：DS 式布局——侧栏贴窗口最左，可整个收起；对话内容在中央收 1000px ----------
-   两栏靠底色差分开（--side vs --paper），中间一条线都不画 */
+/* ---------- 桌面 ≥768px：DS 式布局——侧栏贴窗口最左，对话内容在中央收 1000px ----------
+   两栏靠底色差分开（--rail vs --stage），中间一条线都不画 */
 @media (min-width: 768px) {
-  .p-chat__body {
-    max-width: none;
-    margin: 0;
-    border: none;
-  }
+  .p-chat__body { max-width: none; margin: 0; border: none; }
   .p-chat__side {
     display: block;
     flex: none;
@@ -1886,23 +1839,18 @@ onBeforeUnmount(() => {
     overflow: hidden;
     transition: width .2s ease;
   }
-  /* 侧栏与对话区之间不画任何边线——两块纸靠明度差自然衔接 */
-  .p-chat__sidebox { border-right: none; }
   /* 整条顶栏在桌面端移除：标题、用户区都归左侧栏，对话区顶上不再有一条横线 */
   .p-chat .p-chat__topbar { display: none; }
-  /* 滚动容器是**整幅宽**的：滚动条因此落在窗口最右缘，而不是缩在"对话框"里
-     （2026-09-20 四版改。内容改由内边距收成 1000px 居中——内边距不会带着滚动条一起走） */
-  .p-chat__main {
-    width: 100%;
-    max-width: none;
-    margin: 0;
-  }
+  /* 滚动容器是**整幅宽**的：滚动条因此落在窗口最右缘，而不是缩在"对话框"里。
+     内容改由内边距收成 1000px 居中——内边距不会带着滚动条一起走 */
+  .p-chat__main { width: 100%; max-width: none; margin: 0; }
   /* .p-chat__main 的**每一个**直接子元素都要在这里列全——容器全宽之后，
      漏掉一个（比如只读条）它就会自己铺满整幅宽，跟旁边的区块错位 */
   .p-chat .p-thread,
   .p-chat .p-steps,
   .p-chat .p-composer,
   .p-chat .p-chat__lock {
+    width: 100%;
     max-width: none;
     margin: 0;
     border-left: none;
@@ -1911,12 +1859,13 @@ onBeforeUnmount(() => {
     padding-left: max(32px, calc((100% - 1000px) / 2));
     padding-right: max(32px, calc((100% - 1000px) / 2));
   }
-  /* 空状态下输入区不在纸的底边（下方还有居中留白），别在那儿画一条假纸边 */
-  .p-chat__main.is-empty .p-composer { border-bottom: none; }
   .p-chat__menubtn { display: none; }
 }
 
 /* ---------- 手机 <768px：会话目录是覆盖层，对话区全宽 ---------- */
+/* 这一处是浮层语言的**唯一例外**：它不是"浮层内容"，而是同一块侧栏在窄屏下的形态
+   ——底色仍是 `--rail`、内容一字未变，只是套了一层 `--mask` 遮罩。
+   遮罩与阴影两个令牌照旧从共享件取。 */
 @media (max-width: 767px) {
   /* 触屏没有 hover，右缘那条得够宽才点得中；面板也收窄一点，别盖掉半屏正文。
      手机滚动条是悬浮式不占位，把手可以更贴边 */
@@ -1927,7 +1876,7 @@ onBeforeUnmount(() => {
     position: absolute;
     inset: 0;
     z-index: 20;
-    background: rgba(28, 43, 40, .28);
+    background: var(--mask);
     opacity: 0;
     pointer-events: none;
     transition: opacity .18s ease;
@@ -1936,83 +1885,70 @@ onBeforeUnmount(() => {
   .p-chat__sidebox {
     width: 82%;
     max-width: 320px;
-    box-shadow: 8px 0 22px rgba(28, 43, 40, .16);
+    border-radius: 0 var(--r-lg) var(--r-lg) 0;
+    box-shadow: var(--sh-overlay);
   }
   .p-chat__menubtn {
     flex: none;
-    margin-right: 10px;
+    margin-right: 8px;
+    min-height: 44px; /* 触控目标 ≥ 44px */
     border: 1px solid var(--line);
+    border-radius: var(--r-xs);
     background: none;
-    padding: 5px 10px;
-    font-family: var(--sans);
-    font-size: 10px;
-    letter-spacing: .16em;
-    color: var(--ink-2);
+    padding: 0 12px;
     cursor: pointer;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    color: var(--ink-2);
+    transition: border-color .18s ease, color .18s ease;
   }
-  .p-chat__menubtn:hover { border-color: var(--teal); color: var(--teal); }
+  .p-chat__menubtn:hover { border-color: var(--leaf); color: var(--leaf-deep); }
   .p-chat .p-topbar__title { flex: 1; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .p-chat * { transition: none !important; }
-}
-
-/* ---------- 健康档案：入口 + 覆盖层抽屉（纸感方案 A，直角/细线/无组件库） ---------- */
-.p-chat__uprof {
-  flex: none;
-  border: none;
-  border-bottom: 1px dashed var(--ink-2);
-  background: none;
-  padding: 0 0 1px;
-  cursor: pointer;
-  font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .14em;
-  color: var(--ink-2);
-  transition: color .18s ease, border-color .18s ease;
-}
-.p-chat__uprof:hover { color: var(--teal); border-bottom-color: var(--teal); }
-
-/* 健康档案浮层的**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）已提到共享件
-   patient.css 的 .p-overlay* 与 .p-fade-*，本页只留表单内部。见设计文档 §3.8。 */
+/* ---------- 健康档案：表单内部 ----------
+   浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）走共享件 `.p-overlay*` 与
+   `.p-fade-*`，本页只留表单——见设计文档 §3.8。
+   已知粗糙：性别 / 年龄段用的是**原生 `<select>`**，外观由浏览器决定；换成自绘下拉
+   属交互改动，不在这张票里（设计文档 §3.9 的"不用原生 select"是管理端那一侧的规矩）。 */
 .p-prof__loading {
-  padding: 32px 16px;
+  padding: 48px 16px;
   font-family: var(--sans);
-  font-size: 12px;
-  letter-spacing: .1em;
-  color: var(--ink-2);
+  font-size: 11.5px;
+  letter-spacing: .06em;
+  color: var(--ink-3);
 }
 .p-prof__row {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px dashed var(--line);
+  border-bottom: 1px solid var(--line);
 }
 .p-prof__label {
   flex: none;
   width: 64px;
   font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .14em;
+  font-size: 11.5px;
+  letter-spacing: .1em;
   color: var(--ink-2);
 }
 .p-prof__select {
   flex: 1;
   min-height: 44px; /* 触控目标 ≥ 44px */
-  padding: 0 10px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  font-family: var(--serif);
-  font-size: 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--sans);
+  font-size: 13.5px;
   color: var(--ink);
 }
-.p-prof__select:focus { outline: none; border-color: var(--teal); }
+.p-prof__select:focus { outline: none; border-color: var(--leaf); }
 .p-prof__group {
-  padding: 14px 0;
-  border-bottom: 1px dashed var(--line);
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
 }
 .p-prof__group:last-of-type { border-bottom: none; }
 .p-prof__ghead {
@@ -2020,77 +1956,74 @@ onBeforeUnmount(() => {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .p-prof__glabel {
   font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .14em;
+  font-size: 11.5px;
+  letter-spacing: .1em;
   color: var(--ink);
 }
 .p-prof__quota {
   font-family: var(--sans);
   font-size: 10px;
-  letter-spacing: .06em;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
-.p-prof__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
+.p-prof__chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .p-prof__chip {
   display: inline-flex;
   align-items: center;
   min-height: 44px; /* 触控目标 ≥ 44px */
-  padding: 0 12px;
+  padding: 0 16px;
   border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  font-family: var(--serif);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font-family: var(--sans);
   font-size: 12.5px;
   color: var(--ink);
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease, color .18s ease;
 }
-.p-prof__chip:hover { border-color: var(--teal); color: var(--teal); }
-.p-prof__chip.is-on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.p-prof__chip:hover { border-color: var(--leaf); color: var(--leaf-deep); }
+/* 选中态与科室列表同一口径：浅底 + 主色描边 + 主色深字（不是实心主色底） */
+.p-prof__chip.is-on {
+  background: var(--leaf-soft);
+  border-color: var(--leaf);
+  color: var(--leaf-deep);
+  font-weight: 600;
+}
 .p-prof__none {
   font-family: var(--sans);
-  font-size: 11px;
-  color: var(--ink-2);
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
-.p-prof__other {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
+.p-prof__other { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .p-prof__input {
   flex: 1;
   min-height: 44px; /* 触控目标 ≥ 44px */
-  padding: 0 10px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--card);
-  font-family: var(--serif);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--sans);
   font-size: 13.5px;
   color: var(--ink);
 }
-.p-prof__input:focus { outline: none; border-color: var(--teal); }
+.p-prof__input:focus { outline: none; border-color: var(--leaf); }
 .p-prof__left {
   flex: none;
   font-family: var(--sans);
   font-size: 10px;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 .p-prof__err {
-  margin: 10px 0 4px;
-  padding: 8px 10px;
-  border-left: 3px solid var(--err);
-  background: var(--card);
-  color: var(--err);
-  font-size: 12.5px;
-  line-height: 1.7;
+  margin: 12px 0 4px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--alert);
+  border-radius: var(--r-sm);
+  background: var(--alert-soft);
+  color: var(--alert);
+  font-size: 11.5px;
+  line-height: 1.85;
 }
 </style>

@@ -32,6 +32,10 @@
   --alert-soft: #FBEBE5;      /* 危险浅底 */
   --mask: rgba(46, 38, 32, .42); /* 浮层遮罩：暖色（不是管理端的冷灰 --mask）*/
   --on-accent: #FFFFFF;       /* 派生：主色实心底上的文字/图标（用户气泡、主按钮、Top1 圆点）*/
+  --scroll-thumb: rgba(46, 38, 32, .16);       /* 派生：滚动条滑块 */
+  --scroll-thumb-hover: rgba(46, 38, 32, .32); /* 派生：滚动条滑块 hover */
+  --hover-rail: rgba(255, 255, 255, .72);      /* 派生：深色底上的悬停（侧栏条目）*/
+  --hover-soft: rgba(46, 38, 32, .045);        /* 派生：浅色底上的悬停（导航条目）*/
 
   /* ---------- §2.2 字体（全局无衬线；字阶 26/19/14.5/13.5/12.5/11.5/10.5/10）---------- */
   --sans: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -48,21 +52,6 @@
   --sh-raised: 0 1px 5px rgba(70, 50, 34, .07);
   --sh-primary: 0 4px 14px rgba(31, 138, 112, .24);
   --sh-overlay: 0 16px 44px rgba(70, 50, 34, .14);
-
-  /* ---------- 过渡别名（2026-10-07 加，**B-06 收口时删除**）----------
-     未迁移页面的 scoped 样式仍写旧「临床纸感」的令牌名。这里把旧名指向新令牌，
-     保证「未迁移的页面照常能跑」——中间态允许视觉不统一，但不许坏。
-     B-06 的验收项是「全仓无旧令牌残留」，届时连同本段一起删掉。
-     注意 `--serif: var(--sans)`：这是**有意**的——本方案患者端不再用衬线，
-     旧页面里那些 font-family: var(--serif) 会静默变成无衬线，正是想要的结果。*/
-  --paper: var(--bg);
-  --card: var(--surface);
-  --teal: var(--leaf);
-  --teal-deep: var(--leaf-deep);
-  --teal-soft: var(--leaf-soft);
-  --err: var(--alert);
-  --side: var(--rail);
-  --serif: var(--sans);
 
   min-height: 100vh;
   background: var(--bg);
@@ -211,7 +200,7 @@
 /* 追问：与普通回复同款，只加左侧竖线——这套语言里竖线表示"追问 / 引用" */
 .p-ask {
   border-left: 3px solid var(--leaf-soft);
-  padding-left: 14px;
+  padding-left: 16px;
   color: var(--ink);
 }
 
@@ -357,7 +346,7 @@
 /* 判断依据脚注：1px 实线（旧方案的 dashed 作废）+ 注N + 标题 + 原文 */
 .p-card__foot {
   margin-top: 16px;
-  padding-top: 15px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
 }
 .p-card__foot .p-eyebrow {
@@ -393,7 +382,7 @@
   color: var(--ink-2);
   /* 原文是"引用"，用左侧细线把它与结论正文区分开——与追问同一套语言 */
   border-left: 2px solid var(--leaf-soft);
-  padding-left: 10px;
+  padding-left: 12px;
 }
 .p-card__lowhint {
   margin-top: 12px;
@@ -571,6 +560,7 @@
   width: 100%;
   min-height: 44px;
   max-height: 120px; /* 长高封顶后自己滚 */
+  overflow-y: auto;
   resize: none;
   border: 0;
   background: none;
@@ -786,32 +776,31 @@
 /* ---------- §5 桌面端适配（≥768px）----------
    手机浏览器保持全屏原生布局；电脑浏览器把移动版式收成一列居中的「陪诊卡」。
    1000px 而不是 720px：720 在 1440／1920 屏上两侧各空 360／600px，像张纸条贴在墙中央；
-   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。 */
+   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。
+
+   **只作用于非对话页**：页面布局是各页自己的事，共享件不带页面布局。
+   对话页是整页全宽的（侧栏贴窗口最左、舞台内容自己收 1000px），
+   那条规则在 `Chat.vue` 的 scoped 样式里——见设计文档 §4.1。 */
 @media (min-width: 768px) {
-  .patient-root .p-topbar,
-  .patient-root .p-thread,
-  .patient-root .p-steps,
-  .patient-root .p-composer,
-  .patient-root .p-chat__disc,
-  .patient-root .p-reg__body {
+  .patient-root .p-reg .p-topbar,
+  .patient-root .p-reg__body,
+  .patient-root .p-reg .p-steps {
     width: 100%;
     max-width: 1000px;
     margin-left: auto;
     margin-right: auto;
   }
   /* 居中列两侧细线，营造一列卡片的边界 */
-  .patient-root .p-topbar,
-  .patient-root .p-thread,
-  .patient-root .p-steps,
-  .patient-root .p-composer,
-  .patient-root .p-reg__body {
+  .patient-root .p-reg .p-topbar,
+  .patient-root .p-reg__body,
+  .patient-root .p-reg .p-steps {
     border-left: 1px solid var(--line);
     border-right: 1px solid var(--line);
   }
-  /* 文字区块的左右内边距跟着放宽，免得 1000px 里文字贴着纸边 */
-  .patient-root .p-topbar,
-  .patient-root .p-thread,
-  .patient-root .p-composer {
+  /* 文字区块的左右内边距跟着放宽，免得 1000px 里文字贴着边 */
+  .patient-root .p-reg .p-topbar,
+  .patient-root .p-reg__body,
+  .patient-root .p-reg .p-steps {
     padding-left: 32px;
     padding-right: 32px;
   }

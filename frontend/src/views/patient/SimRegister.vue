@@ -20,7 +20,7 @@
           <p class="p-cite"><span class="p-cite__no">位置</span>　{{ booked.location }}</p>
           <p class="p-cite"><span class="p-cite__no">状态</span>　register_success</p>
         </div>
-        <button class="p-btn p-btn--ghost" style="margin-top: 14px" @click="backToChat">
+        <button class="p-btn p-btn--ghost p-reg__gap" @click="backToChat">
           返回继续咨询
         </button>
       </section>
@@ -41,7 +41,7 @@
           <button v-else class="p-error__retry" @click="backToChat">返回对话页</button>
         </div>
 
-        <div class="p-eyebrow" style="margin-bottom: 10px">
+        <div class="p-eyebrow p-reg__eb">
           {{ orderedDepts.length ? sectionEyebrow : '科 室 列 表 · 全 部 启 用' }}
         </div>
 
@@ -65,8 +65,7 @@
         </div>
 
         <button
-          class="p-btn"
-          style="margin-top: 18px"
+          class="p-btn p-reg__gap"
           :disabled="!selected || submitting || !recordId"
           @click="confirm"
         >
@@ -194,25 +193,29 @@ onMounted(loadDepts)
 </script>
 
 <style scoped>
+/* 挂号页 —— 方向 04「陪诊伙伴」
+   除了「这一页怎么摆」，一律吃共享件 patient.css：科室列表 `.p-dept*`、卡片 `.p-card*`、
+   按钮 `.p-btn*`、步进条 `.p-steps*`、提示 `.p-error*` 都在那里——本页不再各写一份
+   （两份定义里页面那份会静默覆盖全局，改一处漏一处）。 */
+
 .p-reg {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--bg);
 }
 .p-reg__body {
   flex: 1;
   overflow-y: auto;
-  padding: 18px 16px;
+  /* 桌面端由 patient.css §5 收成 1000px 居中并把左右内边距放宽到 32px */
+  padding: 20px 16px;
 }
-.p-reg__done .p-card__dept { margin-top: 2px; }
-/* 页面内提示：与科室列表保持 12px 间距，不挤在一起 */
+/* 成功态：卡里科室名紧跟 eyebrow，别留一道缝 */
+.p-reg__done .p-card__dept { margin-top: 4px; }
+/* 页面内提示：与科室列表保持间距，不挤在一起 */
 .p-reg__tip { margin-bottom: 12px; }
-/* 科室位置文字（`.p-dept__loc`）与选中态的配色都已进共享件 patient.css，
-   这里不再各写一份——规则分裂在两处，改了共享件这页还会悄悄用旧的 */
-/* 确认按钮禁用态（未选科室 / 提交中 / 缺记录） */
-.p-reg .p-btn:disabled {
-  background: var(--line);
-  color: var(--ink-2);
-  cursor: not-allowed;
-}
+/* 区块小标题（原来写在行内，魔法数字收进类） */
+.p-reg__eb { margin-bottom: 12px; }
+/* 卡与主按钮之间的间距（同理，原来写在行内） */
+.p-reg__gap { margin-top: 16px; }
 </style>
