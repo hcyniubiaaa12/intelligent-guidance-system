@@ -173,9 +173,31 @@
     <!-- 终态桶：修正重审是人工动作，不受自动升级的幂等限制 -->
     <div class="a-panel__head" style="margin-top: 18px">
       <span class="a-panel__title">已终态</span>
-      <span class="a-panel__hint">共 {{ terminalPage.total }} 个 · 修正重审回到待审</span>
+      <div class="a-panel__ops">
+        <span class="a-panel__hint">共 {{ terminalPage.total }} 个 · 修正重审回到待审</span>
+        <!-- 三种终态混在同一张表里，不筛就得靠肉眼翻 -->
+        <el-select
+          v-model="terminalStatuses"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          clearable
+          placeholder="全部状态"
+          class="rev__filter"
+          @change="loadTerminal(1)"
+        >
+          <el-option
+            v-for="option in TERMINAL_STATUSES"
+            :key="option.code"
+            :label="option.label"
+            :value="option.code"
+          />
+        </el-select>
+      </div>
     </div>
-    <div v-if="!terminalBuckets.length" class="a-empty">还没有审核过的桶</div>
+    <div v-if="!terminalBuckets.length" class="a-empty">
+      {{ terminalStatuses.length ? '没有符合筛选条件的桶' : '还没有审核过的桶' }}
+    </div>
     <template v-else>
       <el-table :data="terminalBuckets" row-key="id">
         <el-table-column prop="recDeptName" label="推荐科室" min-width="120" />
@@ -227,11 +249,19 @@ const buckets = ref([])
 const page = reactive({ current: 1, size: 10, total: 0 })
 const terminalBuckets = ref([])
 const terminalPage = reactive({ current: 1, size: 10, total: 0 })
+/** 终态多选筛选：空 = 三种全看 */
+const terminalStatuses = ref([])
 
-const STATUS_LABELS = { approved: '已审核', rejected: '已驳回', dismissed: '已忽略' }
+/** 终态三种：显示名与筛选选项共用一份，别在两处各抄一遍 */
+const TERMINAL_STATUSES = [
+  { code: 'approved', label: '已审核' },
+  { code: 'rejected', label: '已驳回' },
+  { code: 'dismissed', label: '已忽略' }
+]
 
 function statusLabel(status) {
-  return STATUS_LABELS[status] || status
+  const hit = TERMINAL_STATUSES.find((item) => item.code === status)
+  return hit ? hit.label : status
 }
 
 function statusTag(status) {
@@ -332,7 +362,12 @@ function toggleCause(list, key) {
 
 async function loadTerminal(pageNo = terminalPage.current) {
   try {
-    const data = await pageTerminalBuckets({ page: pageNo, size: terminalPage.size })
+    const params = { page: pageNo, size: terminalPage.size }
+    // 空选 = 不过滤，别发一个空的 statuses 让后端猜
+    if (terminalStatuses.value.length) {
+      params.statuses = terminalStatuses.value.join(',')
+    }
+    const data = await pageTerminalBuckets(params)
     terminalBuckets.value = data.records || []
     terminalPage.total = data.total || 0
     terminalPage.current = pageNo
@@ -758,6 +793,9 @@ onMounted(async () => {
 /* el-select 的宽度在组件上给（EP 不吃 max-width），样式交给 element-override.css */
 .rev__select {
   width: 320px;
+}
+.rev__filter {
+  width: 210px;
 }
 .rev__form {
   display: flex;

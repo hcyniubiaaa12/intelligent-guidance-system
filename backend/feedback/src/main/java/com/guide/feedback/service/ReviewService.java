@@ -50,12 +50,18 @@ public class ReviewService {
                         .orderByDesc(ClusterBucket::getCount));
     }
 
-    /** 终态桶（approved / rejected / dismissed），修正重审的入口 */
-    public Page<ClusterBucket> listTerminalBuckets(int pageNum, int pageSize) {
+    /**
+     * 终态桶（approved / rejected / dismissed），修正重审的入口。
+     *
+     * @param statuses 要看哪几种终态；传空则三种全看（前端多选框不选 = 不过滤）
+     */
+    public Page<ClusterBucket> listTerminalBuckets(int pageNum, int pageSize, List<BucketStatus> statuses) {
+        List<BucketStatus> effective = (statuses == null || statuses.isEmpty())
+                ? BucketStatus.TERMINAL
+                : statuses;
         return clusterBucketMapper.selectPage(new Page<>(pageNum, pageSize),
                 Wrappers.<ClusterBucket>lambdaQuery()
-                        .in(ClusterBucket::getStatus,
-                                BucketStatus.APPROVED, BucketStatus.REJECTED, BucketStatus.DISMISSED)
+                        .in(ClusterBucket::getStatus, effective)
                         .orderByDesc(ClusterBucket::getUpdatedAt));
     }
 

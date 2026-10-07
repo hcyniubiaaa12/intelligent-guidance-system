@@ -8,6 +8,7 @@ import com.guide.common.api.ErrorCode;
 import com.guide.common.api.Result;
 import com.guide.common.exception.BizException;
 import com.guide.feedback.entity.ClusterBucket;
+import com.guide.feedback.enums.BucketStatus;
 import com.guide.feedback.enums.RootCauseKey;
 import com.guide.feedback.scheduler.AggregationScheduler;
 import com.guide.feedback.service.ApprovalService;
@@ -92,13 +93,20 @@ public class ReviewAdminController {
         return Result.ok(vo);
     }
 
-    /** 终态桶：修正重审从这里进。已 approved 的重审会撤掉上次的台账与合成 chunk */
+    /**
+     * 终态桶：修正重审从这里进。已 approved 的重审会撤掉上次的台账与合成 chunk。
+     *
+     * @param statuses 逗号分隔的终态编码（{@code approved,rejected,dismissed}）；不传或传空 = 三种全看。
+     *                 认不出来的编码直接报错，不静默忽略——静默忽略会让一次打错的筛选悄悄变成"不过滤"
+     */
     @GetMapping("/terminal")
     public Result<ReviewAdminDTO.PageVO<ReviewAdminDTO.BucketVO>> terminal(
             @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) List<String> statuses) {
         Page<ClusterBucket> result = reviewService.listTerminalBuckets(
-                (int) Math.max(1, page), (int) Math.min(MAX_PAGE_SIZE, Math.max(1, size)));
+                (int) Math.max(1, page), (int) Math.min(MAX_PAGE_SIZE, Math.max(1, size)),
+                terminalFilters(statuses));
         Map<String, Dept> depts = deptIndex();
         List<ReviewAdminDTO.BucketVO> records = new ArrayList<>();
         for (ClusterBucket bucket : result.getRecords()) {
@@ -108,6 +116,21 @@ public class ReviewAdminController {
         vo.setTotal(result.getTotal());
         vo.setRecords(records);
         return Result.ok(vo);
+    }
+
+    private List<BucketStatus> terminalFilters(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return List.of();
+        }
+        List<BucketStatus> filters = new ArrayList<>();
+        for (String code : codes) {
+            if (code == null || code.isBlank()) {
+                continue;
+            }
+            filters.add(BucketStatus.fromCode(code).orElseThrow(() ->
+                    new BizException(ErrorCode.PARAM_INVALID, "不认识的桶状态：" + code)));
+        }
+        return filters;
     }
 
     /** 待审数量：侧栏徽标。没有待审就是 0，不写死一个数字 */
