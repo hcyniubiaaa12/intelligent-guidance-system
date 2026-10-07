@@ -55,6 +55,7 @@
             :class="{ 'p-dept--rec': d.id === recDeptId, 'p-dept--on': d.id === selected?.id }"
             @click="pick(d)"
           >
+            <span class="p-dept__c" aria-hidden="true"></span>
             <span>
               {{ d.name }}
               <span class="p-cite p-dept__loc">{{ d.location }}</span>
@@ -218,4 +219,23 @@ onMounted(loadDepts)
 .p-reg__eb { margin-bottom: 12px; }
 /* 卡与主按钮之间的间距（同理，原来写在行内） */
 .p-reg__gap { margin-top: 16px; }
+
+/* 桌面端：收成一列居中的「陪诊卡」，两侧细线守住纸边。
+   **页面布局写在本页**（共享件不带页面布局，见设计文档 §5）。
+   为什么不是 720px：720 在 1440／1920 屏上两侧各空 360／600px，像张纸条贴在墙中央；
+   1000px 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。 */
+@media (min-width: 768px) {
+  .p-reg > .p-topbar,
+  .p-reg__body,
+  .p-reg > .p-steps {
+    width: 100%;
+    max-width: 1000px;
+    margin-left: auto;
+    margin-right: auto;
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
 </style>

@@ -39,7 +39,7 @@
                 <path d="M6.9 16h3.6" stroke="currentColor" stroke-width="1.7" opacity=".3" />
               </svg>
             </span>
-            <span class="p-chat__brand">智能导诊</span>
+            <span class="p-chat__brand">智能导诊<small>您的陪诊助手</small></span>
             <button class="p-chat__iconbtn p-chat__foldbtn" title="收起侧栏" aria-label="收起侧栏" @click="toggleSide">
               <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
             </button>
@@ -117,6 +117,7 @@
 
           <!-- 底部用户区（桌面常驻；手机在「会话」抽屉里） -->
           <div class="p-chat__user">
+            <span class="p-chat__uava" aria-hidden="true">{{ (user.nickname || '我').slice(0, 1) }}</span>
             <button class="p-chat__unick" title="看我的挂号历史" @click="openBooked">
               {{ user.nickname || '我 的 就 诊' }}
             </button>
@@ -193,7 +194,11 @@
 
                 <!-- 追问消息：与普通回复同款 -->
                 <div v-else-if="m.type === 'question'" class="p-ai">
-                  <div class="p-ai__tag">分 诊 助 理 · 追 问</div>
+                  <span class="p-ai__ava" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
+                  </span>
+                  <div class="p-ai__bd">
+                  <div class="p-ai__tag">陪 诊 助 手 · 追 问</div>
                   <div class="p-ai__text p-ask">{{ m.content }}</div>
                   <button
                     v-if="m.content"
@@ -206,12 +211,17 @@
                     <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
                     {{ copiedKey === 'q' + i ? '已 复 制' : '复 制' }}
                   </button>
+                  </div>
                 </div>
 
                 <!-- 资料回答：患者问的是知识库内容，系统如实复述片段作答（不推荐科室、不是追问）
                      与追问一样复用 AI 气泡的形状，只有标签不同——患者一眼能分出这不是分诊结论 -->
                 <div v-else-if="m.type === 'info'" class="p-ai">
-                  <div class="p-ai__tag">分 诊 助 理 · 资 料</div>
+                  <span class="p-ai__ava" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
+                  </span>
+                  <div class="p-ai__bd">
+                  <div class="p-ai__tag">陪 诊 助 手 · 资 料</div>
                   <div class="p-ai__text">{{ m.content }}</div>
                   <button
                     v-if="m.content"
@@ -224,12 +234,17 @@
                     <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
                     {{ copiedKey === 'if' + i ? '已 复 制' : '复 制' }}
                   </button>
+                  </div>
                 </div>
 
                 <!-- AI 回复：直排文字 + moss 小标签（SSE delta 逐字填充同一文本节点）
                      本块必须单行书写：.p-ai__text 是 pre-wrap，换行缩进会被原样渲染 -->
                 <div v-else-if="m.type === 'ai'" class="p-ai">
-                  <div class="p-ai__tag">分 诊 助 理</div>
+                  <span class="p-ai__ava" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
+                  </span>
+                  <div class="p-ai__bd">
+                  <div class="p-ai__tag">陪 诊 助 手</div>
                   <div class="p-ai__text">{{ m.content }}<span v-if="!isReplay && chat.streaming && i === shown.length - 1 && !m.content" class="p-ai__wait">正在整理…</span></div>
                   <button
                     v-if="m.content"
@@ -242,6 +257,7 @@
                     <svg v-else width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9.5 10 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
                     {{ copiedKey === 'a' + i ? '已 复 制' : '复 制' }}
                   </button>
+                  </div>
                 </div>
 
                 <!-- 处置提示（敏感词累计触发的警告）：单独成泡，视觉上与诊断结论区分开 -->
@@ -251,7 +267,7 @@
                 <section v-else-if="m.type === 'card'" class="p-card">
                   <div class="p-card__head">
                     <div>
-                      <div class="p-eyebrow">分 诊 结 论</div>
+                      <div class="p-eyebrow">给 您 的 分 诊 结 论</div>
                       <div class="p-card__dept">{{ m.card.dept }}</div>
                     </div>
                     <div class="p-card__conf" :class="{ 'p-card__conf--low': isLow(m.card) }">
@@ -312,14 +328,32 @@
                     就 诊　{{ m.card.actualDept }}<template v-if="m.card.actualDeptLocation"> · {{ m.card.actualDeptLocation }}</template>
                   </div>
 
+                  <!-- 签名部件：三步陪伴带。**只在实时对话里出现**——回放是历史记录，
+                       "接下来我陪您走这三步"在那时是句假话 -->
+                  <div v-if="!isReplay" class="p-band">
+                    <div class="p-band__hd">接下来我陪您走这三步</div>
+                    <div class="p-band__row">
+                      <span class="p-band__n p-band__n--now">
+                        <span class="p-band__dot"></span><span class="p-band__t">① 拿到结论</span>
+                      </span>
+                      <span class="p-band__link"></span>
+                      <span class="p-band__n">
+                        <span class="p-band__dot"></span><span class="p-band__t">② 去挂号</span>
+                      </span>
+                      <span class="p-band__link"></span>
+                      <span class="p-band__n">
+                        <span class="p-band__dot"></span><span class="p-band__t">③ 确认完成</span>
+                      </span>
+                    </div>
+                  </div>
+
                   <button
                     v-if="!isReplay"
-                    class="p-btn"
-                    style="margin-top: 14px"
+                    class="p-btn p-card__go"
                     :disabled="i !== lastCardIndex"
                     @click="goRegister(m)"
                   >
-                    下一步 · 模拟挂号
+                    我陪您 · 去模拟挂号
                   </button>
                 </section>
 
@@ -1200,6 +1234,24 @@ onBeforeUnmount(() => {
   padding-bottom: 20px;
 }
 
+/* 助手消息的骨架（**消息流本身在共享件 §3.1 里**，这里只补本页要的头像列）：
+   30px 圆头像 + 右侧「标签 + 正文 + 复制」。追问 / 资料 / 普通回复共用这一套，
+   三者的区别只在标签文字与那根竖线——换皮不许把它们抹平。 */
+.p-ai { display: flex; gap: 12px; }
+.p-ai__ava {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 4px;
+  border-radius: var(--r-full);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
+}
+.p-ai__bd { flex: 1; min-width: 0; }
+
 /* 滚动条：显式定宽 12px 并淡化。定宽是为了让问题导航的把手能**精确**停在它左边
    （宽度不定就只能靠猜）。**不能再写 `scrollbar-width`**——Chromium 一旦认了那个
    标准属性，下面这套伪元素就整个失效。 */
@@ -1268,6 +1320,14 @@ onBeforeUnmount(() => {
   letter-spacing: .04em;
   color: var(--ink);
 }
+.p-chat__brand small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .06em;
+  color: var(--ink-3);
+}
 .p-chat__sidehd { padding: 12px 12px 0; border-bottom: 1px solid var(--line); }
 .p-chat__count {
   margin-top: 4px;
@@ -1328,12 +1388,25 @@ onBeforeUnmount(() => {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin: 0 8px 12px;
   padding: 8px 12px;
   border-radius: var(--r-sm);
   background: var(--surface);
+}
+/* 昵称首字：与「陪您走完流程的人」这层语气一致，比一行纯文字更有归属感 */
+.p-chat__uava {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  background: var(--apricot-soft);
+  color: var(--apricot-deep);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 .p-chat__unick,
 .p-chat__uprof,
@@ -1351,6 +1424,7 @@ onBeforeUnmount(() => {
   transition: color .18s ease;
 }
 .p-chat__unick {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1759,6 +1833,8 @@ onBeforeUnmount(() => {
 .p-act__btn.is-copied { color: var(--leaf-deep); }
 /* 结论卡的复制常显——卡是"交代"，hover 才出现会让人找不到 */
 .p-card__copy { margin-top: 12px; opacity: 1; }
+/* 卡里最后那个主操作（陪伴带之后），与陪伴带保持一个档位的间距 */
+.p-card__go { margin-top: 16px; }
 /* 触屏没有 hover：复制按钮常显 */
 @media (hover: none) {
   .p-act__btn { opacity: 1; }

@@ -609,7 +609,6 @@
 .p-dept {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 48px;
   padding: 12px 16px;
@@ -623,6 +622,9 @@
   color: var(--ink);
   transition: border-color .18s ease, background .18s ease;
 }
+/* **不要用 justify-content: space-between**：那会把"科室名"顶到最右——
+   它前面有个可选的圆点、后面有个可选的标记，两端对齐一开，中间那个就被推走了。
+   让尾部的标记自己 `margin-left: auto` 靠右（2026-10-07 加了圆点之后踩到）。*/
 .p-dept:hover { border-color: var(--line-2); }
 /* 推荐科室：杏色竖条 + 杏色「推荐」标。
    主色描边留给「选中态」——两者同时出现时要分得清"系统推的"和"我选的" */
@@ -633,6 +635,30 @@
   background: var(--leaf-soft);
 }
 .p-dept--on .p-dept__hint { color: var(--leaf-deep); }
+/* 选中标记：一个圆。未选是空心圈（看得出"这是可以选一个的"），选中是主色实心 + 白勾 */
+.p-dept__c {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-full);
+  background: var(--surface);
+}
+.p-dept--on .p-dept__c {
+  border-color: var(--leaf);
+  background: var(--leaf);
+}
+.p-dept--on .p-dept__c::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid var(--on-accent);
+  border-bottom: 2px solid var(--on-accent);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
 /* 科室位置：块级小字，跟在科室名后面。选中态是浅底，文字色与常态一致即可 */
 .p-dept__loc {
   display: block;
@@ -641,6 +667,7 @@
 }
 .p-dept__hint {
   flex: none;
+  margin-left: auto; /* 尾部标记自己靠右——见 .p-dept 上那条注释 */
   padding: 4px 8px;
   border-radius: var(--r-full);
   background: var(--apricot-soft);
@@ -773,35 +800,7 @@
   }
 }
 
-/* ---------- §5 桌面端适配（≥768px）----------
-   手机浏览器保持全屏原生布局；电脑浏览器把移动版式收成一列居中的「陪诊卡」。
-   1000px 而不是 720px：720 在 1440／1920 屏上两侧各空 360／600px，像张纸条贴在墙中央；
-   1000 保住阅读行宽（正文 32px 内边距收着），又不至于让屏幕空掉一半。
-
-   **只作用于非对话页**：页面布局是各页自己的事，共享件不带页面布局。
-   对话页是整页全宽的（侧栏贴窗口最左、舞台内容自己收 1000px），
-   那条规则在 `Chat.vue` 的 scoped 样式里——见设计文档 §4.1。 */
-@media (min-width: 768px) {
-  .patient-root .p-reg .p-topbar,
-  .patient-root .p-reg__body,
-  .patient-root .p-reg .p-steps {
-    width: 100%;
-    max-width: 1000px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  /* 居中列两侧细线，营造一列卡片的边界 */
-  .patient-root .p-reg .p-topbar,
-  .patient-root .p-reg__body,
-  .patient-root .p-reg .p-steps {
-    border-left: 1px solid var(--line);
-    border-right: 1px solid var(--line);
-  }
-  /* 文字区块的左右内边距跟着放宽，免得 1000px 里文字贴着边 */
-  .patient-root .p-reg .p-topbar,
-  .patient-root .p-reg__body,
-  .patient-root .p-reg .p-steps {
-    padding-left: 32px;
-    padding-right: 32px;
-  }
-}
+/* ---------- 桌面端适配 ----------
+   **共享件不带页面布局**：各页在 ≥768px 收成什么样，是各页自己的事——
+   挂号页的一列居中写在 `SimRegister.vue`，对话页的整页全宽（侧栏贴最左 + 舞台收 1000px）
+   写在 `Chat.vue`，登录页就是一张居中窄卡。见设计文档 §5。 */
