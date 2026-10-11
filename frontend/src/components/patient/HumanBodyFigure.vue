@@ -48,7 +48,7 @@
     </g>
     <!-- 描边最后绘制，避免相邻色块把当前编辑或键盘焦点盖住。 -->
     <g v-if="!readonly" class="p-body__rings" aria-hidden="true">
-      <path v-for="area in activeAreas" :key="`${activeVersion}:${area.key}`" :d="area.path" class="p-body__ring p-body__ring--active" />
+      <path v-for="area in activeAreas" :key="area.key" :d="area.path" class="p-body__ring p-body__ring--active" />
       <path v-if="focusedArea" :d="focusedArea.path" class="p-body__ring p-body__ring--focus" />
     </g>
     <g v-if="!readonly && tooltip" class="p-body__tooltip" :transform="`translate(${tooltip.x} ${tooltip.y})`" aria-hidden="true">
@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 
 const props = defineProps({
   face: { type: String, default: 'front' },
@@ -81,7 +81,6 @@ const hoveredKey = ref(null)
 const focusedKey = ref(null)
 const touchedKey = ref(null)
 const rovingKey = ref(null)
-const activeVersion = ref(0)
 const textScale = ref(1)
 const faceName = computed(() => props.face === 'front' ? '正面' : '背面')
 
@@ -238,7 +237,6 @@ function onAreaKey(e, area) {
   }
   areaRefs.get(target?.key)?.focus()
 }
-watch(() => [props.active, props.face], () => { activeVersion.value += 1 })
 let figureObserver = null
 onMounted(() => {
   // SVG 会随画布缩小，反向补偿文字尺寸，避免气泡和左右提示也缩成难读的小字。
@@ -270,7 +268,9 @@ onBeforeUnmount(() => figureObserver?.disconnect())
 .p-body__badges path { fill: none; stroke: var(--leaf-deep); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .p-body__rings { pointer-events: none; }
 .p-body__ring { fill: none; stroke-width: 2.5; stroke-linejoin: round; transition: stroke .18s ease; }
-.p-body__ring--active { stroke: var(--leaf-deep); filter: drop-shadow(0 0 4px var(--leaf-glow)); transform-box: fill-box; transform-origin: center; animation: p-body-ring .4s ease; }
+/* 「正在编辑」环：只靠描边颜色与投影区分，不做任何几何动效——
+   点一下就缩一圈（1.025→1）会让患者以为图在动、以为自己点错了。 */
+.p-body__ring--active { stroke: var(--leaf-deep); filter: drop-shadow(0 0 4px var(--leaf-glow)); }
 .p-body__ring--focus { stroke: var(--ink); }
 .p-body__tooltip { pointer-events: none; filter: drop-shadow(var(--sh-raised)); }
 .p-body__tooltip rect { fill: var(--surface); }
@@ -283,9 +283,8 @@ onBeforeUnmount(() => figureObserver?.disconnect())
 }
 .p-body.is-loading .p-body__region { fill: var(--line) !important; opacity: 1; animation: p-body-breathe 1.6s ease-in-out infinite alternate; }
 .p-body.is-loading .p-body__detail, .p-body.is-loading .p-body__sides { opacity: 0; }
-@keyframes p-body-ring { from { transform: scale(1.025); opacity: .45; } to { transform: scale(1); opacity: 1; } }
 @keyframes p-body-breathe { from { opacity: .45; } to { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) {
-  .p-body__region, .p-body__ring { transition: none; animation: none !important; }
+  .p-body__region { transition: none; animation: none !important; }
 }
 </style>
