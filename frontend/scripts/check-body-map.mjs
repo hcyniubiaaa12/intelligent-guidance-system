@@ -17,7 +17,7 @@
 import {
   sentence, declarationLocations, pickedLabel, regionsOfLocations, sideLabel,
   regionById, regionOfWord, isGlobalWord, visibleWords, regionHasWords, landingWord,
-  faceOfRegion, pickedWordsOf, sideOfRegion, sideOfWord, setRegionSide, clickOutcome,
+  faceOfRegion, pickedWordsOf, sideOfRegion, sideOfWord, setRegionSide, clickOutcome, sidesOfLocations,
   emptyState, selectWord, selectFeeling, removeWord, clearAll,
   PARTS, REGIONS, GLOBAL_WORDS, QUICK_PICKS, NO_LOCATION_HINT
 } from '../src/utils/bodyMap.js'
@@ -63,6 +63,16 @@ eq(sentence([], ['疼'], { abd: '左' }), '', '没选部位 ⇒ 空串（页面�
 
 eq(pickedLabel(['腹部'], { abd: '左' }), '左腹部', '「位置已锁定」回执里的部位串')
 eq(pickedLabel([], { abd: '左' }), '', '没声明 ⇒ 回执换文案')
+
+/* ---------- ①b 声明 → 区域/方位（回执与回放靠它把图重新点亮） ---------- */
+
+eq(sidesOfLocations(['两侧上肢', '左腿']), { arm: '两侧', leg: '左' }, '把已声明的部位串拆回「区域 → 方位」')
+eq(sidesOfLocations(['左腹部']), { abd: '左' }, '单侧')
+eq(sidesOfLocations(['腹部']), {}, '没前缀的词不产出方位（"不标"）')
+eq(sidesOfLocations(['左查不到的词']), {}, '认不出区域 ⇒ 跳过，不抛')
+eq(sidesOfLocations([]), {}, '空声明 ⇒ 空')
+eq(sidesOfLocations(['皮肤']), {}, '全身词没有区域、也不带方位')
+eq(declarationLocations(['上肢', '腿'], sidesOfLocations(['两侧上肢', '左腿'])), ['两侧上肢', '左腿'], '与 declarationLocations 互为逆（往返不变）')
 
 /* ---------- ② 结构化位置反查回图上的区域 ---------- */
 

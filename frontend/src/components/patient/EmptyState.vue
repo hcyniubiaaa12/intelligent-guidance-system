@@ -67,8 +67,8 @@
           :face="lockedFace"
           :selected="id => lockedRegions.includes(id)"
           :enabled="() => true"
-          :side="lockedSide"
-          readonly
+          :side-of="lockedSideOf"
+          :show-sides="false"
         />
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>
         <span>
@@ -83,7 +83,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { QUICK_PICKS as quickPicks, regionsOfLocations } from '../../utils/bodyMap'
+import { QUICK_PICKS as quickPicks, regionsOfLocations, sidesOfLocations } from '../../utils/bodyMap'
 import HumanBodyFigure from './HumanBodyFigure.vue'
 
 /**
@@ -111,7 +111,11 @@ const props = defineProps({
 const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
 const lockedRegions = computed(() => regionsOfLocations(props.locations))
 const lockedFace = computed(() => lockedRegions.value.length && lockedRegions.value.every(id => ['back', 'waist'].includes(id)) ? 'back' : 'front')
-const lockedSide = computed(() => props.locations.find(value => /^(两侧|左|右)/.test(value))?.match(/^(两侧|左|右)/)?.[0] || null)
+// 回执按**当时那份声明**把图点亮：`locations` 拆回「区域 → 方位」，与提交时的口径同一套规则。
+// 缩略图只有 24×56，图上那对左/右方位标注在那儿只会变成两团糊字 ⇒ `:show-sides="false"` 关掉
+// （覆盖层里照旧保留——患者在那儿需要知道图上的左右是哪一边）。
+const lockedSides = computed(() => sidesOfLocations(props.locations))
+const lockedSideOf = (id) => lockedSides.value[id] || ''
 </script>
 
 <style scoped>

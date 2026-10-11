@@ -208,6 +208,23 @@ export function pickedLabel(picked = [], sides = {}) {
 }
 
 /**
+ * `declarationLocations` 的**反向**：把已声明的部位串拆回「区域 → 方位」。
+ *
+ * 用途是**回放 / 回执**——锁定回执手里只有 `locations`，要按当时那份声明把图重新点亮。
+ * 只认前缀；认不出区域的照常跳过（方位留空即"不标"）。
+ */
+export function sidesOfLocations(locations = []) {
+  const out = {}
+  for (const raw of normalizeWords(locations)) {
+    const m = raw.match(/^(两侧|左|右)(.+)$/)
+    if (!m) continue
+    const region = regionOfWord(m[2])
+    if (region) out[region.id] = m[1]
+  }
+  return out
+}
+
+/**
  * 把已提交的结构化位置反查回图上的区域 id。
  * 方位只是声明前缀，全身词没有对应的图块，因此只剥离左/右/两侧后匹配区域词。
  */

@@ -53,7 +53,7 @@
       <path v-for="area in activeAreas" :key="area.key" :d="area.path" class="p-body__ring p-body__ring--active" />
       <path v-if="focusedArea" :d="focusedArea.path" class="p-body__ring p-body__ring--focus" />
     </g>
-    <g class="p-body__sides" aria-hidden="true" :style="{ fontSize: `${12 * textScale}px` }">
+    <g v-if="showSides" class="p-body__sides" aria-hidden="true" :style="{ fontSize: `${12 * textScale}px` }">
       <text x="8" y="600">{{ face === 'front' ? '右' : '左' }}</text>
       <text x="232" y="600" text-anchor="end">{{ face === 'front' ? '左' : '右' }}</text>
     </g>
@@ -69,7 +69,8 @@ const props = defineProps({
   active: { type: String, default: null },
   selected: { type: Function, required: true },
   enabled: { type: Function, required: true },
-  sideOf: { type: Function, default: () => '' }
+  sideOf: { type: Function, default: () => '' },
+  showSides: { type: Boolean, default: true }
 })
 const emit = defineEmits(['select', 'point'])
 const patternId = `body-disabled-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
