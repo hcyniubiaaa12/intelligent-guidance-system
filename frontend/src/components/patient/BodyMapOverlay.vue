@@ -94,12 +94,13 @@
               </div>
             </section>
             <section class="p-map__sec">
-              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.side" aria-controls="body-map-side" @click="toggleSection('side')"><span>哪一侧 <em>选填</em></span><span aria-hidden="true">{{ mobileOpen.side ? '−' : '+' }}</span></button>
-              <h3 class="p-map__lb">哪一侧 <em>选填</em></h3>
+              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.side" aria-controls="body-map-side" @click="toggleSection('side')"><span>哪一侧 <em>{{ state.side ? sideLabel(state.side) : '选填' }}</em></span><span aria-hidden="true">{{ mobileOpen.side ? '−' : '+' }}</span></button>
+              <h3 class="p-map__lb">哪一侧 <em>{{ state.side ? sideLabel(state.side) : '选填' }}</em></h3>
               <div id="body-map-side" v-show="!isMobile || mobileOpen.side" class="p-map__sectionbody">
-                <div class="p-map__chips"><button v-for="s in SIDES" :key="s" type="button" class="p-map__chip" :class="{ 'is-on': state.side === s }" :aria-pressed="state.side === s" :disabled="loading" @click="setSide(s)">{{ sideLabel(s) }}</button></div>
-                <button v-if="suggestSide && !state.side" type="button" class="p-map__suggest" @click="applySuggest">您点的是图上的{{ suggestSide.side }}侧 · 标为{{ suggestSide.side }}侧</button>
-                <p class="p-map__hint">以您自己身体的左右为准，图上已标出。</p>
+                <!-- 方位定下来之后**只留生效那一颗**：图已经点明了是哪半边，再摆三颗只是重复与分心。
+                     点它可取消，取消后回到三个选项（「两侧」因此仍然选得到）。 -->
+                <div class="p-map__chips"><button v-for="s in sideOptions" :key="s" type="button" class="p-map__chip" :class="{ 'is-on': state.side === s }" :aria-pressed="state.side === s" :disabled="loading" @click="setSide(s)">{{ sideLabel(s) }}</button></div>
+                <p class="p-map__hint">{{ sideHint }}</p>
               </div>
             </section>
             <section class="p-map__sec">
@@ -130,18 +131,16 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
 import HumanBodyFigure from './HumanBodyFigure.vue'
-import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, faceOfRegion, pickedWordsOf, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
+import { GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, faceOfRegion, pickedWordsOf, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
 
 const props = defineProps({ open: { type: Boolean, default: false }, preset: { type: Object, default: null } })
 const emit = defineEmits(['update:open', 'submit'])
 const FACES = [{ id: 'front', label: '正面' }, { id: 'back', label: '背面' }]
-const PAIRED_IDS = ['shoulder', 'arm', 'hand', 'leg', 'knee', 'foot']
 const state = ref(emptyState())
 const vocabulary = ref([])
 const loading = ref(false)
 const loadState = ref('loading')
 const isMobile = ref(false)
-const suggestSide = ref(null)
 const locationPulse = ref(false)
 const pointedLabel = ref(null)
 const locationEl = ref(null)
@@ -161,6 +160,11 @@ const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.valu
 // 「具体位置」栏的标题要报**这块实际记下的词**，而不是一个书面区域名（书上叫"下肢"、图上是"腿"）。
 // 注意与 landingWord 的区别：landingWord 是"点了会**将要**落下的词"，recorded 是"**已经**记下的词"。
 const recordedWords = computed(() => pickedWordsOf(state.value.act, state.value.picked))
+// 方位定下来之后**只显示它自己**（点一下可取消，取消后回到三个选项）。
+const sideOptions = computed(() => state.value.side ? [state.value.side] : SIDES)
+const sideHint = computed(() => state.value.side
+  ? `已标为${sideLabel(state.value.side)} · 点一下取消`
+  : '点图上任一侧会自动标好方位，也可直接选')
 const recordedLabel = computed(() => {
   const recorded = recordedWords.value
   if (!recorded.length) return '尚未选择'
@@ -179,7 +183,7 @@ const pickedItems = computed(() => {
   const locations = declarationLocations(s.picked, s.side)
   return [
     ...s.picked.map((word, i) => ({ key: `part:${word}`, kind: 'part', text: locations[i], remove: () => { state.value = removeWord(state.value, word) } })),
-    ...(s.side ? [{ key: 'side', kind: 'side', text: sideLabel(s.side), remove: () => { state.value = { ...state.value, side: null }; suggestSide.value = null } }] : []),
+    ...(s.side ? [{ key: 'side', kind: 'side', text: sideLabel(s.side), remove: () => { state.value = { ...state.value, side: null } } }] : []),
     ...s.feelings.map(f => ({ key: `feel:${f}`, kind: 'feel', text: f, remove: () => { state.value = removeFeeling(state.value, f) } }))
   ]
 })
@@ -188,8 +192,14 @@ function activate(id, face = faceOfRegion(id), meta = {}) {
   const region = regionById(id)
   const word = landingWord(id, vocabulary.value)
   const wasSelected = isRegionSelected(id)
-  const alreadyPaired = REGIONS.some(r => PAIRED_IDS.includes(r.id) && r.words.some(w => state.value.picked.includes(w)))
-  state.value = { ...state.value, view: face, act: id, picked: wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word] }
+  // 方位**直接按点的那一块定下来**（左上肢 ⇒ 左侧），不再让患者点第二下确认。
+  // 点另一侧的块就跟着改成那一侧——"点哪儿就是哪侧"是唯一可预测的规则；
+  // 刻意**不**加"只在没设过方位时才自动"的护栏：那会造出"点了右腿却记成左腿"，
+  // 而这次要消掉的正是这种对不上。想改或想标「两侧」，去「哪一侧」点一下即可。
+  // 取消某一块（再点一次）不动方位；全部取消时由下面那条 watch 清掉。
+  const side = (!wasSelected && meta.side) ? meta.side : state.value.side
+  const picked = wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word]
+  state.value = { ...state.value, view: face, act: id, picked, side }
   mobileOpen.value = { ...mobileOpen.value, location: true }
   locationPulse.value = false
   nextTick(() => {
@@ -200,8 +210,6 @@ function activate(id, face = faceOfRegion(id), meta = {}) {
     // 桌面不滚——那一栏就在图右边、本来就在视野里，凭空滚一次反而像页面在跳。
     if (isMobile.value) locationEl.value?.scrollIntoView({ block: 'nearest' })
   })
-  // 方位对所有部位统一加前缀，只建议第一次点击的成对部位，不能静默替患者决定。
-  if (!state.value.side && !wasSelected && meta.side && !alreadyPaired) suggestSide.value = { side: meta.side, id }
 }
 function pick(word) {
   const region = activeRegion.value
@@ -210,15 +218,14 @@ function pick(word) {
   const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
   state.value = selectWord(base, word)
 }
-// 同一个区域可从图和细分词两处取消，建议对应的区域消失时一起撤回。
-watch(() => state.value.picked, () => {
-  if (suggestSide.value && !isRegionSelected(suggestSide.value.id)) suggestSide.value = null
+// 一个部位都没选时方位没有意义（会留下一条孤零零的「左侧」）——顺手清掉。
+watch(() => state.value.picked, (picked) => {
+  if (!picked.length && state.value.side) state.value = { ...state.value, side: null }
 })
-function setSide(s) { state.value = selectSide(state.value, s); suggestSide.value = null }
+function setSide(s) { state.value = selectSide(state.value, s) }
 function onPoint(label) { pointedLabel.value = label || null }
-function applySuggest() { state.value = selectSide(state.value, suggestSide.value.side); suggestSide.value = null }
 function toggleSection(key) { mobileOpen.value = { ...mobileOpen.value, [key]: !mobileOpen.value[key] } }
-function clearState() { state.value = clearAll(); suggestSide.value = null; mobileOpen.value = { location: true, side: false, feeling: false } }
+function clearState() { state.value = clearAll(); mobileOpen.value = { location: true, side: false, feeling: false } }
 function fill() {
   if (!canFill.value) return
   emit('submit', { locations: declarationLocations(state.value.picked, state.value.side), sentence: sentence(state.value.picked, state.value.feelings, state.value.side) })
@@ -297,7 +304,6 @@ watch(() => props.open, async open => {
     locked = true
     document.body.style.overflow = 'hidden'
     state.value = emptyState()
-    suggestSide.value = null
     mobileOpen.value = { location: true, side: false, feeling: false }
     const preset = props.preset
     if (preset?.word) state.value = { ...state.value, view: faceOfRegion(preset.region), act: preset.region || null, picked: [preset.word] }
@@ -387,7 +393,6 @@ onBeforeUnmount(() => {
 .p-map__chip.is-current::before { content: '✓ '; font-weight: 700; }
 .p-map__chip.is-unsure { border-style: dashed; }
 .p-map__chip:disabled { cursor: default; opacity: .55; }
-.p-map__suggest { display: block; margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--leaf-line); border-radius: var(--r-xs); background: var(--leaf-soft); color: var(--leaf-deep); font: inherit; font-size: 12px; cursor: pointer; }
 .p-map__dead { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 28px 32px; text-align: center; }
 .p-map__deadt { font-size: 15px; font-weight: 600; color: var(--ink); }
 .p-map__deads { font-size: 12.5px; line-height: 1.9; color: var(--ink-2); }
