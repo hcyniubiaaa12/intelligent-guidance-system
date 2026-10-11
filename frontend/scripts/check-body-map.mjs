@@ -17,6 +17,7 @@
 import {
   sentence, declarationLocations, pickedLabel, regionsOfLocations, sideLabel,
   regionById, isGlobalWord, visibleWords, regionHasWords, landingWord,
+  faceOfRegion, pickedWordsOf,
   emptyState, selectWord, selectFeeling, selectSide, removeWord, clearAll,
   PARTS, REGIONS, GLOBAL_WORDS, QUICK_PICKS, NO_LOCATION_HINT
 } from '../src/utils/bodyMap.js'
@@ -103,6 +104,19 @@ eq(landingWord('abd', ['上腹', '腹部', '下腹']), '腹部', '腹部的首�
 eq(landingWord('leg', []), '腿', '取不到词表（回落全量）⇒ 还是首选落词')
 eq(landingWord('leg', ['头']), null, '该区域一个可选词都没有 ⇒ null（这块现在点不动）')
 eq(landingWord('不存在的区域', ['腿']), null, '未知区域 ⇒ null，不抛')
+
+/* ---------- ④c 覆盖层共用的两条小规则（同样只此一份实现） ---------- */
+
+eq(faceOfRegion('back'), 'back', '背画在背面那张图上')
+eq(faceOfRegion('waist'), 'back', '腰也在背面')
+eq(faceOfRegion('leg'), 'front', '其余区域在正面')
+eq(faceOfRegion('不存在的区域'), 'front', '未知区域回落正面，不抛')
+
+eq(pickedWordsOf('leg', ['腿', '腹部']), ['腿'], '只挑出属于这块区域的词')
+eq(pickedWordsOf('leg', ['下肢', '腿']), ['下肢', '腿'], '同属一整条腿的两个词都算')
+eq(pickedWordsOf('abd', ['腿']), [], '这块一个词都没选 ⇒ 空')
+eq(pickedWordsOf('不存在的区域', ['腿']), [], '未知区域 ⇒ 空，不抛')
+ok(Array.isArray(pickedWordsOf('leg', null)), 'picked 传 null 不炸')
 
 /* ---------- ⑤ 按后端词表过滤 ---------- */
 

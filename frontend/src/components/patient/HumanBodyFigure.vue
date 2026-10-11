@@ -31,7 +31,9 @@
         @pointerup="touchedKey = null"
         @pointercancel="touchedKey = null"
       >
-        <title>{{ area.label }}</title>
+        <!-- 刻意**不放 `<title>`**：它在悬停时会弹浏览器原生 tooltip，正好压在人体上——
+             那正是本次要治的遮挡。无障碍名由 `aria-label` 给（ARIA 优先于 title），
+             名字另有图外那一行负责显示。 -->
         <path v-if="!readonly && enabled(area.id)" class="p-body__hit" :d="area.path" />
         <path class="p-body__region" :d="area.path" :style="!enabled(area.id) ? { fill: `url(#${patternId})` } : null" />
       </g>

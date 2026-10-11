@@ -78,11 +78,11 @@
             </div>
             <section ref="locationEl" class="p-map__sec" :class="{ 'is-pulse': locationPulse }">
               <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.location" aria-controls="body-map-location" @click="toggleSection('location')">
-                <span>具体位置 <em>{{ landedLabel }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
+                <span>具体位置 <em>{{ recordedLabel }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
               </button>
               <!-- 标题写的是**这块实际会记下的词**（不是区域展示名）：图上写「腿」、这里就报「腿」，
                    患者不必去猜"下肢"和"腿"是不是一回事。 -->
-              <h3 class="p-map__lb">具体位置 <em>{{ landedLabel }}</em></h3>
+              <h3 class="p-map__lb">具体位置 <em>{{ recordedLabel }}</em></h3>
               <div id="body-map-location" v-show="!isMobile || mobileOpen.location" class="p-map__sectionbody">
                 <div v-if="loading" class="p-map__skeleton" aria-hidden="true"><i v-for="i in 3" :key="i" /></div>
                 <div v-else-if="!activeRegion" class="p-map__hintbox">
@@ -90,7 +90,7 @@
                   <span>{{ isMobile ? '先在上面的图上点一下' : '先在左边的图上点一下' }}</span>
                 </div>
                 <div v-else-if="!subWords.length" class="p-map__hint">这个部位暂时不可选，您可以直接描述不适。</div>
-                <div v-else class="p-map__chips"><button v-for="w in subWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w), 'is-current': landedWords.includes(w) }" :aria-pressed="state.picked.includes(w)" @click="pick(w)">{{ w }}</button></div>
+                <div v-else class="p-map__chips"><button v-for="w in subWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w), 'is-current': recordedWords.includes(w) }" :aria-pressed="state.picked.includes(w)" @click="pick(w)">{{ w }}</button></div>
               </div>
             </section>
             <section class="p-map__sec">
@@ -130,7 +130,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
 import HumanBodyFigure from './HumanBodyFigure.vue'
-import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
+import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, faceOfRegion, pickedWordsOf, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
 
 const props = defineProps({ open: { type: Boolean, default: false }, preset: { type: Object, default: null } })
 const emit = defineEmits(['update:open', 'submit'])
@@ -158,16 +158,14 @@ let resizeObserver = null
 let pulseTimer = null
 const activeRegion = computed(() => state.value.act ? regionById(state.value.act) : null)
 const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.value))
-// 「具体位置」栏的标题要报**实际落下的词**，而不是区域展示名（展示名是"下肢"、落词是"腿"）。
-const landedWords = computed(() => {
-  const region = activeRegion.value
-  return region ? state.value.picked.filter(w => region.words.includes(w)) : []
-})
-const landedLabel = computed(() => {
-  const landed = landedWords.value
-  if (!landed.length) return '尚未选择'
-  const alt = subWords.value.filter(w => !landed.includes(w))
-  return `已记录：${landed.join('、')}${alt.length ? ` · 可改成${alt.join(' / ')}` : ''}`
+// 「具体位置」栏的标题要报**这块实际记下的词**，而不是一个书面区域名（书上叫"下肢"、图上是"腿"）。
+// 注意与 landingWord 的区别：landingWord 是"点了会**将要**落下的词"，recorded 是"**已经**记下的词"。
+const recordedWords = computed(() => pickedWordsOf(state.value.act, state.value.picked))
+const recordedLabel = computed(() => {
+  const recorded = recordedWords.value
+  if (!recorded.length) return '尚未选择'
+  const alt = subWords.value.filter(w => !recorded.includes(w))
+  return `已记录：${recorded.join('、')}${alt.length ? ` · 可改成${alt.join(' / ')}` : ''}`
 })
 const globalWords = computed(() => visibleWords({ words: [...GLOBAL_WORDS] }, vocabulary.value))
 const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.side) || NO_LOCATION_HINT)
@@ -175,7 +173,7 @@ const allDisabled = computed(() => loadState.value === 'ready' && !vocabulary.va
 const canFill = computed(() => !loading.value && !allDisabled.value && state.value.picked.length > 0)
 const visibleFaces = computed(() => isMobile.value ? FACES.filter(face => face.id === state.value.view) : FACES)
 function isRegionEnabled(id) { return !loading.value && !allDisabled.value && regionHasWords(regionById(id), vocabulary.value) }
-function isRegionSelected(id) { return regionById(id)?.words.some(w => state.value.picked.includes(w)) || false }
+function isRegionSelected(id) { return pickedWordsOf(id, state.value.picked).length > 0 }
 const pickedItems = computed(() => {
   const s = state.value
   const locations = declarationLocations(s.picked, s.side)
@@ -185,7 +183,7 @@ const pickedItems = computed(() => {
     ...s.feelings.map(f => ({ key: `feel:${f}`, kind: 'feel', text: f, remove: () => { state.value = removeFeeling(state.value, f) } }))
   ]
 })
-function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', meta = {}) {
+function activate(id, face = faceOfRegion(id), meta = {}) {
   if (!isRegionEnabled(id)) return
   const region = regionById(id)
   const word = landingWord(id, vocabulary.value)
@@ -207,7 +205,7 @@ function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', 
 }
 function pick(word) {
   const region = activeRegion.value
-  const regionPicks = state.value.picked.filter(w => region?.words.includes(w))
+  const regionPicks = pickedWordsOf(region?.id, state.value.picked)
   const preferred = landingWord(region?.id, vocabulary.value)
   const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
   state.value = selectWord(base, word)
@@ -302,7 +300,7 @@ watch(() => props.open, async open => {
     suggestSide.value = null
     mobileOpen.value = { location: true, side: false, feeling: false }
     const preset = props.preset
-    if (preset?.word) state.value = { ...state.value, view: ['back', 'waist'].includes(preset.region) ? 'back' : 'front', act: preset.region || null, picked: [preset.word] }
+    if (preset?.word) state.value = { ...state.value, view: faceOfRegion(preset.region), act: preset.region || null, picked: [preset.word] }
     const request = loadVocabulary()
     await nextTick()
     if (seq === openSeq && props.open) titleEl.value?.focus({ preventScroll: true })
@@ -400,9 +398,11 @@ onBeforeUnmount(() => {
 .p-map__x { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-full); background: none; color: inherit; font-size: 18px; cursor: pointer; }
 .p-map__x:hover { background: var(--hover-soft); }
 .p-map__clear { flex: none; padding: 4px 8px; border: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
-.p-map__preview { display: flex; align-items: baseline; gap: 12px; min-height: 23px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
+/* 描述预览的高度**钉死**（正文里 1 行、窄屏 2 行），不跟着文字长短变——
+   否则"还没选…"的引导语与选完后的句子行数不同，页脚仍会在点选那一下变高。 */
+.p-map__preview { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .p-map__previewk { flex: none; font-weight: 600; }
-.p-map__preview b { font-weight: 500; color: var(--leaf-deep); overflow-wrap: anywhere; }
+.p-map__preview b { height: 23px; overflow-y: auto; font-weight: 500; color: var(--leaf-deep); overflow-wrap: anywhere; }
 .p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .p-map__acts > .p-map__prime { margin-left: auto; }
 .p-map__ghost { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-xs); background: none; font-family: var(--sans); font-size: 13px; color: var(--ink-2); cursor: pointer; }

@@ -32,13 +32,19 @@ export const PARTS = Object.freeze([
   '关节', '咽', '鼻', '耳', '皮肤', '胃', '心', '肺', '肠', '喉', '眼', '手', '脚', '上肢', '下肢'
 ])
 
+/** 背面那张图上画的是背与腰；其余区域都在正面。覆盖层两处要问这件事，规则只写这一份。 */
+const BACK_REGIONS = ['back', 'waist']
+
 /**
  * 「形 ↔ 词」映射：**形是前端资产**（哪块区域画在哪），词都取自 {@link PARTS}（那份词清单的镜像）。
  *
- * `id` 是区域标识（SVG 上的 data-r）；`name` 是区域**展示名**（侧栏标题一类地方用）；
- * `words` 是这块区域包含的部位词；`label` 是**图上命名**——这块在图上、读屏里、已选栏里
- * 写出来的那个字，取值恒为该区域的**首选落词**（所以图上写的就是一个真能落下的词，
- * `npm run check` 的 ④ 钉住"命名必须是自己可选词里的一员"这条）。
+ * `id` 是区域标识（SVG 上的 data-r）；`words` 是这块区域包含的部位词；`label` 是**图上命名**——
+ * 这块在图上、读屏里、已选栏里写出来的那个字，取值恒为该区域的**首选落词**
+ * （所以图上写的就是一个真能落下的词，`npm run check` 的 ④ 钉住"命名必须是自己可选词里的一员"）。
+ *
+ * **没有单独的"区域展示名"**：侧栏标题报的是**实际落下的词**（见 `landingWord`），图上与读屏写的
+ * 是 `label`——两者都是"一个真能落下的词"。留一个只给内部看的书面区域名（"'下肢'/'足部'"）只会
+ * 制造"这里说下肢、那里说腿"的第二份事实（工单 09 的口径）。
  *
  * **命名不随实时词表漂移**：管理员停用「腿」时图上仍写「腿」，只是落词回落到「下肢」。
  * 命名稳定优先——反过来的做法会让一次运营动作直接改写患者看到的解剖命名。
@@ -46,19 +52,19 @@ export const PARTS = Object.freeze([
  * 「腹」刻意不在任何区域里——它是「腹部」的单字形式，图上重复给会让患者以为点的是两处。
  */
 export const REGIONS = Object.freeze([
-  { id: 'head', name: '头部', label: '头', words: ['头', '眼', '鼻', '耳', '咽', '喉'] },
-  { id: 'neck', name: '颈部', label: '颈', words: ['颈'] },
-  { id: 'shoulder', name: '肩部', label: '肩', words: ['肩'] },
-  { id: 'chest', name: '胸部', label: '胸口', words: ['胸', '胸口'] },
-  { id: 'abd', name: '腹部', label: '腹部', words: ['上腹', '腹部', '下腹'] },
-  { id: 'hip', name: '髋部', label: '髋', words: ['髋'] },
-  { id: 'back', name: '背部', label: '背', words: ['背'] },
-  { id: 'waist', name: '腰部', label: '腰', words: ['腰'] },
-  { id: 'arm', name: '上肢', label: '上肢', words: ['上肢'] },
-  { id: 'hand', name: '手部', label: '手', words: ['手'] },
-  { id: 'leg', name: '下肢', label: '腿', words: ['腿', '下肢'] },
-  { id: 'knee', name: '膝部', label: '膝', words: ['膝'] },
-  { id: 'foot', name: '足部', label: '脚', words: ['脚'] }
+  { id: 'head', label: '头', words: ['头', '眼', '鼻', '耳', '咽', '喉'] },
+  { id: 'neck', label: '颈', words: ['颈'] },
+  { id: 'shoulder', label: '肩', words: ['肩'] },
+  { id: 'chest', label: '胸口', words: ['胸', '胸口'] },
+  { id: 'abd', label: '腹部', words: ['上腹', '腹部', '下腹'] },
+  { id: 'hip', label: '髋', words: ['髋'] },
+  { id: 'back', label: '背', words: ['背'] },
+  { id: 'waist', label: '腰', words: ['腰'] },
+  { id: 'arm', label: '上肢', words: ['上肢'] },
+  { id: 'hand', label: '手', words: ['手'] },
+  { id: 'leg', label: '腿', words: ['腿', '下肢'] },
+  { id: 'knee', label: '膝', words: ['膝'] },
+  { id: 'foot', label: '脚', words: ['脚'] }
 ])
 
 /**
@@ -119,6 +125,24 @@ export function regionById(id) {
 /** 该词是否全身性（决定加不加方位前缀） */
 export function isGlobalWord(word) {
   return GLOBAL_WORDS.includes(word)
+}
+
+/** 这块区域画在哪一面：「背面」还是「正面」。点图与快捷词预选都要问，规则只写这一份。 */
+export function faceOfRegion(regionId) {
+  return BACK_REGIONS.includes(regionId) ? 'back' : 'front'
+}
+
+/**
+ * 已选里**属于这块区域**的词——即"这块现在记下了什么"。
+ *
+ * 覆盖层有三处要问同一件事（这块选没选 / 点了这块现在记着什么 / 细分词要跟哪几个比），
+ * 所以规则只写这一份（"同一份事实只允许一处拼装"）。区域不存在 ⇒ 空数组，不抛。
+ */
+export function pickedWordsOf(regionId, picked = []) {
+  const region = regionById(regionId)
+  if (!region) return []
+  const arr = Array.isArray(picked) ? picked : []
+  return arr.filter((w) => region.words.includes(w))
 }
 
 /**
