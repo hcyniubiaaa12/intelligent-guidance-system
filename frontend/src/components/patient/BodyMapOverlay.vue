@@ -307,9 +307,12 @@ onBeforeUnmount(() => {
 .p-map__count { font-size: 12px; font-weight: 600; color: var(--leaf-deep); background: var(--leaf-soft); padding: 2px 10px; border-radius: var(--r-full); border: 1px solid var(--leaf-line); }
 .p-map__loadhint { margin: 0; color: var(--ink-2); font-size: 12px; }
 .p-map__loadhint button { padding: 0; border: 0; background: none; color: var(--leaf-deep); text-decoration: underline; cursor: pointer; }
-.p-map__canvas { flex: 1; min-height: 320px; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px; background: var(--stage); border-radius: var(--r-md); border: 1px solid var(--line); }
+/* 图的尺寸只由**视口**决定（定高 + 固定宽高比），**不占 flex 剩余空间**——
+   否则页脚一变高（点选后多一行「已选」）就会逐级把图挤矮，患者看到"点一下就缩了一圈"。
+   空间不够时由 .p-map__fig 自身滚动，而不是把图压小。这套写法先窄屏验证过，现上移到桌面。 */
+.p-map__canvas { flex: none; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px; background: var(--stage); border-radius: var(--r-md); border: 1px solid var(--line); }
 .p-map__face { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; gap: 8px; }
-.p-map__face .p-body { flex: 1; min-height: 0; }
+.p-map__face .p-body { flex: none; width: auto; max-width: 100%; height: min(62vh, 460px); aspect-ratio: 240 / 608; margin: auto; }
 .p-map__fig > :not(.p-map__canvas) { flex-shrink: 0; }
 .p-map__canvas { overflow: hidden; }
 .p-map__box .p-overlay__title:focus { outline: none; }
@@ -376,7 +379,6 @@ onBeforeUnmount(() => {
   .p-map__tabs button.is-on { background: var(--leaf); color: var(--on-accent); }
   .p-map__canvas { display: block; min-height: 0; padding: 12px; }
   .p-map__face { animation: p-map-face .18s ease; }
-  .p-map__face .p-body { flex: none; width: auto; max-width: 100%; height: min(62vh, 460px); aspect-ratio: 240 / 608; margin: auto; }
   .p-map__face figcaption { display: none; }
   .p-map__pick { width: auto; min-height: 0; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
   .p-map__mobilehead { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
