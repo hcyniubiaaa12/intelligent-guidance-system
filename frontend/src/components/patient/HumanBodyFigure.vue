@@ -64,6 +64,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { regionById } from '../../utils/bodyMap'
 
 const props = defineProps({
   face: { type: String, default: 'front' },
@@ -138,11 +139,13 @@ const ANCHORS = {
   knee: [[94, 450], [146, 450]], calf: [[94, 510], [146, 510]],
   foot: [[93, 580], [147, 580]]
 }
-const LABELS = {
-  head: '头部', neck: '颈部', hip: '髋部', chest: '胸部', abd: '腹部',
-  back: '背部', waist: '腰部', shoulder: '肩部', arm: '上肢', hand: '手部',
-  thigh: '大腿', knee: '膝部', calf: '小腿', foot: '足部'
-}
+// 图上的字**就是点一下会落下的词**：名字一律从 utils/bodyMap.js 的区域命名（`label`）取，
+// 不在这里另写一份（"同一份事实只允许一处拼装"）。所以整条下肢（thigh / calf 两块图元）
+// 图上写的都是「腿」、足部写「脚」、髋部写「髋」——图上、已选栏、读屏三处一致，
+// "点一处亮两处"也就不再生疑：你选中的本来就是「腿」这一整块。
+// 命名是前端资产、**不随实时词表漂移**（管理员停用「腿」图上仍写「腿」，落词回落「下肢」）。
+const shapeRegion = (shape) => (['thigh', 'calf'].includes(shape) ? 'leg' : shape)
+const shapeName = (shape) => regionById(shapeRegion(shape))?.label || ''
 const DETAIL = {
   front: 'M98 124 Q108 128 116 127 M124 127 Q132 128 142 124 M120 236 L120 286 M100 300 Q120 312 140 300',
   back: 'M120 120 L120 300 M90 150 Q96 176 110 186 M150 150 Q144 176 130 186 M120 322 L120 346'
@@ -156,13 +159,13 @@ function bodySide(face, part) {
 }
 const areas = computed(() => {
   const center = Object.entries({ ...CENTER, ...TRUNK[props.face] }).map(([id, path]) => ({
-    key: `${id}:c`, shape: id, id, part: 'c', label: LABELS[id], path,
+    key: `${id}:c`, shape: id, id, part: 'c', label: shapeName(id), path,
     x: ANCHORS[id][0], y: ANCHORS[id][1]
   }))
   const paired = Object.entries(PAIRED).flatMap(([shape, paths]) =>
     ['vl', 'vr'].map((part, i) => ({
-      key: `${shape}:${part}`, shape, id: ['thigh', 'calf'].includes(shape) ? 'leg' : shape,
-      part, label: bodySide(props.face, part) + LABELS[shape], path: paths[part],
+      key: `${shape}:${part}`, shape, id: shapeRegion(shape),
+      part, label: bodySide(props.face, part) + shapeName(shape), path: paths[part],
       x: ANCHORS[shape][i][0], y: ANCHORS[shape][i][1]
     }))
   )
