@@ -340,10 +340,15 @@ onBeforeUnmount(() => {
 .p-map__loadhint button { padding: 0; border: 0; background: none; color: var(--leaf-deep); text-decoration: underline; cursor: pointer; }
 /* 图的尺寸只由**视口**决定（定高 + 固定宽高比），**不占 flex 剩余空间**——
    否则页脚一变高（点选后多一行「已选」）就会逐级把图挤矮，患者看到"点一下就缩了一圈"。
-   空间不够时由 .p-map__fig 自身滚动，而不是把图压小。这套写法先窄屏验证过，现上移到桌面。 */
+   空间不够时由 .p-map__fig 自身滚动，而不是把图压小。这套写法先在窄屏验证过，现上移到桌面。
+   三个约束各管一件事：`62vh` 是窄屏验证过的比例；`460px` 是上限；
+   `100dvh - 510px` 是"浮层里除了图还有固定开销"——头 + 页脚 + 图例 +「全身性不适」那一排
+   + 三段间距 + 画布与图区自己的内边距 ≈ 500px（1440×900 与 1280×800 实测溢出反推），
+   减掉它才不至于在常见桌面尺寸上**默认就要滚一下**才看得见"全身性不适"；220px 是地板，防极矮视口把图压没。
+   注意：窄屏与桌面共用这一条（同一份事实只允许一处拼装），不再各写一份。 */
 .p-map__canvas { flex: none; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px; background: var(--stage); border-radius: var(--r-md); border: 1px solid var(--line); }
 .p-map__face { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; gap: 8px; }
-.p-map__face .p-body { flex: none; width: auto; max-width: 100%; height: min(62vh, 460px); aspect-ratio: 240 / 608; margin: auto; }
+.p-map__face .p-body { flex: none; width: auto; max-width: 100%; height: clamp(220px, min(62vh, 100dvh - 510px), 460px); aspect-ratio: 240 / 608; margin: auto; }
 .p-map__fig > :not(.p-map__canvas) { flex-shrink: 0; }
 .p-map__canvas { overflow: hidden; }
 .p-map__box .p-overlay__title:focus { outline: none; }
