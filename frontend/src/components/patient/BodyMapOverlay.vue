@@ -63,6 +63,15 @@
           </div>
 
           <div v-if="!allDisabled" class="p-map__pick">
+            <div v-if="pickedItems.length" class="p-map__pickedbox" aria-label="已选部位与感觉">
+              <h3 class="p-map__lb">已选 <em>{{ pickedItems.length }} 项 · 点 × 逐条删</em></h3>
+              <div class="p-map__picked">
+                <span v-for="item in pickedItems" :key="item.key" class="p-map__pill" :class="`p-map__pill--${item.kind}`">
+                  {{ item.text }}<button type="button" class="p-map__x" :aria-label="`移除 ${item.text}`" @click="item.remove()">×</button>
+                </span>
+                <button type="button" class="p-map__clear" @click="clearState">全部清空</button>
+              </div>
+            </div>
             <section class="p-map__sec" :class="{ 'is-pulse': locationPulse }">
               <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.location" aria-controls="body-map-location" @click="toggleSection('location')">
                 <span>具体位置 <em>{{ activeRegion ? activeRegion.name : '尚未选择' }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
@@ -99,16 +108,10 @@
         </div>
 
         <footer class="p-overlay__foot p-map__ft">
-          <div v-if="pickedItems.length" class="p-map__picked" aria-label="已选部位与感觉">
-            <span v-for="item in pickedItems" :key="item.key" class="p-map__pill" :class="`p-map__pill--${item.kind}`">
-              {{ item.text }}<button type="button" class="p-map__x" :aria-label="`移除 ${item.text}`" @click="item.remove()">×</button>
-            </span>
-            <button type="button" class="p-map__clear" @click="clearState">全部清空</button>
-          </div>
           <p class="p-map__preview" aria-live="polite"><span class="p-map__previewk">您的描述</span><b>{{ allDisabled ? '您可以直接描述不适' : previewText }}</b></p>
           <div class="p-map__acts">
             <button type="button" class="p-map__ghost" @click="giveUp">说不清在哪儿 · 直接描述</button>
-            <span v-if="!canFill" class="p-map__reason">先选一个部位，或点「说不清在哪儿」</span>
+            <span class="p-map__reason" :class="{ 'is-off': canFill }" :aria-hidden="canFill ? 'true' : 'false'">先选一个部位，或点「说不清在哪儿」</span>
             <button type="button" class="p-map__prime" :disabled="!canFill" @click="fill">确认部位 <span aria-hidden="true">→</span></button>
           </div>
         </footer>
@@ -351,14 +354,17 @@ onBeforeUnmount(() => {
 .p-map__deads { font-size: 12.5px; line-height: 1.9; color: var(--ink-2); }
 .p-map__deads b { color: var(--leaf-deep); font-weight: 600; }
 .p-map__ft { flex: none; display: flex; flex-direction: column; gap: 10px; }
-.p-map__picked { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; white-space: nowrap; padding-bottom: 2px; color: var(--leaf-deep); font-size: 12px; }
+/* 「已选」收编进侧栏——原来这行在页脚里，点选后页脚一变高就把图挤矮（"点一下就缩一圈"的根源）。
+   贴顶吸住：滚侧栏时"我选了哪些"也一直看得见，不必额外滚动去找。 */
+.p-map__pickedbox { position: sticky; top: 0; z-index: 1; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.p-map__picked { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--leaf-deep); font-size: 12px; }
 .p-map__pill { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--leaf-line); border-radius: var(--r-full); background: var(--leaf-soft); color: var(--leaf-deep); }
 .p-map__pill--side { background: var(--rail); color: var(--ink-2); border-color: var(--line-2); }
 .p-map__pill--feel { background: var(--apricot-soft); color: var(--apricot-deep); border-color: var(--line-2); }
 .p-map__x { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-full); background: none; color: inherit; font-size: 18px; cursor: pointer; }
 .p-map__x:hover { background: var(--hover-soft); }
 .p-map__clear { flex: none; padding: 4px 8px; border: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
-.p-map__preview { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
+.p-map__preview { display: flex; align-items: baseline; gap: 12px; min-height: 23px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .p-map__previewk { flex: none; font-weight: 600; }
 .p-map__preview b { font-weight: 500; color: var(--leaf-deep); overflow-wrap: anywhere; }
 .p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
@@ -368,6 +374,9 @@ onBeforeUnmount(() => {
 .p-map__prime:not(:disabled):hover { background: var(--leaf-deep); }
 .p-map__prime:disabled { background: var(--rail); color: var(--ink-3); box-shadow: none; cursor: not-allowed; }
 .p-map__reason { flex: 1; min-width: 180px; color: var(--ink-2); font-size: 12px; }
+/* 页脚要恒定高度：这句提示在"能确认"时只是看不见，**位置照旧占着**——
+   用 v-if 摘掉它，窄屏下 acts 会少一整行，页脚仍然会变矮。 */
+.p-map__reason.is-off { visibility: hidden; }
 @keyframes p-map-pulse { 0% { background: var(--surface); } 50% { background: var(--leaf-soft); } 100% { background: var(--surface); } }
 @keyframes p-map-breathe { from { opacity: .45; } to { opacity: .9; } }
 @container (max-width: 700px) {
@@ -391,7 +400,8 @@ onBeforeUnmount(() => {
   .p-map__acts { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .p-map__prime { grid-row: 1; width: 100%; }
   .p-map__reason { min-width: 0; text-align: center; }
-  .p-map__preview b { max-height: 44px; overflow-y: auto; }
+  /* 描述预览钉死两行高：否则"还没选…"的引导语与选完后的句子行数不同，页脚仍会跳。 */
+  .p-map__preview b { height: 44px; overflow-y: auto; }
 }
 @keyframes p-map-face { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 600px) {
