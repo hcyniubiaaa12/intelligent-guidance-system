@@ -1,5 +1,7 @@
 <template>
   <div class="patient-root p-chat">
+    <!-- 只播报一轮结束的摘要，逐字流式文本会让读屏反复打断患者。 -->
+    <div class="p-sr-only" aria-live="polite" aria-atomic="true">{{ turnAnnouncement }}</div>
     <div class="p-chat__body">
       <!-- ---------- 左：我的就诊（会话目录，桌面常驻 / 手机覆盖层） ----------
            侧栏自管会话列表状态，页面只告诉它"正在看哪一条"，其余靠 reload / showBooked -->
@@ -22,30 +24,31 @@
         <!-- 顶栏只剩手机端：桌面端整条移除——标题、用户区都归左侧栏，对话区顶上不再有一条横线。
              （手机没有侧栏可挂，只能留在顶栏） -->
         <header class="p-topbar p-chat__topbar">
-          <button class="p-chat__menubtn" @click="sideOpen = true">会 话</button>
+          <button class="p-chat__menubtn" @click="sideOpen = true">会话</button>
           <div class="p-topbar__title">智能导诊</div>
           <div class="p-topbar__ops">
-            <button class="p-topbar__nick" title="看我的挂号历史" @click="openBooked">{{ user.nickname || '我 的 就 诊' }}</button>
-            <button class="p-topbar__logout" @click="onLogout">退 出</button>
+            <button class="p-topbar__nick" title="看我的挂号历史" @click="openBooked">{{ user.nickname || '我的就诊' }}</button>
+            <button class="p-topbar__logout" @click="onLogout">退出</button>
           </div>
         </header>
 
-        <!-- 对话区：有消息时＝对话流＋流程条＋底部输入；空状态时＝欢迎块＋输入框＋免责 一起居中 -->
+        <!-- 对话区：有消息时＝对话流＋流程条＋底部输入；空状态时＝欢迎块＋输入框＋免责一起居中 -->
         <div class="p-chat__main" :class="{ 'is-empty': isEmpty }">
-          <main ref="threadEl" class="p-thread p-chat__thread">
+          <main ref="threadEl" class="p-thread p-chat__thread" @scroll.passive="onThreadScroll">
             <!-- 空状态：一张还没填的导诊卡 -->
             <EmptyState
               v-if="isEmpty"
               :stage="partStage"
               :part-label="partLabel"
+              :locations="parts.locations"
               @pick-part="mapOpen = true"
               @quick="onQuickPick"
               @rechoose="rechooseParts"
             />
 
-            <!-- 回放与实时共用同一套条目渲染：shown = 回放条目 或 本次对话条目 -->
+            <!-- 回放与实时共用同一套条目渲染：shown = 回放条目或本次对话条目 -->
             <template v-else>
-              <template v-for="(m, i) in shown" :key="i">
+              <template v-for="(m, i) in shown" :key="m.id">
                 <!-- 用户消息：实心主色气泡（回放时带问题编号，书签靠它定位） -->
                 <div
                   v-if="m.type === 'user'"
@@ -56,9 +59,9 @@
                   <div class="p-q__col">
                     <div class="p-user">{{ m.content }}</div>
                     <CopyButton
-                      :copied="copiedKey === 'u' + i"
+                      :copied="copiedKey === m.id"
                       aria-label="复制这条主诉"
-                      @copy="copyText('u' + i, m.content)"
+                      @copy="copyText(m.id, m.content)"
                     />
                   </div>
                 </div>
@@ -69,13 +72,13 @@
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
                   </span>
                   <div class="p-ai__bd">
-                  <div class="p-ai__tag">陪 诊 助 手 · 追 问</div>
+                  <div class="p-ai__tag">陪诊助手 · 追问</div>
                   <div class="p-ai__text p-ask">{{ m.content }}</div>
                   <CopyButton
                     v-if="m.content"
-                    :copied="copiedKey === 'q' + i"
+                    :copied="copiedKey === m.id"
                     aria-label="复制这条追问"
-                    @copy="copyText('q' + i, m.content)"
+                    @copy="copyText(m.id, m.content)"
                   />
                   </div>
                 </div>
@@ -87,13 +90,13 @@
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
                   </span>
                   <div class="p-ai__bd">
-                  <div class="p-ai__tag">陪 诊 助 手 · 资 料</div>
+                  <div class="p-ai__tag">陪诊助手 · 资料</div>
                   <div class="p-ai__text">{{ m.content }}</div>
                   <CopyButton
                     v-if="m.content"
-                    :copied="copiedKey === 'if' + i"
+                    :copied="copiedKey === m.id"
                     aria-label="复制这条资料回答"
-                    @copy="copyText('if' + i, m.content)"
+                    @copy="copyText(m.id, m.content)"
                   />
                   </div>
                 </div>
@@ -105,13 +108,13 @@
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 4z"/><path d="M12 9v5M9.5 11.5h5"/></svg>
                   </span>
                   <div class="p-ai__bd">
-                  <div class="p-ai__tag">陪 诊 助 手</div>
+                  <div class="p-ai__tag">陪诊助手</div>
                   <div class="p-ai__text">{{ m.content }}<span v-if="!isReplay && chat.streaming && i === shown.length - 1 && !m.content" class="p-ai__wait">正在整理…</span></div>
                   <CopyButton
                     v-if="m.content"
-                    :copied="copiedKey === 'a' + i"
+                    :copied="copiedKey === m.id"
                     aria-label="复制这条回复"
-                    @copy="copyText('a' + i, m.content)"
+                    @copy="copyText(m.id, m.content)"
                   />
                   </div>
                 </div>
@@ -139,9 +142,9 @@
 
           <!-- 步进流程条：① 导诊结论 → ② 模拟挂号 → ③ 确认完成（空状态时还没有任何步骤，不显示） -->
           <nav v-if="!isEmpty" class="p-steps">
-            <span class="p-steps__item p-steps__item--now"><span class="p-steps__no">1</span>导诊结论</span>
+            <span class="p-steps__item" :class="hasConclusion ? 'p-steps__item--done' : 'p-steps__item--now'" :aria-current="!hasConclusion ? 'step' : undefined"><span class="p-steps__no">{{ hasConclusion ? '✓' : '1' }}</span>导诊结论</span>
             <span class="p-steps__link" />
-            <span class="p-steps__item"><span class="p-steps__no">2</span>模拟挂号</span>
+            <span class="p-steps__item" :class="{ 'p-steps__item--now': hasConclusion }" :aria-current="hasConclusion ? 'step' : undefined"><span class="p-steps__no">2</span>模拟挂号</span>
             <span class="p-steps__link" />
             <span class="p-steps__item"><span class="p-steps__no">3</span>确认完成</span>
           </nav>
@@ -152,6 +155,7 @@
              「人体图选部位」小按钮**等待态也不禁**——草案里它禁用是因为引导区有大按钮兜着，
              但结论卡出现后 EmptyState 已不在，禁掉它就是死路（声明就没了入口）。 -->
           <footer v-if="!isReplay" class="p-composer" :class="{ 'is-waiting': partStage === 'awaiting' }">
+            <button v-if="hasNewReply && !followingBottom" type="button" class="p-composer__newreply" @click="scrollToBottom(true)">↓ 有新回复</button>
             <div class="p-composer__box">
               <textarea
                 ref="inputEl"
@@ -163,7 +167,7 @@
                   ? '先在上面选好位置，就能开始说了…'
                   : (isEmpty ? '接着说一句，我边听边判断…' : '还有什么想补充的，慢慢说…')"
                 @input="autoGrow"
-                @keydown.enter.exact.prevent="send()"
+                @keydown.enter.exact="onEnter"
               />
               <div class="p-composer__bar">
                 <button
@@ -172,7 +176,7 @@
                   :disabled="chat.streaming"
                   @click="mapOpen = true"
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.4"/><path d="M12 7.6v6M12 13.6l-3.2 6M12 13.6l3.2 6M7.6 10h8.8"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><ellipse cx="12" cy="4.6" rx="2.6" ry="2.9"/><path d="M8.2 8.6c1.1-.6 2.4-.9 3.8-.9s2.7.3 3.8.9c1 .5 1.5 1.5 1.5 2.6v4.2c0 .6-.5 1-1 1h-.6l-.5 5.6c-.1.6-.6 1-1.2 1h-4c-.6 0-1.1-.4-1.2-1l-.5-5.6h-.6c-.5 0-1-.4-1-1v-4.2c0-1.1.5-2.1 1.5-2.6z"/></svg>
                   人体图选部位
                 </button>
                 <span class="p-composer__hint">分诊建议，不能替代医生诊断</span>
@@ -190,7 +194,7 @@
             </div>
           </footer>
           <div v-else class="p-chat__lock">
-            <span class="p-chat__locktxt">历 史 记 录 · 只 读</span>
+            <span class="p-chat__locktxt">历史记录 · 只读</span>
             <button class="p-chat__lockbtn" @click="startNew">开始新的咨询</button>
           </div>
         </div>
@@ -210,7 +214,7 @@
         <button class="p-chat__marksgrip" aria-label="展开问题导航" @click="onGripClick" />
         <div class="p-chat__markspanel">
           <div class="p-chat__markshd">
-            <span class="p-eyebrow">用 户 问 题</span>
+            <span class="p-eyebrow">用户问题</span>
             <span class="p-chat__marksno">{{ activeQ ? `${activeQ} / ${marks.length}` : `${marks.length} 问` }}</span>
           </div>
           <!-- 放不下时面板内部自己滚（滚动条不画），滚到头再滚正文 -->
@@ -277,6 +281,7 @@ const user = useUserStore()
 const chat = useChatStore()
 
 const draft = ref('')
+const turnAnnouncement = ref('')
 const threadEl = ref(null)
 const inputEl = ref(null)
 const rail = ref(null)
@@ -324,7 +329,7 @@ function onPartsSubmit(result) {
     draft.value = now ? `${result.sentence}${now}` : result.sentence
     nextTick(autoGrow)
   }
-  inputEl.value?.focus()
+  // 浮层关闭后统一恢复入口焦点，避免提交时的输入框聚焦与它相互抢焦点。
 }
 
 /** 「位置选错了？重新选」（草案 06 的 btnReset）：清空重来，回等待态 */
@@ -348,6 +353,13 @@ function autoGrow() {
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 120)}px`
 }
+
+function onEnter(e) {
+  // 输入法组字中的回车是上屏，不是发送；229 兼容旧版 Safari 的组字事件。
+  if (e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  send()
+}
 // 当前流的终止句柄：离开页面或退出登录时中断，避免回调写已卸载的组件
 let turnAbort = null
 
@@ -369,13 +381,16 @@ const activeSessionId = computed(() => replay.value?.session?.id || chat.session
 
 /** 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致 */
 function toReplayEntries(d) {
-  const out = (d.messages || []).map((m) => ({
+  // 会话前缀防止切换两份回放时复用另一会话的组件状态。
+  const prefix = `r-${d.session?.id || activeSessionId.value || 'replay'}`
+  const out = (d.messages || []).map((m, i) => ({
+    id: `${prefix}-${i}`,
     // 追问与资料回答在回放里也要保持各自的定性（否则同一条消息实时看是「· 资料」、历史里变成普通回复）
     type: m.role === 'user' ? 'user' : m.role === 'question' ? 'question' : m.role === 'info' ? 'info' : 'ai',
     content: m.content,
     qNo: m.role === 'user' ? m.questionNo : undefined
   }))
-  if (d.card) out.push({ type: 'card', recordId: null, card: { ...d.card } })
+  if (d.card) out.push({ id: `${prefix}-card`, type: 'card', recordId: null, card: { ...d.card } })
   return out
 }
 
@@ -384,6 +399,9 @@ async function openSession(id) {
   try {
     const d = await sessionDetail(id)
     replay.value = { session: d.session, entries: toReplayEntries(d), questions: d.questions || [] }
+    hasNewReply.value = false
+    followingBottom.value = false
+    clearCopied()
     activeQ.value = null
     qRefs.value = {}
     markRefs.value = {}
@@ -403,6 +421,9 @@ function startNew() {
   activeQ.value = null
   sideOpen.value = false
   chat.reset()
+  followingBottom.value = true
+  hasNewReply.value = false
+  clearCopied()
   // 声明必须一起清：上一轮选过的部位漏进新会话，会让模型拿到一条与新主诉无关的"已知位置"。
   // 门禁也回等待态——新的一次就诊要重新声明（工单 05）
   parts.value = emptyParts()
@@ -504,6 +525,10 @@ function jump(no) {
 
 const copiedKey = ref('')
 let copiedTimer = null
+function clearCopied() {
+  clearTimeout(copiedTimer)
+  copiedKey.value = ''
+}
 async function copyText(key, text) {
   await copyToClipboard(text)
   copiedKey.value = key
@@ -520,15 +545,36 @@ const lastCardIndex = computed(() => {
   }
   return -1
 })
+// 结论已经出现时患者的下一步是挂号，不能继续把导诊标成当前步骤。
+const hasConclusion = computed(() => lastCardIndex.value >= 0)
 
+const followingBottom = ref(true)
+const hasNewReply = ref(false)
 let scrollScheduled = false
-function scrollToBottom() {
+let forceScrollPending = false
+function onThreadScroll() {
+  const el = threadEl.value
+  if (!el) return
+  followingBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  if (followingBottom.value) hasNewReply.value = false
+}
+function scrollToBottom(force = false) {
+  // 强制请求不能被同一帧的普通增量吞掉；执行前再检查用户是否刚刚往上滚过。
+  if (force) {
+    forceScrollPending = true
+    followingBottom.value = true
+    hasNewReply.value = false
+  } else if (!followingBottom.value) {
+    hasNewReply.value = true
+    return
+  }
   if (scrollScheduled) return
   scrollScheduled = true
   nextTick(() => {
     scrollScheduled = false
     const el = threadEl.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (el && (forceScrollPending || followingBottom.value)) el.scrollTop = el.scrollHeight
+    forceScrollPending = false
   })
 }
 
@@ -552,13 +598,20 @@ async function runTurn(content) {
   if (chat.streaming) return
   const seq = ++turnSeq
   chat.streaming = true
+  turnAnnouncement.value = ''
+  let announced = false
   // 占位气泡的响应式引用：delta 直接追加到它，逐字填充同一个文本节点。
   // 用 let 是因为处置提示（notice）会另起一泡，之后答案的 delta 要落到新气泡里
   let bubble = chat.pushEntry({ type: 'ai', content: '' })
-  scrollToBottom()
+  scrollToBottom(true)
 
-  const endTurn = () => {
+  const endTurn = (announcement = '') => {
     if (seq !== turnSeq) return
+    // error 后还有 done，重复收尾不能覆盖已经播报的错误或结论。
+    if (announcement && !announced) {
+      turnAnnouncement.value = announcement
+      announced = true
+    }
     chat.streaming = false
     scrollToBottom()
   }
@@ -592,7 +645,7 @@ async function runTurn(content) {
           // 两种情况下都复用当前气泡，视觉上等价于「新建一个追问气泡」。
           bubble.type = 'question'
           bubble.content = full
-          endTurn()
+          endTurn(`助手在追问：${String(full || '').slice(0, 40)}`)
         },
 
         // 资料回答（患者问的是知识库内容而不是描述症状）：内容同样已随 delta 流过，
@@ -601,7 +654,7 @@ async function runTurn(content) {
         onInfo: ({ content: full }) => {
           bubble.type = 'info'
           bubble.content = full
-          endTurn()
+          endTurn(`助手已回复：${String(full || '').slice(0, 40)}`)
         },
 
         onResult: (data) => {
@@ -623,7 +676,8 @@ async function runTurn(content) {
           })
           // 推荐卡渲染完成 = result_view 触点（旁路上报，失败静默）
           if (data.recordId) track('result_view', { recordId: data.recordId })
-          endTurn()
+          scrollToBottom(true)
+          endTurn(`已给出分诊结论：建议就诊 ${data.dept || '所推荐科室'}`)
         },
 
         // error 之后后端还会补一个 done：此时流式态已结束，重复收尾无害。
@@ -634,7 +688,7 @@ async function runTurn(content) {
             parts.value = emptyParts()
             partStage.value = 'awaiting'
           }
-          endTurn()
+          endTurn(bubble.content ? `助手已回复：${bubble.content.slice(0, 40)}` : '')
         },
 
         onError: ({ message }) => {
@@ -644,7 +698,7 @@ async function runTurn(content) {
             message: message || '网络中断，请检查连接后重试',
             text: content
           })
-          endTurn()
+          endTurn(message || '网络中断，请检查连接后重试')
         }
       },
       turnAbort.signal
@@ -672,7 +726,7 @@ function retry(entry) {
 
 function goRegister(cardEntry) {
   // 把 Top3 的科室 id 按推荐次序一并带过去（逗号分隔）：挂号页据此把推荐科室提到列表最前，
-  // 否则整份列表只能按创建时间序排，推荐科室夹在中间（患者要自己找哪条是「推 荐」）
+  // 否则整份列表只能按创建时间序排，推荐科室夹在中间（患者要自己找哪条是「推荐」）
   const rec = rankedTop3(cardEntry.card).map((c) => c.deptId).filter(Boolean)
   router.push({
     path: '/register',
@@ -724,7 +778,7 @@ onBeforeUnmount(() => {
    左栏 / 空状态 / 推荐卡 / 健康档案各自是组件（`components/patient/`），样式随组件走。
    ============================================================ */
 
-.p-chat { height: 100vh; background: var(--bg); }
+.p-chat { height: 100vh; height: 100dvh; background: var(--bg); }
 
 /* ---------- 两栏：会话目录 + 对话舞台 ---------- */
 .p-chat__body { position: relative; display: flex; height: 100%; }
@@ -748,6 +802,25 @@ onBeforeUnmount(() => {
   padding-bottom: 20px;
 }
 
+.p-composer { position: relative; }
+.p-composer__newreply {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-height: 36px;
+  padding: 6px 16px;
+  border: 1px solid var(--leaf-line);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  color: var(--leaf-deep);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: var(--sh-raised);
+  z-index: 2;
+}
+
 /* 助手消息的骨架（**消息流本身在共享件 §3.1 里**，这里只补本页要的头像列）：
    30px 圆头像 + 右侧「标签 + 正文 + 复制」。追问 / 资料 / 普通回复共用这一套，
    三者的区别只在标签文字与那根竖线——换皮不许把它们抹平。 */
@@ -769,7 +842,7 @@ onBeforeUnmount(() => {
 /* 流式等待：首字到达前的轻提示，随 delta 填充自动消失 */
 .p-ai__wait {
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--ink-3);
 }
@@ -822,8 +895,8 @@ onBeforeUnmount(() => {
 }
 .p-chat__locktxt {
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .14em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-3);
 }
 .p-chat__lockbtn {
@@ -837,7 +910,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-family: var(--sans);
   font-size: 12.5px;
-  letter-spacing: .1em;
+  letter-spacing: .08em;
   transition: background .18s ease;
 }
 .p-chat__lockbtn:hover { background: var(--leaf-deep); }
@@ -938,7 +1011,7 @@ onBeforeUnmount(() => {
 }
 .p-chat__marksno {
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--ink-3);
 }
@@ -1040,8 +1113,8 @@ onBeforeUnmount(() => {
     padding: 0 12px;
     cursor: pointer;
     font-family: var(--sans);
-    font-size: 10.5px;
-    letter-spacing: .14em;
+    font-size: 12px;
+    letter-spacing: .08em;
     color: var(--ink-2);
     transition: border-color .18s ease, color .18s ease;
   }

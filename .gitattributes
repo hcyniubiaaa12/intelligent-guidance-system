@@ -1,0 +1,68 @@
+# ============================================================
+# 换行符统一策略
+# ------------------------------------------------------------
+# 仓库内统一存 LF；检出时由 Git 按 core.eol 还原为平台换行。
+# 显式声明文本类型可避免编辑器整文件重写 CRLF 后产生「伪改动」
+# （git status 显示 M，但 git diff 为空）。
+# ============================================================
+* text=auto
+
+# ---------- 源码：按文本处理，统一规范换行 ----------
+*.java        text
+*.kt          text
+*.groovy      text
+*.xml         text
+*.yml         text
+*.yaml        text
+*.properties  text
+*.sql         text
+*.json        text
+*.md          text
+*.txt         text
+*.example     text
+*.js          text
+*.cjs         text
+*.mjs         text
+*.ts          text
+*.vue         text
+*.css         text
+*.scss        text
+*.less        text
+*.html        text
+*.py          text
+
+# ---------- Shell 脚本：必须 LF，否则 Linux/macOS 下无法执行 ----------
+*.sh          text eol=lf
+mvnw          text eol=lf
+gradlew       text eol=lf
+
+# ---------- Windows 脚本：必须 CRLF，否则 cmd.exe 解析出错 ----------
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# ---------- 二进制：禁止任何换行符转换与文本 diff ----------
+*.jar         binary
+*.war         binary
+*.class       binary
+*.zip         binary
+*.gz          binary
+*.7z          binary
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.webp        binary
+*.woff        binary
+*.woff2       binary
+*.ttf         binary
+*.eot         binary
+*.pdf         binary
+*.doc         binary
+*.docx        binary
+*.xls         binary
+*.xlsx        binary
+
+# Maven daemon 调试产物
+*.dumpstream  binary

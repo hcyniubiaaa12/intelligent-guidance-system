@@ -1,178 +1,115 @@
 <template>
   <Transition name="p-fade">
     <div v-if="open" class="p-overlay p-overlay--xl p-overlay--tall" @click.self="close">
-      <div class="p-overlay__box p-map__box" role="dialog" aria-label="人体图选部位">
+      <div
+        ref="dialogEl"
+        class="p-overlay__box p-map__box"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="body-map-title"
+        aria-describedby="body-map-sub"
+        @keydown="onDialogKeydown"
+      >
         <header class="p-overlay__head">
           <div>
-            <div class="p-overlay__title">
-              身 上 哪 里 不 舒 服
-              <span class="p-map__must">必填</span>
-            </div>
-            <p class="p-overlay__sub">
-              先锁住位置，我才能帮您判断科室。点一下图上不舒服的位置（可以选多个），
-              再顺手点一下「哪一侧」和「什么感觉」。找不到就点下面的「说不清在哪儿」。
-            </p>
+            <div id="body-map-title" ref="titleEl" class="p-overlay__title" tabindex="-1">选择不适部位 <span class="p-map__must">必填</span></div>
+            <p id="body-map-sub" class="p-overlay__sub">点图上的位置，可以选多处。选完还能在对话里补充。</p>
           </div>
-          <button class="p-overlay__close" aria-label="关闭人体图" @click="close">关 闭</button>
+          <button type="button" class="p-overlay__close" aria-label="关闭人体图" @click="close">×</button>
         </header>
 
-        <div class="p-map__bd">
-          <!-- 全停用：图上的词一个都不剩。与"取词失败"是两回事，页面必须说得清 -->
+        <div class="p-map__bd" :aria-busy="loading">
           <div v-if="allDisabled" class="p-map__dead">
-            <p class="p-map__deadt">部位词暂时都下架了</p>
-            <p class="p-map__deads">
-              管理员在知识库里停用了全部部位词，所以现在点不出位置。<br>
-              您可以点下面的<b>「说不清在哪儿 · 直接描述」</b>直接说话——那样也能正常问诊。
-            </p>
+            <p class="p-map__deadt">暂时没有可选部位</p>
+            <p class="p-map__deads">您可以选择<b>「说不清在哪儿 · 直接描述」</b>，继续描述您的不适。</p>
+            <button type="button" class="p-map__prime" @click="giveUp">直接描述不适</button>
           </div>
 
-          <!-- 左：正反两面人体图 -->
           <div v-else class="p-map__fig">
-            <div class="p-map__canvas">
-              <svg
-                v-for="face in FACES"
-                v-show="state.view === face.id"
-                :key="face.id"
-                class="p-map__svg"
-                viewBox="0 0 220 360"
-                role="group"
-                :aria-label="face.label"
-              >
-                <g v-for="shape in shapesFor(face.id)" :key="shape.key">
-                  <component
-                    :is="shape.tag"
-                    v-if="regionHasWords(regionById(shape.id), vocabulary)"
-                    class="p-map__rg"
-                    :class="{ 'is-sel': isRegionSelected(shape.id), 'is-act': state.act === shape.id }"
-                    v-bind="shape.attrs"
-                    role="button"
-                    tabindex="0"
-                    :aria-label="regionById(shape.id)?.name"
-                    :aria-pressed="isRegionSelected(shape.id) ? 'true' : 'false'"
-                    @click="activate(shape.id)"
-                    @keydown.enter.prevent="activate(shape.id)"
-                    @keydown.space.prevent="activate(shape.id)"
-                  />
-                </g>
-              </svg>
+            <div class="p-map__figurehead">
+              <span>点一下不舒服的位置</span>
+              <span class="p-map__count" aria-live="polite">{{ state.picked.length ? `已选 ${state.picked.length} 个部位` : '可多选' }}</span>
             </div>
-            <div class="p-map__views" role="group" aria-label="切换正反面">
-              <button
-                v-for="face in FACES"
-                :key="face.id"
-                type="button"
-                class="p-map__viewbtn"
-                :class="{ 'is-on': state.view === face.id }"
-                @click="state = { ...state, view: face.id }"
-              >{{ face.label }}</button>
+            <p v-if="loadState === 'failed'" class="p-map__loadhint">部位清单没加载成功，先按默认清单选，不影响使用 <button type="button" @click="loadVocabulary">重试</button></p>
+
+            <div v-if="isMobile" class="p-map__tabs" role="tablist" aria-label="人体图正反面">
+              <button v-for="face in FACES" :key="face.id" type="button" role="tab" :aria-selected="state.view === face.id" :tabindex="state.view === face.id ? 0 : -1" :class="{ 'is-on': state.view === face.id }" @click="state = { ...state, view: face.id }" @keydown="onFaceTabKey($event, face.id)">{{ face.label }}</button>
+            </div>
+            <div class="p-map__canvas">
+              <figure v-for="face in visibleFaces" :key="face.id" class="p-map__face">
+                <HumanBodyFigure
+                  :face="face.id"
+                  :active="state.view === face.id ? state.act : null"
+                  :selected="isRegionSelected"
+                  :enabled="isRegionEnabled"
+                  :side="state.side"
+                  :readonly="loading"
+                  :class="{ 'is-loading': loading }"
+                  @select="(id, meta) => activate(id, face.id, meta)"
+                />
+                <figcaption :class="{ 'is-on': state.view === face.id && state.act }">{{ face.label }}</figcaption>
+              </figure>
+            </div>
+            <div class="p-map__legend" aria-hidden="true">
+              <span><i />未选</span><span><i class="is-selected" />已选</span><span><i class="is-active" />正在编辑</span><span><i class="is-disabled" />暂不可选</span>
+            </div>
+            <div class="p-map__global">
+              <span>全身性不适（不分部位）</span>
+              <div class="p-map__chips">
+                <button v-for="w in globalWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w) }" :aria-pressed="state.picked.includes(w)" :disabled="loading" @click="pick(w)">{{ w }}</button>
+              </div>
+              <p class="p-map__hint">胃、心、肺、肠等内脏不适，可以在咨询时直接描述。</p>
             </div>
           </div>
 
-          <!-- 右：细分词 / 方位 / 感觉 / 已选 -->
           <div v-if="!allDisabled" class="p-map__pick">
-            <section class="p-map__sec">
-              <h3 class="p-map__lb">
-                这 一 片 具 体 是 哪 儿
-                <em>{{ activeRegion ? activeRegion.name : '先点一下图' }}</em>
-              </h3>
-              <div v-if="!activeRegion" class="p-map__hint">
-                点图上任意一块，这里会列出它包含的部位词。
-              </div>
-              <div v-else-if="!subWords.length" class="p-map__hint">
-                这块的部位词在管理端被停用了，换一块试试，或直接打字说。
-              </div>
-              <div v-else class="p-map__chips">
-                <button
-                  v-for="w in subWords"
-                  :key="w"
-                  type="button"
-                  class="p-map__chip"
-                  :class="{ 'is-on': state.picked.includes(w) }"
-                  @click="pick(w)"
-                >{{ w }}</button>
+            <section class="p-map__sec" :class="{ 'is-pulse': locationPulse }">
+              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.location" aria-controls="body-map-location" @click="toggleSection('location')">
+                <span>具体位置 <em>{{ activeRegion ? activeRegion.name : '尚未选择' }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
+              </button>
+              <h3 class="p-map__lb">具体位置 <em>{{ activeRegion ? activeRegion.name : '尚未选择' }}</em></h3>
+              <div id="body-map-location" v-show="!isMobile || mobileOpen.location" class="p-map__sectionbody">
+                <div v-if="loading" class="p-map__skeleton" aria-hidden="true"><i v-for="i in 3" :key="i" /></div>
+                <div v-else-if="!activeRegion" class="p-map__hintbox">
+                  <svg width="24" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><ellipse cx="12" cy="4.6" rx="2.6" ry="2.9"/><path d="M8.2 8.6c1.1-.6 2.4-.9 3.8-.9s2.7.3 3.8.9c1 .5 1.5 1.5 1.5 2.6v4.2c0 .6-.5 1-1 1h-.6l-.5 5.6c-.1.6-.6 1-1.2 1h-4c-.6 0-1.1-.4-1.2-1l-.5-5.6h-.6c-.5 0-1-.4-1-1v-4.2c0-1.1.5-2.1 1.5-2.6z"/></svg>
+                  <span>{{ isMobile ? '先在上面的图上点一下' : '先在左边的图上点一下' }}</span>
+                </div>
+                <div v-else-if="!subWords.length" class="p-map__hint">这个部位暂时不可选，您可以直接描述不适。</div>
+                <div v-else class="p-map__chips"><button v-for="w in subWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w) }" :aria-pressed="state.picked.includes(w)" @click="pick(w)">{{ w }}</button></div>
               </div>
             </section>
-
             <section class="p-map__sec">
-              <h3 class="p-map__lb">哪 一 侧<em>选填 · 单选</em></h3>
-              <div class="p-map__chips">
-                <button
-                  v-for="s in SIDES"
-                  :key="s"
-                  type="button"
-                  class="p-map__chip"
-                  :class="{ 'is-on': state.side === s }"
-                  @click="state = selectSide(state, s)"
-                >{{ sideLabel(s) }}</button>
-              </div>
-              <p class="p-map__hint">左右在分诊里是有效信息：左上腹痛多在胃，右下腹痛要留意阑尾。</p>
-            </section>
-
-            <section class="p-map__sec">
-              <h3 class="p-map__lb">再 点 一 下 什 么 感 觉<em>选填 · 可多选</em></h3>
-              <div class="p-map__chips">
-                <button
-                  v-for="f in FEELINGS"
-                  :key="f"
-                  type="button"
-                  class="p-map__chip"
-                  :class="{ 'is-on': state.feelings.includes(f) }"
-                  @click="state = selectFeeling(state, f)"
-                >{{ f }}</button>
-              </div>
-              <p class="p-map__hint">没有合适的？先随便点一个，回头在输入框里补。</p>
-            </section>
-
-            <section class="p-map__sec">
-              <h3 class="p-map__lb">已 选<em>可逐条删</em></h3>
-              <div v-if="!pickedItems.length" class="p-map__hint">还没选</div>
-              <div v-else class="p-map__picked">
-                <span
-                  v-for="item in pickedItems"
-                  :key="item.key"
-                  class="p-map__pill"
-                  :class="item.kind === 'feel' ? 'p-map__pill--feel' : ''"
-                >
-                  {{ item.text }}
-                  <button
-                    type="button"
-                    class="p-map__x"
-                    :aria-label="`移除 ${item.text}`"
-                    @click="item.remove()"
-                  >×</button>
-                </span>
-                <button type="button" class="p-map__clear" @click="state = clearAll()">全部清空</button>
+              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.side" aria-controls="body-map-side" @click="toggleSection('side')"><span>哪一侧 <em>选填</em></span><span aria-hidden="true">{{ mobileOpen.side ? '−' : '+' }}</span></button>
+              <h3 class="p-map__lb">哪一侧 <em>选填</em></h3>
+              <div id="body-map-side" v-show="!isMobile || mobileOpen.side" class="p-map__sectionbody">
+                <div class="p-map__chips"><button v-for="s in SIDES" :key="s" type="button" class="p-map__chip" :class="{ 'is-on': state.side === s }" :aria-pressed="state.side === s" :disabled="loading" @click="setSide(s)">{{ sideLabel(s) }}</button></div>
+                <button v-if="suggestSide && !state.side" type="button" class="p-map__suggest" @click="applySuggest">您点的是图上的{{ suggestSide.side }}侧 · 标为{{ suggestSide.side }}侧</button>
+                <p class="p-map__hint">以您自己身体的左右为准，图上已标出。</p>
               </div>
             </section>
-
-            <section class="p-map__sec p-map__sec--last">
-              <h3 class="p-map__lb">全 身 性 的</h3>
-              <div class="p-map__chips">
-                <button
-                  v-for="w in globalWords"
-                  :key="w"
-                  type="button"
-                  class="p-map__chip"
-                  :class="{ 'is-on': state.picked.includes(w) }"
-                  @click="pick(w)"
-                >{{ w }}</button>
+            <section class="p-map__sec">
+              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.feeling" aria-controls="body-map-feeling" @click="toggleSection('feeling')"><span>什么感觉 <em>选填 · 可多选</em></span><span aria-hidden="true">{{ mobileOpen.feeling ? '−' : '+' }}</span></button>
+              <h3 class="p-map__lb">什么感觉 <em>选填 · 可多选</em></h3>
+              <div id="body-map-feeling" v-show="!isMobile || mobileOpen.feeling" class="p-map__sectionbody">
+                <div class="p-map__chips"><button v-for="f in FEELINGS" :key="f" type="button" class="p-map__chip" :class="{ 'is-on': state.feelings.includes(f), 'is-unsure': f === '说不上来' }" :aria-pressed="state.feelings.includes(f)" :disabled="loading" @click="state = selectFeeling(state, f)">{{ f }}</button></div>
+                <p class="p-map__hint">没有合适的感觉，可以稍后补充。</p>
               </div>
-              <p class="p-map__hint">
-                <b>心 / 肺 / 胃 / 肠不在图上</b>——它们是器官，不是体表位置。等进了对话直接打字说"胃疼"就行。
-              </p>
             </section>
           </div>
         </div>
 
         <footer class="p-overlay__foot p-map__ft">
-          <p class="p-map__preview">
-            <span class="p-map__previewk">会填进输入框</span>
-            <b>{{ allDisabled ? '词都下架了，用「说不清在哪儿」直接说也行' : previewText }}</b>
-          </p>
+          <div v-if="pickedItems.length" class="p-map__picked" aria-label="已选部位与感觉">
+            <span v-for="item in pickedItems" :key="item.key" class="p-map__pill" :class="`p-map__pill--${item.kind}`">
+              {{ item.text }}<button type="button" class="p-map__x" :aria-label="`移除 ${item.text}`" @click="item.remove()">×</button>
+            </span>
+            <button type="button" class="p-map__clear" @click="clearState">全部清空</button>
+          </div>
+          <p class="p-map__preview" aria-live="polite"><span class="p-map__previewk">您的描述</span><b>{{ allDisabled ? '您可以直接描述不适' : previewText }}</b></p>
           <div class="p-map__acts">
             <button type="button" class="p-map__ghost" @click="giveUp">说不清在哪儿 · 直接描述</button>
-            <small>{{ allDisabled ? '' : '选完只填进输入框、不自动发送。' }}</small>
-            <button type="button" class="p-map__prime" :disabled="!canFill || allDisabled" @click="fill">填 入</button>
+            <span v-if="!canFill" class="p-map__reason">先选一个部位，或点「说不清在哪儿」</span>
+            <button type="button" class="p-map__prime" :disabled="!canFill" @click="fill">确认部位 <span aria-hidden="true">→</span></button>
           </div>
         </footer>
       </div>
@@ -181,546 +118,298 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
-import {
-  GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT,
-  regionById, sentence, sideLabel, declarationLocations,
-  visibleWords, regionHasWords,
-  emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll
-} from '../../utils/bodyMap'
+import HumanBodyFigure from './HumanBodyFigure.vue'
+import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
 
-/**
- * 人体图覆盖层（部位声明的选图界面）。
- *
- * 浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）全吃共享件 `.p-overlay*` 与 `.p-fade-*`
- * ——见设计文档 §3.8，**不新造一种浮层**；变体只用 `--xl`（左右分栏要宽）与 `--tall`（图要高）。
- *
- * **图上"形"是本组件的资产，"词"是后端的**：`GET /api/chat/parts` 给部位词表，组件只提供
- * 区域怎么画、每个区域装哪些词。所以管理员停用一个词，这里立刻就不给了（不需要改前端代码），
- * 反而**不新增**部位词时图上不会出现新区域——这是刻意的取舍，不是漏做。
- *
- * 所有拼句/声明规则都在 `utils/bodyMap.js`，这里只管画与点。
- *
- * 覆盖层**自管数据**（打开时拉词表），调用方只管 `open`；选定结果经 `submit` 单出口交出。
- *
- * `preset`（可选）：快捷词入口的**预选**——「肚子疼」这类 chip 点了直接打开图并选中对应区域，
- * 让必填变成省事而不是拦路。只在打开那一刻应用一次（患者随后取消预选是正常操作，
- * 不能每次 watch 都把它按回去）。
- */
-const props = defineProps({
-  open: { type: Boolean, default: false },
-  /** { region: 'abd'|null, word: '腹部' } | null —— 打开时预选的区域与部位词 */
-  preset: { type: Object, default: null }
-})
+const props = defineProps({ open: { type: Boolean, default: false }, preset: { type: Object, default: null } })
 const emit = defineEmits(['update:open', 'submit'])
-
-/** 正反两面。背面是硬需求：背痛、腰痛在正面图上根本指不出来 */
 const FACES = [{ id: 'front', label: '正面' }, { id: 'back', label: '背面' }]
-
+const PAIRED_IDS = ['shoulder', 'arm', 'hand', 'leg', 'knee', 'foot']
 const state = ref(emptyState())
 const vocabulary = ref([])
 const loading = ref(false)
-/**
- * 词表状态三态，**不是两个**：
- *   'ready'  取到了（可能为空数组——管理员把部位词全停用了，那也是一种"取到了"）
- *   'failed' 取不到（网络/服务异常）→ 回落到本地点位，功能照常可用
- *   'loading'
- * 合并"失败"与"全停用"会犯一个方向相反的错：全停用时回落到全量，等于把管理员刚做的决定
- * 当成没发生，患者还能点到一个已下架的词。
- */
 const loadState = ref('loading')
-
-const activeRegion = computed(() => (state.value.act ? regionById(state.value.act) : null))
+const isMobile = ref(false)
+const suggestSide = ref(null)
+const locationPulse = ref(false)
+const mobileOpen = ref({ location: true, side: false, feeling: false })
+const dialogEl = ref(null)
+const titleEl = ref(null)
+const restoreFocus = ref(null)
+let previousOverflow = ''
+let locked = false
+let returnRoot = null
+let openSeq = 0
+let requestSeq = 0
+let resizeObserver = null
+let pulseTimer = null
+const activeRegion = computed(() => state.value.act ? regionById(state.value.act) : null)
 const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.value))
 const globalWords = computed(() => visibleWords({ words: [...GLOBAL_WORDS] }, vocabulary.value))
 const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.side) || NO_LOCATION_HINT)
-const canFill = computed(() => state.value.picked.length > 0)
-/** 部位词真的一份都没了：告诉患者怎么回事，而不是给一个点不动的空图 */
 const allDisabled = computed(() => loadState.value === 'ready' && !vocabulary.value.length)
-
-/** 已选区：部位（含方位前缀的显示形态）、方位、感觉三类，各自带一个删除口 */
+const canFill = computed(() => !loading.value && !allDisabled.value && state.value.picked.length > 0)
+const visibleFaces = computed(() => isMobile.value ? FACES.filter(face => face.id === state.value.view) : FACES)
+function isRegionEnabled(id) { return !loading.value && !allDisabled.value && regionHasWords(regionById(id), vocabulary.value) }
+function isRegionSelected(id) { return regionById(id)?.words.some(w => state.value.picked.includes(w)) || false }
 const pickedItems = computed(() => {
   const s = state.value
-  const out = []
-  if (s.side) {
-    out.push({ key: `side:${s.side}`, text: sideLabel(s.side), kind: 'side', remove: () => { state.value = { ...s, side: null } } })
-  }
-  // 逐条对回声明里的同一个位置：声明与"已选"显示的是同一份事实，序号对得上，
-  // 患者删第 2 条时不必自己在脑内换算"左腹部"是第几个词
   const locations = declarationLocations(s.picked, s.side)
-  s.picked.forEach((word, i) => {
-    out.push({
-      key: `part:${word}`,
-      text: locations[i],
-      kind: 'part',
-      remove: () => { state.value = removeWord(s, word) }
-    })
-  })
-  s.feelings.forEach((f) => {
-    out.push({ key: `feel:${f}`, text: f, kind: 'feel', remove: () => { state.value = removeFeeling(s, f) } })
-  })
-  return out
-})
-
-/** 该区域是否有已选中的词（图上要看得见选中了） */
-function isRegionSelected(regionId) {
-  const region = regionById(regionId)
-  if (!region) return false
-  return region.words.some((w) => state.value.picked.includes(w))
-}
-
-function activate(id) {
-  state.value = { ...state.value, act: state.value.act === id ? null : id }
-}
-
-function pick(word) {
-  state.value = selectWord(state.value, word)
-}
-
-/**
- * 图上的"形"（本组件的资产）：每块区域画成什么图元、坐标在哪。
- * 键是"面:区域:序号"——同一区域在一张图上可能有多块（上肢左右各一），序号只为 v-for 稳定。
- *
- * 坐标是 220×360 视图下的手绘比例，不追求解剖学准确：**目标是"患者能指准"**——
- * 头/颈/肩/胸/腹/髋/上肢/手/下肢/膝/足的落位与日常说这几个部位时的手势一致。
- * 正面与背面刻意画成同一个轮廓、只换躯干中间那块（正面胸腹、背面背腰），
- * 免得患者在两张图之间找不到"我的头"在哪儿。
- */
-const FIGURES = Object.freeze({
-  front: [
-    { id: 'head', tag: 'ellipse', attrs: { cx: 110, cy: 36, rx: 26, ry: 31 } },
-    { id: 'neck', tag: 'rect', attrs: { x: 100, y: 69, width: 20, height: 14, rx: 4 } },
-    { id: 'shoulder', tag: 'rect', attrs: { x: 46, y: 84, width: 30, height: 24, rx: 7 } },
-    { id: 'shoulder', tag: 'rect', attrs: { x: 144, y: 84, width: 30, height: 24, rx: 7 } },
-    { id: 'chest', tag: 'rect', attrs: { x: 77, y: 84, width: 66, height: 48, rx: 7 } },
-    { id: 'arm', tag: 'rect', attrs: { x: 48, y: 110, width: 24, height: 96, rx: 10 } },
-    { id: 'arm', tag: 'rect', attrs: { x: 148, y: 110, width: 24, height: 96, rx: 10 } },
-    { id: 'hand', tag: 'circle', attrs: { cx: 60, cy: 220, r: 12 } },
-    { id: 'hand', tag: 'circle', attrs: { cx: 160, cy: 220, r: 12 } },
-    { id: 'abd', tag: 'rect', attrs: { x: 80, y: 134, width: 60, height: 62, rx: 7 } },
-    { id: 'hip', tag: 'rect', attrs: { x: 76, y: 198, width: 68, height: 26, rx: 7 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 82, y: 226, width: 24, height: 44, rx: 8 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 114, y: 226, width: 24, height: 44, rx: 8 } },
-    { id: 'knee', tag: 'circle', attrs: { cx: 94, cy: 286, r: 14 } },
-    { id: 'knee', tag: 'circle', attrs: { cx: 126, cy: 286, r: 14 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 82, y: 302, width: 24, height: 34, rx: 8 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 114, y: 302, width: 24, height: 34, rx: 8 } },
-    { id: 'foot', tag: 'rect', attrs: { x: 78, y: 338, width: 30, height: 15, rx: 6 } },
-    { id: 'foot', tag: 'rect', attrs: { x: 112, y: 338, width: 30, height: 15, rx: 6 } }
-  ],
-  back: [
-    { id: 'head', tag: 'ellipse', attrs: { cx: 110, cy: 36, rx: 26, ry: 31 } },
-    { id: 'neck', tag: 'rect', attrs: { x: 100, y: 69, width: 20, height: 14, rx: 4 } },
-    { id: 'shoulder', tag: 'rect', attrs: { x: 46, y: 84, width: 30, height: 24, rx: 7 } },
-    { id: 'shoulder', tag: 'rect', attrs: { x: 144, y: 84, width: 30, height: 24, rx: 7 } },
-    // 背面没有胸腹，取而代之是背 + 腰：这两块只在背面画
-    { id: 'back', tag: 'rect', attrs: { x: 77, y: 84, width: 66, height: 70, rx: 7 } },
-    { id: 'arm', tag: 'rect', attrs: { x: 48, y: 110, width: 24, height: 96, rx: 10 } },
-    { id: 'arm', tag: 'rect', attrs: { x: 148, y: 110, width: 24, height: 96, rx: 10 } },
-    { id: 'hand', tag: 'circle', attrs: { cx: 60, cy: 220, r: 12 } },
-    { id: 'hand', tag: 'circle', attrs: { cx: 160, cy: 220, r: 12 } },
-    { id: 'waist', tag: 'rect', attrs: { x: 80, y: 156, width: 60, height: 68, rx: 7 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 82, y: 226, width: 24, height: 44, rx: 8 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 114, y: 226, width: 24, height: 44, rx: 8 } },
-    { id: 'knee', tag: 'circle', attrs: { cx: 94, cy: 286, r: 14 } },
-    { id: 'knee', tag: 'circle', attrs: { cx: 126, cy: 286, r: 14 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 82, y: 302, width: 24, height: 34, rx: 8 } },
-    { id: 'leg', tag: 'rect', attrs: { x: 114, y: 302, width: 24, height: 34, rx: 8 } },
-    { id: 'foot', tag: 'rect', attrs: { x: 78, y: 338, width: 30, height: 15, rx: 6 } },
-    { id: 'foot', tag: 'rect', attrs: { x: 112, y: 338, width: 30, height: 15, rx: 6 } }
+  return [
+    ...s.picked.map((word, i) => ({ key: `part:${word}`, kind: 'part', text: locations[i], remove: () => { state.value = removeWord(state.value, word) } })),
+    ...(s.side ? [{ key: 'side', kind: 'side', text: sideLabel(s.side), remove: () => { state.value = { ...state.value, side: null }; suggestSide.value = null } }] : []),
+    ...s.feelings.map(f => ({ key: `feel:${f}`, kind: 'feel', text: f, remove: () => { state.value = removeFeeling(state.value, f) } }))
   ]
 })
-
-function shapesFor(faceId) {
-  return (FIGURES[faceId] || []).map((shape, i) => ({ ...shape, key: `${faceId}:${shape.id}:${i}` }))
+function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', meta = {}) {
+  if (!isRegionEnabled(id)) return
+  const region = regionById(id)
+  const words = visibleWords(region, vocabulary.value)
+  const word = defaultWord(id, words)
+  const wasSelected = isRegionSelected(id)
+  const alreadyPaired = REGIONS.some(r => PAIRED_IDS.includes(r.id) && r.words.some(w => state.value.picked.includes(w)))
+  state.value = { ...state.value, view: face, act: id, picked: wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word] }
+  mobileOpen.value = { ...mobileOpen.value, location: true }
+  locationPulse.value = false
+  nextTick(() => { locationPulse.value = true; clearTimeout(pulseTimer); pulseTimer = setTimeout(() => { locationPulse.value = false }, 250) })
+  // 方位对所有部位统一加前缀，只建议第一次点击的成对部位，不能静默替患者决定。
+  if (!state.value.side && !wasSelected && meta.side && !alreadyPaired) suggestSide.value = { side: meta.side, id }
 }
-
-/** 「填 入」：把句子交给调用方落进输入框（**不自动发送**，患者还要补话） */
+function pick(word) {
+  const region = activeRegion.value
+  const regionPicks = state.value.picked.filter(w => region?.words.includes(w))
+  const words = visibleWords(region, vocabulary.value)
+  const preferred = defaultWord(region?.id, words)
+  const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
+  state.value = selectWord(base, word)
+}
+function defaultWord(id, words) {
+  const preferred = { head: '头', chest: '胸口', abd: '腹部', leg: '腿' }[id]
+  return words.includes(preferred) ? preferred : words[0]
+}
+// 同一个区域可从图和细分词两处取消，建议对应的区域消失时一起撤回。
+watch(() => state.value.picked, () => {
+  if (suggestSide.value && !isRegionSelected(suggestSide.value.id)) suggestSide.value = null
+})
+function setSide(s) { state.value = selectSide(state.value, s); suggestSide.value = null }
+function applySuggest() { state.value = selectSide(state.value, suggestSide.value.side); suggestSide.value = null }
+function toggleSection(key) { mobileOpen.value = { ...mobileOpen.value, [key]: !mobileOpen.value[key] } }
+function clearState() { state.value = clearAll(); suggestSide.value = null; mobileOpen.value = { location: true, side: false, feeling: false } }
 function fill() {
   if (!canFill.value) return
-  emit('submit', {
-    // 两个字段都取自 bodyMap 的同一组函数，不在这里另拼一遍——前缀规则一改就会漏掉这一处
-    locations: declarationLocations(state.value.picked, state.value.side),
-    sentence: sentence(state.value.picked, state.value.feelings, state.value.side)
-  })
+  emit('submit', { locations: declarationLocations(state.value.picked, state.value.side), sentence: sentence(state.value.picked, state.value.feelings, state.value.side) })
   close()
 }
-
-/**
- * 「说不清在哪儿 · 直接描述」：必填的**出口**。
- * 发烧、乏力、浑身没劲、头晕这类主诉根本指不出位置，点了它声明为空 ⇒ 链路回落到今天的行为。
- * **这是接受的降级，不是待修的缺陷**（见 CONTEXT.md「部位声明」）。
- */
-function giveUp() {
-  emit('submit', { locations: [], sentence: '' })
-  close()
-}
-
-function close() {
-  emit('update:open', false)
-}
-
-/**
- * 每次打开都重取，**不做会话内缓存**。
- *
- * 后端那边管理端一停用就refresh()，是即时的；前端缓存一层就把这个即时性抵消了——
- * 患者重开浮层仍看到刚被停用的词，而管理端界面上明明白白写着它已停用。
- * 这个接口很轻（读一份内存词表），不值得为省它而让"停用"看起来没生效。
- *
- * ⚠️ `immediate: true` 不能省：**组件可能挂载时就是打开的**（首屏由父组件直接传 open=true），
- * 那时 `open` 从 true 变 true，watch 一次都不触发 ⇒ 词表永远不加载、界面退回本地点位。
- * 省掉它不会报错，只是"静默降级"——正是这个仓库反复记的那类故障。
- */
-watch(() => props.open, async (open) => {
-  if (!open) return
-  // 每次打开都从零开始：上一次选过的部位不该在这一次里幽灵般地预选着
-  state.value = emptyState()
-  // 快捷词的预选：只在这一个时机应用一次——患者随后取消是正常操作，
-  // 不能在后续的重渲染里把他的取消又按回预选态
-  const preset = props.preset
-  if (preset && preset.word) {
-    state.value = { ...state.value, act: preset.region || null, picked: [preset.word] }
-  }
-  await loadVocabulary()
-}, { immediate: true })
-
-/**
- * **每次打开都重取**，不做会话内缓存。
- *
- * 后端那边管理端一停用就 refresh()，是即时的；前端缓存一层就把这个即时性抵消了——
- * 患者重开浮层仍看到刚被停用的词，而管理端界面上明明白白写着它已停用。
- * 这个接口很轻（读一份内存词表），不值得为省它而让"停用"看起来没生效。
- */
+function giveUp() { emit('submit', { locations: [], sentence: '' }); close() }
+function close() { emit('update:open', false) }
 async function loadVocabulary() {
+  // 关闭、重开和重试都可能交错，旧响应不能改写患者正在操作的新一轮选择。
+  const seq = ++requestSeq
   loading.value = true
   loadState.value = 'loading'
   try {
     const list = await listBodyParts()
+    if (seq !== requestSeq || !props.open) return
     vocabulary.value = Array.isArray(list) ? list : []
+    state.value = { ...state.value, picked: state.value.picked.filter(w => vocabulary.value.includes(w)) }
     loadState.value = 'ready'
-  } catch (e) {
-    // 取不到就清空词表：visibleWords 在空表时回落到本地点位，功能不锁死
+  } catch {
+    if (seq !== requestSeq || !props.open) return
+    // 请求失败才回落全量；成功空表代表管理员全停用，不能与失败合并。
     vocabulary.value = []
     loadState.value = 'failed'
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
   }
 }
-
-/** ESC 关闭：既有的浮层（健康档案）没做这条，但这是个长流程的中途退出，值得给 */
-function onKeydown(e) {
-  if (e.key === 'Escape' && props.open) close()
+function focusables() {
+  return [...dialogEl.value?.querySelectorAll('button:not([disabled]), [tabindex="0"], input:not([disabled]), textarea:not([disabled]), select:not([disabled])') || []]
+    .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden' && el.tabIndex >= 0)
 }
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+function onDialogKeydown(e) {
+  if (e.key === 'Escape') { e.preventDefault(); close(); return }
+  if (e.key !== 'Tab') return
+  const list = focusables()
+  if (!list.length) return
+  const first = list[0]
+  const last = list[list.length - 1]
+  if (!list.includes(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus() }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+}
+function onFaceTabKey(e, id) {
+  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return
+  e.preventDefault()
+  const next = id === 'front' ? 'back' : 'front'
+  state.value = { ...state.value, view: next }
+  nextTick(() => dialogEl.value?.querySelector(`[role="tab"][aria-selected="true"]`)?.focus())
+}
+watch(dialogEl, el => {
+  resizeObserver?.disconnect()
+  if (!el) return
+  returnRoot = el.closest('.patient-root')
+  isMobile.value = el.clientWidth <= 700
+  resizeObserver = new ResizeObserver(entries => { isMobile.value = entries[0].contentRect.width <= 700 })
+  resizeObserver.observe(el)
+})
+function releaseScroll() {
+  if (!locked) return
+  document.body.style.overflow = previousOverflow
+  locked = false
+}
+// 入口可能随锁定回执一起卸载，回退到仍在页面里的选图按钮。
+function returnFocus() {
+  const opener = restoreFocus.value
+  const target = opener?.isConnected && opener.getClientRects().length && opener !== document.body ? opener
+    : returnRoot?.querySelector('.p-composer__map, .body-map-preview__content .p-btn')
+  target?.focus({ preventScroll: true })
+  restoreFocus.value = null
+}
+watch(() => props.open, async open => {
+  const seq = ++openSeq
+  if (open) {
+    restoreFocus.value = document.activeElement
+    previousOverflow = document.body.style.overflow
+    locked = true
+    document.body.style.overflow = 'hidden'
+    state.value = emptyState()
+    suggestSide.value = null
+    mobileOpen.value = { location: true, side: false, feeling: false }
+    const preset = props.preset
+    if (preset?.word) state.value = { ...state.value, view: ['back', 'waist'].includes(preset.region) ? 'back' : 'front', act: preset.region || null, picked: [preset.word] }
+    const request = loadVocabulary()
+    await nextTick()
+    if (seq === openSeq && props.open) titleEl.value?.focus({ preventScroll: true })
+    await request
+  } else {
+    requestSeq += 1
+    releaseScroll()
+    await nextTick()
+    if (seq === openSeq) returnFocus()
+  }
+}, { immediate: true })
+onBeforeUnmount(() => {
+  openSeq += 1
+  requestSeq += 1
+  resizeObserver?.disconnect()
+  clearTimeout(pulseTimer)
+  releaseScroll()
+})
 </script>
 
 <style scoped>
-/* 组件私有样式：外壳全吃共享件，这里只有图与选栏。
-   同名类不许两处实现——所以下面凡带 p-map__ 前缀的都是本组件独有的部件。*/
-/* container-type: inline-size —— 让下面那条 @container 能按**浮层自身宽度**切布局。
-   浮层是 width:100% + max-width:760px，所以它的实际宽度在手机上约 335、桌面 760，
-   而视口宽度未必同步（分屏、内嵌宿主容器），只按视口判会漏。*/
-.p-map__box { max-width: 760px; container-type: inline-size; }
-
-/* 「必填」徽标（草案 06）：贴在标题右边，10px 小胶囊 */
-.p-map__must {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: var(--r-full);
-  background: var(--leaf);
-  color: var(--on-accent);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .1em;
-  vertical-align: 1px;
-}
-
-.p-map__bd {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-/* 左图 */
-.p-map__fig {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 10px 10px 20px;
-  overflow: hidden;
-}
-.p-map__canvas {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.p-map__svg {
-  height: 100%;
-  max-height: 340px;
-  width: auto;
-  overflow: visible;
-}
-.p-map__rg {
-  fill: #E9F1EE;
-  stroke: #B9D2CB;
-  stroke-width: 1.5;
-  cursor: pointer;
-  transition: fill .16s ease, stroke .16s ease;
-  /* 点击后浏览器会给 SVG 图元画一圈默认 focus 轮廓（围绕包围盒的黑色方框）——
-     这就是"点一下出现黑框"的来源。outline 一律收掉，键盘焦点改用描边加粗给信号：
-     选中态本身就是描边语言，焦点用同一种语言不会多出第二种编码 */
-  outline: none;
-}
-.p-map__rg:focus-visible { stroke: var(--leaf); stroke-width: 2.5; }
-.p-map__rg:hover { fill: #CBE6DE; stroke: var(--leaf); }
-.p-map__rg.is-act { fill: #CBE6DE; stroke: var(--leaf); stroke-width: 2.5; }
-/* 选中态必须"看得出"：填实 + 深描边，两条一起变（只变色在灰底图上读不出来） */
-.p-map__rg.is-sel { fill: var(--leaf); stroke: var(--leaf-deep); }
-/* 草案 06：已选中又正被查看的那块，描边换亮黄 #F0B429 区分"选过"与"正在看" */
-.p-map__rg.is-sel.is-act { stroke: #F0B429; stroke-width: 2.5; }
-
-.p-map__views {
-  display: flex;
-  flex: none;
-  background: var(--rail);
-  border-radius: 12px;
-  padding: 3px;
-  outline: none;
-}
-/* 草案 06：紧凑分段器（padding 6px 18px / font 12px / radius 9px）——
-   44px 的大块头在这只当"两个大按钮"，不像切换器 */
-.p-map__viewbtn {
-  padding: 6px 18px;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  font-family: var(--sans);
-  font-size: 12px;
-  color: var(--ink-2);
-  cursor: pointer;
-  outline: none;
-  transition: background .18s ease, color .18s ease;
-}
-.p-map__viewbtn:focus-visible { box-shadow: inset 0 0 0 2px var(--leaf); }
-.p-map__viewbtn.is-on {
-  background: var(--surface);
-  color: var(--leaf-deep);
-  font-weight: 600;
-  box-shadow: 0 1px 4px rgba(70, 50, 34, .1);
-}
-.p-map__tip { flex: none; font-size: 10.5px; color: var(--ink-3); }
-
-/* 右选栏 */
-.p-map__pick {
-  width: 272px;
-  flex: none;
-  border-left: 1px solid var(--line);
-  background: var(--stage);
-  overflow-y: auto;
-}
-.p-map__sec {
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.p-map__sec--last { border-bottom: none; }
-/* 草案 06：em 紧跟标题文字（margin-left 6px），不甩到最右——
-   「再点一下什么感觉<em>选填 · 可多选</em>」读起来是一句话，不是两栏 */
-.p-map__lb {
-  margin-bottom: 10px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .16em;
-  color: var(--ink-2);
-}
-.p-map__lb em {
-  font-style: normal;
-  font-weight: 400;
-  letter-spacing: 0;
-  margin-left: 6px;
-  color: var(--ink-3);
-}
-.p-map__hint { font-size: 10.5px; line-height: 1.7; color: var(--ink-3); }
-.p-map__hint b { color: var(--ink-2); font-weight: 600; }
-.p-map__chips { display: flex; flex-wrap: wrap; gap: 7px; }
-
-/* 草案 06：紧凑胶囊（padding 6px 13px / font 12px / radius 16px）。
-   此前的 44px 高 + 全圆角把「疼 / 胀」这类单字挤成了圆球——高度追平宽度，胶囊变圆。
-   44px 触控豁免留痕：本面板是密集点选区，主操作（大按钮 / 发送 / 关闭）仍 ≥44px */
-.p-map__chip {
-  padding: 6px 13px;
-  border: 1px solid var(--line-2);
-  border-radius: 16px;
-  background: var(--surface);
-  font-family: var(--sans);
-  font-size: 12px;
-  color: var(--ink-2);
-  cursor: pointer;
-  outline: none;
-  transition: border-color .18s ease, color .18s ease, background .18s ease;
-}
-.p-map__chip:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); border-color: var(--leaf); }
-.p-map__chip:hover { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
-.p-map__chip.is-on {
-  background: var(--leaf);
-  border-color: var(--leaf);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-
-/* 全停用：占满整个身体区的一句话说明 + 那个出口。刻意不给"图"——
-   一个点下去什么都不发生的图，比没有图更让人以为系统坏了 */
-.p-map__dead {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 24px 32px;
-  text-align: center;
-}
+.p-map__box { container-type: inline-size; overflow: hidden; }
+.p-overlay--tall .p-map__box { height: calc(100vh - 40px); height: calc(100dvh - 40px); }
+.p-map__box .p-overlay__head { align-items: center; flex: none; padding: 16px 22px; }
+.p-map__box .p-overlay__title { font-size: 19px; font-weight: 600; color: var(--ink); letter-spacing: 0; }
+.p-map__box .p-overlay__sub { font-size: 12.5px; color: var(--ink-2); }
+.p-map__box .p-overlay__close { justify-content: center; width: 44px; padding: 0; font-size: 28px; line-height: 1; letter-spacing: 0; }
+.p-map__must { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: var(--r-full); background: var(--leaf-soft); color: var(--leaf-deep); font-size: 12px; font-weight: 600; vertical-align: 1px; }
+.p-map__bd { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.p-map__fig { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 22px; overflow-y: auto; }
+.p-map__figurehead { display: flex; justify-content: space-between; align-items: center; flex: none; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.p-map__count { font-size: 12px; font-weight: 600; color: var(--leaf-deep); background: var(--leaf-soft); padding: 2px 10px; border-radius: var(--r-full); border: 1px solid var(--leaf-line); }
+.p-map__loadhint { margin: 0; color: var(--ink-2); font-size: 12px; }
+.p-map__loadhint button { padding: 0; border: 0; background: none; color: var(--leaf-deep); text-decoration: underline; cursor: pointer; }
+.p-map__canvas { flex: 1; min-height: 320px; width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px; background: var(--stage); border-radius: var(--r-md); border: 1px solid var(--line); }
+.p-map__face { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; gap: 8px; }
+.p-map__face .p-body { flex: 1; min-height: 0; }
+.p-map__fig > :not(.p-map__canvas) { flex-shrink: 0; }
+.p-map__canvas { overflow: hidden; }
+.p-map__box .p-overlay__title:focus { outline: none; }
+.p-map__pick .p-map__sec:last-child { border-bottom: 0; }
+.p-map__loadhint button { font: inherit; }
+.p-map__face figcaption { flex: none; padding: 4px 24px; border-radius: var(--r-full); background: var(--leaf-soft); border: 1.5px solid var(--leaf-line); color: var(--leaf-deep); font-size: 12px; font-weight: 600; transition: background .2s ease, color .2s ease; }
+.p-map__face figcaption.is-on { background: var(--leaf); border-color: var(--leaf-deep); color: var(--on-accent); box-shadow: 0 2px 8px var(--leaf-glow); }
+.p-map__legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px 20px; color: var(--ink-2); font-size: 12px; }
+.p-map__legend span { display: inline-flex; align-items: center; gap: 8px; }
+.p-map__legend i { width: 10px; height: 10px; border-radius: var(--r-full); background: var(--body-skin); border: 1.5px solid var(--body-gap); }
+.p-map__legend i.is-selected { background: var(--leaf); border-color: var(--leaf); }
+.p-map__legend i.is-active { background: none; border: 2px solid var(--leaf-deep); }
+.p-map__legend i.is-disabled { border-radius: 2px; background: repeating-linear-gradient(135deg, var(--body-skin) 0 3px, var(--line-2) 3px 4px); }
+.p-map__global { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.p-map__global .p-map__hint { width: 100%; margin: 0; }
+.p-map__pick { width: 300px; flex: none; border-left: 1px solid var(--line); background: var(--surface); overflow-y: auto; }
+.p-map__sec { padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.p-map__sec.is-pulse { animation: p-map-pulse .2s ease; }
+.p-map__lb { margin-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--ink); padding-left: 10px; border-left: 2.5px solid var(--leaf); }
+.p-map__lb em, .p-map__mobilehead em { font-style: normal; font-weight: 400; margin-left: 8px; font-size: 12px; color: var(--ink-2); }
+.p-map__mobilehead { display: none; }
+.p-map__hint { margin-top: 8px; font-size: 12px; line-height: 1.7; color: var(--ink-2); }
+.p-map__hintbox { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink-2); font-size: 12px; }
+.p-map__hintbox svg { flex: none; color: var(--leaf); }
+.p-map__skeleton { display: flex; gap: 8px; }
+.p-map__skeleton i { width: 56px; height: 36px; border-radius: var(--r-full); background: var(--line); animation: p-map-breathe 1.6s ease-in-out infinite alternate; }
+.p-map__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.p-map__chip { min-height: 36px; padding: 4px 14px; border: 1px solid var(--leaf-line); border-radius: var(--r-full); background: var(--surface); font-family: var(--sans); font-size: 13px; color: var(--ink-2); cursor: pointer; transition: border-color .18s ease, color .18s ease, background .18s ease; }
+.p-map__chip:hover, .p-map__chip:focus-visible { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
+.p-map__chip.is-on { background: var(--leaf); border-color: var(--leaf-deep); color: var(--on-accent); font-weight: 600; }
+.p-map__chip.is-unsure { border-style: dashed; }
+.p-map__chip:disabled { cursor: default; opacity: .55; }
+.p-map__suggest { display: block; margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--leaf-line); border-radius: var(--r-xs); background: var(--leaf-soft); color: var(--leaf-deep); font: inherit; font-size: 12px; cursor: pointer; }
+.p-map__dead { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 28px 32px; text-align: center; }
 .p-map__deadt { font-size: 15px; font-weight: 600; color: var(--ink); }
 .p-map__deads { font-size: 12.5px; line-height: 1.9; color: var(--ink-2); }
 .p-map__deads b { color: var(--leaf-deep); font-weight: 600; }
-
-.p-map__picked { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
-.p-map__pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 6px 5px 12px;
-  border-radius: var(--r-full);
-  background: var(--leaf-soft);
-  color: var(--leaf-deep);
-  font-size: 12px;
-  font-weight: 600;
-}
-.p-map__pill--feel { background: var(--apricot-soft); color: #8A5A1E; }
-/* 草案 06：15px 小圆点 ×（padding 4px 8px 4px 12px 的药丸自带空间）。
-   44px 触控豁免留痕：已选药丸是密集堆叠区，一颗颗撑 44px 会把已选区撑成一串大按钮；
-   同信息还有整条药丸可点兜底（点字不删、点 × 才删，误触有整体清空可回） */
-.p-map__x {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-full);
-  background: rgba(31, 138, 112, .2);
-  color: var(--leaf-deep);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  outline: none;
-  transition: background .18s ease, color .18s ease;
-}
-.p-map__x:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); }
-.p-map__x:hover { background: var(--leaf); color: var(--on-accent); }
-.p-map__pill--feel .p-map__x { background: rgba(232, 151, 74, .28); color: #8A5A1E; }
-.p-map__pill--feel .p-map__x:hover { background: var(--apricot); color: var(--on-accent); }
-.p-map__clear {
-  padding: 4px 6px;
-  background: none;
-  border: 0;
-  font-family: var(--sans);
-  font-size: 11px;
-  color: var(--ink-3);
-  cursor: pointer;
-  outline: none;
-}
-.p-map__clear:focus-visible { box-shadow: 0 0 0 2px var(--leaf-glow); border-radius: 6px; }
-.p-map__clear:hover { color: var(--alert); }
-
-/* 底部：预览 + 动作 */
-.p-map__ft { display: flex; flex-direction: column; gap: 11px; }
-.p-map__preview {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  padding: 9px 13px;
-  border-radius: var(--r-sm);
-  background: var(--apricot-soft);
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--apricot-deep);
-}
+.p-map__ft { flex: none; display: flex; flex-direction: column; gap: 10px; }
+.p-map__picked { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; white-space: nowrap; padding-bottom: 2px; color: var(--leaf-deep); font-size: 12px; }
+.p-map__pill { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--leaf-line); border-radius: var(--r-full); background: var(--leaf-soft); color: var(--leaf-deep); }
+.p-map__pill--side { background: var(--rail); color: var(--ink-2); border-color: var(--line-2); }
+.p-map__pill--feel { background: var(--apricot-soft); color: var(--apricot-deep); border-color: var(--line-2); }
+.p-map__x { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-full); background: none; color: inherit; font-size: 18px; cursor: pointer; }
+.p-map__x:hover { background: var(--hover-soft); }
+.p-map__clear { flex: none; padding: 4px 8px; border: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
+.p-map__preview { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
 .p-map__previewk { flex: none; font-weight: 600; }
-.p-map__preview b { font-weight: 600; }
-/* 底部动作行（草案 06）：ghost = 描边次按钮（9px 16px / 12.5px），prime = 实心主按钮
-   （10px 24px / 13px 600）。.p-btn 共享件是表单页脚的通栏 44px 件，塞进这一行太重，
-   所以覆盖层用自己的两颗紧凑按钮——不动共享件，也不给它添第二个宽度语义 */
-.p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.p-map__acts small { flex: 1 1 200px; min-width: 200px; font-size: 10.5px; line-height: 1.6; color: var(--ink-3); }
-.p-map__ghost {
-  padding: 9px 16px;
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  background: none;
-  font-family: var(--sans);
-  font-size: 12.5px;
-  color: var(--ink-2);
-  white-space: nowrap;
-  cursor: pointer;
-  outline: none;
-  transition: border-color .18s ease, color .18s ease, background .18s ease;
-}
-.p-map__ghost:focus-visible { border-color: var(--leaf); color: var(--leaf-deep); box-shadow: 0 0 0 2px var(--leaf-glow); }
-.p-map__ghost:hover { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
-.p-map__prime {
-  padding: 10px 24px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--leaf);
-  color: var(--on-accent);
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 3px 10px rgba(31, 138, 112, .24);
-  outline: none;
-  transition: background .18s ease;
-}
-.p-map__prime:focus-visible { box-shadow: 0 0 0 3px var(--leaf-glow); }
+.p-map__preview b { font-weight: 500; color: var(--leaf-deep); overflow-wrap: anywhere; }
+.p-map__acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.p-map__acts > .p-map__prime { margin-left: auto; }
+.p-map__ghost { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-xs); background: none; font-family: var(--sans); font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.p-map__prime { display: inline-flex; justify-content: center; align-items: center; gap: 16px; min-height: 44px; padding: 8px 28px; border: 0; border-radius: var(--r-xs); background: var(--leaf); color: var(--on-accent); font-family: var(--sans); font-size: 13.5px; font-weight: 600; cursor: pointer; box-shadow: var(--sh-primary); }
 .p-map__prime:not(:disabled):hover { background: var(--leaf-deep); }
 .p-map__prime:disabled { background: var(--rail); color: var(--ink-3); box-shadow: none; cursor: not-allowed; }
-
-/* 窄屏：图与选栏改成上下。
-   断点按**浮层自身宽度**判（`@container`），不按视口——手机视口窄、桌面浮层宽，
-   但分屏或内嵌宿主容器时"视口宽、浮层窄"也会发生，只看视口会漏。
-
-   ⚠️ 竖排时**整列作为一个滚动容器**，两块各自按内容取高。走过三段弯路才定成这样：
-   ① 分高度（各 flex:1）——横排那套 min-height:0 的分高机制在竖排下失效，图只剩 18px；
-   ② 只给图 min-height ——图按比例撑到 493px，把选栏挤成 1px；
-   ③ 两块各自 auto 但父级不滚 ——超出容器的部分**压在底部动作条上面**（实测）。
-   单一滚动容器避开全部三个：内容多就滚，不互相挤压，也不会有东西溢出到别的区域。 */
-@container (max-width: 560px) {
+.p-map__reason { flex: 1; min-width: 180px; color: var(--ink-2); font-size: 12px; }
+@keyframes p-map-pulse { 0% { background: var(--surface); } 50% { background: var(--leaf-soft); } 100% { background: var(--surface); } }
+@keyframes p-map-breathe { from { opacity: .45; } to { opacity: .9; } }
+@container (max-width: 700px) {
   .p-map__bd { flex-direction: column; overflow-y: auto; }
-  .p-map__fig { flex: 0 0 auto; padding: 12px 16px 6px; }
-  .p-map__canvas { overflow: hidden; }
-  /* 宽度定尺寸、高度按 220:360 的比例自己算。**不能给 height:100%**（按容器高缩，下半截被裁），
-     也不给 min-height（顶穿容器回到第③段那个坑）。 */
-  .p-map__svg { width: 100%; height: auto; max-height: none; }
-  .p-map__pick {
-    flex: 0 0 auto;
-    width: auto;
-    min-height: 0;
-    border-left: none;
-    border-top: 1px solid var(--line);
-    overflow: visible;
-  }
-  .p-map__acts small { order: 3; flex-basis: 100%; min-width: 0; }
+  .p-map__fig { flex: 0 0 auto; padding: 12px 16px; overflow: visible; }
+  .p-map__canvas { overflow: visible; }
+  .p-map__tabs { display: flex; align-self: center; padding: 3px; border-radius: var(--r-full); background: var(--rail); }
+  .p-map__tabs button { min-width: 92px; min-height: 40px; border: 0; border-radius: var(--r-full); background: none; color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; }
+  .p-map__tabs button.is-on { background: var(--leaf); color: var(--on-accent); }
+  .p-map__canvas { display: block; min-height: 0; padding: 12px; }
+  .p-map__face { animation: p-map-face .18s ease; }
+  .p-map__face .p-body { flex: none; width: auto; max-width: 100%; height: min(62vh, 460px); aspect-ratio: 240 / 608; margin: auto; }
+  .p-map__face figcaption { display: none; }
+  .p-map__pick { width: auto; min-height: 0; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .p-map__mobilehead { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
+  .p-map__mobilehead + .p-map__lb { display: none; }
+  .p-map__chip { min-height: 44px; }
+  .p-map__sectionbody { margin-top: 10px; }
+  .p-map__x { width: 40px; height: 40px; }
+  .p-map__clear { min-height: 44px; }
+  .p-map__ft { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .p-map__acts { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .p-map__prime { grid-row: 1; width: 100%; }
+  .p-map__reason { min-width: 0; text-align: center; }
+  .p-map__preview b { max-height: 44px; overflow-y: auto; }
+}
+@keyframes p-map-face { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 600px) {
+  .p-overlay { padding: 8px; }
+  .p-overlay.p-overlay--tall .p-map__box { height: calc(100vh - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }
+  .p-map__box .p-overlay__head { padding: 12px 16px; }
+  .p-map__box .p-overlay__title { font-size: 17px; }
+  .p-map__figurehead { align-items: flex-start; gap: 8px; font-size: 13px; }
+  .p-map__count { flex: none; }
+  .p-map__ghost { min-height: 36px; padding: 0; border: 0; }
+  .p-map__ft { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-map__sec.is-pulse, .p-map__skeleton i, .p-map__face { animation: none; }
+  .p-map__chip, .p-map__prime, .p-map__ghost { transition: none; }
 }
 </style>

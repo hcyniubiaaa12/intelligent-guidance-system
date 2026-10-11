@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人体图预览 · 智能导诊</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { createApp } from 'vue'
+      import BodyMapPreview from './src/components/patient/BodyMapPreview.vue'
+      import http from './src/api/http.js'
+      import { PARTS } from './src/utils/bodyMap.js'
+      import './src/styles/base.css'
+      import './src/styles/patient.css'
+
+      // This standalone development preview uses the existing vocabulary locally.
+      http.defaults.adapter = async (config) => ({
+        data: { code: 200, data: [...PARTS] },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config
+      })
+
+      createApp(BodyMapPreview).mount('#app')
+    </script>
+  </body>
+</html>

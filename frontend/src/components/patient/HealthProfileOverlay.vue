@@ -4,10 +4,10 @@
       <div class="p-overlay__box" role="dialog" aria-label="我的健康档案">
         <header class="p-overlay__head">
           <div>
-            <div class="p-overlay__title">健 康 档 案</div>
+            <div class="p-overlay__title">健康档案</div>
             <p class="p-overlay__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
           </div>
-          <button class="p-overlay__close" aria-label="关闭健康档案" @click="close">关 闭</button>
+          <button class="p-overlay__close" aria-label="关闭健康档案" @click="close">关闭</button>
         </header>
 
         <div v-if="loading" class="p-prof__loading">正在加载…</div>
@@ -15,24 +15,24 @@
         <div v-else class="p-overlay__body">
           <!-- 性别 / 年龄段：选项由读回体的 options 下发，**前端不写死** -->
           <div class="p-prof__row">
-            <label id="p-prof-l-gender" class="p-prof__label">性　别</label>
+            <label id="p-prof-l-gender" class="p-prof__label">性别</label>
             <PatientSelect
               id="p-prof-gender"
               label-id="p-prof-l-gender"
               v-model="form.gender"
               :options="options.genders"
-              none-label="不 填"
+              none-label="不填"
               placeholder="暂无可选项"
             />
           </div>
           <div class="p-prof__row">
-            <label id="p-prof-l-age" class="p-prof__label">年 龄 段</label>
+            <label id="p-prof-l-age" class="p-prof__label">年龄段</label>
             <PatientSelect
               id="p-prof-age"
               label-id="p-prof-l-age"
               v-model="form.ageRange"
               :options="options.ageRanges"
-              none-label="不 填"
+              none-label="不填"
               placeholder="暂无可选项"
             />
           </div>
@@ -70,7 +70,7 @@
 
         <footer class="p-overlay__foot">
           <button class="p-btn" :disabled="loading || saving" @click="save">
-            {{ saving ? '保 存 中…' : '保 存 档 案' }}
+            {{ saving ? '保存中…' : '保存档案' }}
           </button>
         </footer>
       </div>
@@ -131,9 +131,9 @@ function emptyProfile() {
  * （后端 Java 枚举 / 前端展示文案），无法共享同一常量，故保留；改文案时两处一起改。
  */
 const groups = computed(() => [
-  { key: 'history', label: '既 往 病 史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
-  { key: 'medication', label: '长 期 用 药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
-  { key: 'allergy', label: '过 敏 史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' }
+  { key: 'history', label: '既往病史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
+  { key: 'medication', label: '长期用药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
+  { key: 'allergy', label: '过敏史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' }
 ].map((g) => ({ ...g, options: tags.value.filter((t) => t.type === g.type) })))
 
 // 打开就拉：每次打开都是最新的读回体（可能刚在另一处改过），不做缓存
@@ -234,7 +234,7 @@ async function save() {
 .p-prof__loading {
   padding: 48px 16px;
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--ink-3);
 }
@@ -249,8 +249,8 @@ async function save() {
   flex: none;
   width: 64px;
   font-family: var(--sans);
-  font-size: 11.5px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
 }
 .p-prof__group {
@@ -267,13 +267,13 @@ async function save() {
 }
 .p-prof__glabel {
   font-family: var(--sans);
-  font-size: 11.5px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink);
 }
 .p-prof__quota {
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 .p-prof__chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -301,7 +301,7 @@ async function save() {
 }
 .p-prof__none {
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 .p-prof__other { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
@@ -320,7 +320,7 @@ async function save() {
 .p-prof__left {
   flex: none;
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 .p-prof__err {
@@ -330,7 +330,7 @@ async function save() {
   border-radius: var(--r-sm);
   background: var(--alert-soft);
   color: var(--alert);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.85;
 }
 </style>

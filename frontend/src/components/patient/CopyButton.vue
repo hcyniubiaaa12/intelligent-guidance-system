@@ -17,12 +17,12 @@
  * 一键复制按钮（`.p-act__btn` 的唯一使用方式）。
  *
  * 外观与"桌面 hover 才浮现"在共享件 `patient.css` 里；本组件只管**文案与状态**，
- * 因为那两枚图标 + `aria-label` + 「复 制 / 已 复 制」在五个消费点（用户气泡 / 追问 /
+ * 因为那两枚图标 + `aria-label` + 「复制 / 已复制」在五个消费点（用户气泡 / 追问 /
  * 资料回答 / AI 回复 / 结论卡）里逐字重复——留一份在这里，改文案只改一处。
  *
  * **它不自己复制**：写剪贴板要 fallback（`navigator.clipboard` 在非安全上下文不可用），
  * 那是 `utils/clipboard.js` 的事；谁owns 那次调用、谁决定复位时机，由调用方管
- * （对话页按条目索引记 `copiedKey`，结论卡自己记一个布尔）。
+ * （对话页按稳定条目 id 记 `copiedKey`，结论卡自己记一个布尔）。
  */
 defineProps({
   /** 是否已复制（决定图标与文案） */
@@ -32,9 +32,9 @@ defineProps({
   /** 已复制时的无障碍名；留空则沿用 ariaLabel */
   copiedAria: { type: String, default: '' },
   /** 未复制时的可见文案 */
-  text: { type: String, default: '复 制' },
+  text: { type: String, default: '复制' },
   /** 已复制时的可见文案 */
-  copiedText: { type: String, default: '已 复 制' }
+  copiedText: { type: String, default: '已复制' }
 })
 const emit = defineEmits(['copy'])
 </script>

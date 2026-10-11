@@ -14,6 +14,9 @@
   --bg: #FAF5EF;              /* 页面底（暖沙）——最外层 */
   --stage: #FDFAF6;           /* 对话舞台底：比 bg 亮一档 */
   --rail: #F4EDE4;            /* 左侧栏底：比 bg 暗一档 */
+  --body-skin: #EFE6DC;       /* 人体图未选区域：暖中性肤色，比 rail 略暖 */
+  --body-skin-hover: #E2EEE9; /* 人体图悬停：肤色向主色浅底过渡 */
+  --body-gap: var(--stage);  /* 人体分块之间的缝，与画布底色相同 */
   --surface: #FFFFFF;         /* 卡片 / 结论卡 / 输入区 / 浮层 */
   --ink: #2E2620;             /* 主文字（暖墨）*/
   --ink-2: #7A6A5E;           /* 次要文字、标签、说明 */
@@ -36,6 +39,8 @@
   --scroll-thumb-hover: rgba(46, 38, 32, .32); /* 派生：滚动条滑块 hover */
   --hover-rail: rgba(255, 255, 255, .72);      /* 派生：深色底上的悬停（侧栏条目）*/
   --hover-soft: rgba(46, 38, 32, .045);        /* 派生：浅色底上的悬停（导航条目）*/
+  --accent-wash: rgba(255, 255, 255, .18);    /* 主色按钮上的图标浅底 */
+  --on-accent-muted: rgba(255, 255, 255, .82); /* 主色按钮上的次要说明 */
 
   /* ---------- §2.2 字体（全局无衬线；字阶 26/19/14.5/13.5/12.5/11.5/10.5/10）---------- */
   --sans: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -54,11 +59,12 @@
   --sh-overlay: 0 16px 44px rgba(70, 50, 34, .14);
 
   min-height: 100vh;
+  min-height: 100dvh; /* 地址栏变化时仍保留可见的输入区，旧浏览器回落到 vh */
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 13.5px;
-  line-height: 1.85;
+  font-size: 15px;
+  line-height: 1.75;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -72,11 +78,11 @@
    §3.x 共享部件
    ============================================================ */
 
-/* ---------- 标签（eyebrow · 10.5px + 大字距）---------- */
+/* 标签保留小幅字距，文字本身不插空格，保证复制、搜索和读屏都连贯。 */
 .p-eyebrow {
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
 }
 
@@ -97,8 +103,8 @@
 }
 .p-topbar__sub {
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
 }
 .p-topbar__ops {
@@ -118,8 +124,8 @@
   background: none;
   border: none;
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
   text-decoration: underline dashed var(--ink-3);
   text-underline-offset: 3px;
@@ -136,8 +142,8 @@
   border: 1px solid var(--line);
   border-radius: var(--r-xs);
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
   cursor: pointer;
   transition: color .18s ease, border-color .18s ease;
@@ -158,15 +164,15 @@
 /* 助手消息：直排文字，不带底色 */
 .p-ai__tag {
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .06em;
   color: var(--leaf-deep);
   margin-bottom: 8px;
 }
 .p-ai__text {
-  font-size: 14.5px;
-  line-height: 2; /* 正文行高放宽 */
+  font-size: 15px;
+  line-height: 1.75; /* 中老年患者阅读的正文统一字号与行高 */
   white-space: pre-wrap;
 }
 
@@ -193,8 +199,8 @@
   color: var(--on-accent);
   padding: 12px 16px;
   border-radius: var(--r-lg) var(--r-lg) 6px var(--r-lg);
-  font-size: 13.5px;
-  line-height: 1.85;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 /* 追问：与普通回复同款，只加左侧竖线——这套语言里竖线表示"追问 / 引用" */
@@ -217,7 +223,7 @@
 .p-error__retry {
   margin-left: 8px;
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--alert);
   text-decoration: underline;
@@ -241,8 +247,8 @@
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-3);
   opacity: 0;
   transition: opacity .18s ease, color .18s ease;
@@ -319,7 +325,7 @@
   background: var(--rail);
   color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
 }
@@ -354,7 +360,7 @@
   width: 44px;
   text-align: right;
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-2);
 }
 .p-bar--top .p-bar__name {
@@ -384,7 +390,7 @@
   margin-bottom: 8px;
 }
 .p-cite {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.8;
   color: var(--ink-2);
 }
@@ -397,7 +403,7 @@
   background: var(--leaf-soft);
   color: var(--leaf-deep);
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
 }
 /* 标题一行，原文另起一段：原文可能 400 字，跟标题挤在一行会读不成句 */
@@ -416,7 +422,7 @@
 }
 .p-card__lowhint {
   margin-top: 12px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--alert);
 }
 
@@ -427,7 +433,7 @@
   padding: 12px 16px;
   background: var(--apricot-soft);
   border-radius: var(--r-sm);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.8;
   color: var(--apricot-deep);
 }
@@ -471,7 +477,7 @@
   box-shadow: 0 0 0 4px var(--leaf-glow);
 }
 .p-band__t {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--ink-2);
   white-space: nowrap;
 }
@@ -498,7 +504,7 @@
   font-family: var(--sans);
   font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: .1em;
+  letter-spacing: .08em;
   cursor: pointer;
   transition: background .18s ease;
   box-shadow: var(--sh-primary);
@@ -531,7 +537,7 @@
   background: var(--surface);
   border-top: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: .04em;
   color: var(--ink-3);
 }
@@ -540,11 +546,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--line);
   border-radius: var(--r-full);
-  font-size: 10px;
+  font-size: 12px;
 }
 .p-steps__link {
   width: 26px;
@@ -570,8 +576,22 @@
 /* ---------- §3.5 输入区（书写卡）---------- */
 .p-composer {
   padding: 12px 16px 16px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom)); /* 避让手机底部手势区 */
   background: var(--stage);
   border-top: 1px solid var(--line);
+}
+
+/* 视觉隐藏但保留无障碍树，给一轮回复摘要播报复用。 */
+.p-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .p-composer__box {
   background: var(--surface);
@@ -596,8 +616,8 @@
   background: none;
   padding: 12px 16px 4px;
   font-family: var(--sans);
-  font-size: 13.5px;
-  line-height: 1.85;
+  font-size: 15px;
+  line-height: 1.75;
   color: var(--ink);
 }
 .p-composer__input::placeholder { color: var(--ink-3); }
@@ -622,7 +642,7 @@
   border-radius: var(--r-sm);
   background: none;
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--leaf-deep);
   white-space: nowrap;
   cursor: pointer;
@@ -633,9 +653,28 @@
 .p-composer__hint {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--ink-3);
   text-align: right;
+}
+
+/* 375px 下说明换到下一行，给选图和发送保留完整触控宽度。 */
+@media (max-width: 480px) {
+  .p-composer__bar { flex-wrap: wrap; gap: 6px 12px; }
+  .p-composer__send { margin-left: auto; }
+  .p-composer__hint { flex-basis: 100%; order: 3; text-align: left; }
+  .p-topbar { gap: 6px; }
+  .p-topbar__ops { gap: 4px; }
+  .p-topbar__nick { max-width: 74px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; letter-spacing: 0; }
+  .p-topbar__logout { padding: 0 8px; }
+  .p-steps { padding: 10px 12px; letter-spacing: 0; }
+  .p-steps__item { gap: 4px; }
+  .p-steps__link { width: 12px; margin: 0 5px; }
+  .p-band { padding: 12px; }
+  .p-band__link { margin-left: 4px; margin-right: 4px; }
+  .p-card { padding: 16px; }
+  .p-bar__name { width: 88px; }
+  .p-prof__ghead { flex-wrap: wrap; }
 }
 .p-composer__send {
   flex: none;
@@ -728,7 +767,7 @@
 /* 科室位置：块级小字，跟在科室名后面。选中态是浅底，文字色与常态一致即可 */
 .p-dept__loc {
   display: block;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-2);
 }
 .p-dept__hint {
@@ -739,9 +778,9 @@
   background: var(--apricot-soft);
   color: var(--apricot-deep);
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: .1em;
+  letter-spacing: .08em;
 }
 /* 备选（Top2/Top3）：比「推荐」弱一档，排在推荐科室之后 */
 .p-dept__hint--alt {
@@ -798,8 +837,8 @@
 }
 /* 宽体变体：宽表单类浮层（健康档案）用它 */
 .p-overlay--wide .p-overlay__box { max-width: 560px; }
-/* 超宽变体：左右分栏的浮层（人体图覆盖层——左图右选栏，窄容器会把图压扁） */
-.p-overlay--xl .p-overlay__box { max-width: 760px; }
+/* 超宽变体：人体图覆盖层的正反两面并列展示 */
+.p-overlay--xl .p-overlay__box { max-width: 960px; }
 /* 高体变体：图要占到视口大部分高度，否则 13 个区域挤在一屏里点不准 */
 .p-overlay--tall .p-overlay__box { height: calc(100vh - 40px); }
 .p-overlay__head {
@@ -812,13 +851,13 @@
 }
 .p-overlay__title {
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
 }
 .p-overlay__sub {
   margin-top: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 .p-overlay__close {
@@ -830,8 +869,8 @@
   background: none;
   border: 0;
   font-family: var(--sans);
-  font-size: 11.5px;
-  letter-spacing: .14em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
   cursor: pointer;
   transition: color .18s ease;
@@ -928,7 +967,7 @@
   line-height: 1.7;
   color: var(--ink);
   cursor: pointer;
-  white-space: nowrap; /* 「不 填」这类带字距的文案不许断行 */
+  white-space: nowrap; /* 「不填」这类带字距的文案不许断行 */
   transition: background .18s ease, color .18s ease;
 }
 /* 高亮（键盘正在走的那条）与选中（当前值）是两回事，颜色上用底与字重分开 */
@@ -944,7 +983,7 @@
   color: var(--leaf-deep);
 }
 .p-sel__optx { flex: 1; min-width: 0; }
-.p-sel__none { padding: 12px 8px; font-size: 11.5px; color: var(--ink-3); }
+.p-sel__none { padding: 12px 8px; font-size: 12px; color: var(--ink-3); }
 
 /* 过渡时长统一 .18s（§2.5），不另立一个"下拉专用"的节奏 */
 .p-sel-rise-enter-active,

@@ -2,7 +2,7 @@
   <section class="p-card">
     <div class="p-card__head">
       <div>
-        <div class="p-eyebrow">给 您 的 分 诊 结 论</div>
+        <div class="p-eyebrow">给您的分诊结论</div>
         <div class="p-card__dept">{{ card.dept }}</div>
       </div>
       <div class="p-card__conf" :class="{ 'p-card__conf--low': isLow(card) }">
@@ -29,7 +29,7 @@
 
     <!-- 脚注区：判断依据（1px dashed 上边框，注号对应证据顺序） -->
     <div class="p-card__foot">
-      <span class="p-eyebrow">判 断 依 据</span>
+      <span class="p-eyebrow">判断依据</span>
       <p v-for="c in card.cites" :key="c.no" class="p-cite">
         <span class="p-cite__no">注{{ c.no }}</span>
         <span class="p-cite__title">{{ c.title }}</span>
@@ -51,13 +51,13 @@
       class="p-card__copy"
       :copied="copied"
       aria-label="复制这条分诊结论"
-      text="复 制 结 论"
+      text="复制结论"
       @copy="copy"
     />
 
     <!-- 回放时已挂号的，补一行就诊信息；没有的什么都不加 -->
     <div v-if="replay && card.booked" class="p-card__visit">
-      就 诊　{{ card.actualDept }}<template v-if="card.actualDeptLocation"> · {{ card.actualDeptLocation }}</template>
+      就诊　{{ card.actualDept }}<template v-if="card.actualDeptLocation"> · {{ card.actualDeptLocation }}</template>
     </div>
 
     <!-- 签名部件：三步陪伴带。**只在实时对话里出现**——回放是历史记录，
@@ -143,7 +143,7 @@ onBeforeUnmount(() => clearTimeout(timer))
   padding-top: 12px;
   border-top: 1px solid var(--line);
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--ink-2);
 }

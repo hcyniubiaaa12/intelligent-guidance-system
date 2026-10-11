@@ -20,7 +20,7 @@
         <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.2" y="2.2" width="11.6" height="9.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 2.2v9.6" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
       <!-- 收起后仍要能开新咨询——否则得先展开侧栏才够得到 -->
-      <button class="p-chat__iconbtn" title="新 的 咨 询" aria-label="新 的 咨 询" @click="startNew">
+      <button class="p-chat__iconbtn" title="新的咨询" aria-label="新的咨询" @click="startNew">
         <svg width="15" height="15" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 4.8v4.4M4.8 7h4.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
     </div>
@@ -43,15 +43,15 @@
       </div>
 
       <!-- 新咨询放最上头：会话多了要能一眼够到 -->
-      <button class="p-chat__new" @click="startNew">+ 新 的 咨 询</button>
+      <button class="p-chat__new" @click="startNew">+ 新的咨询</button>
 
       <div class="p-chat__sidehd">
-        <!-- 就诊次数**跟着标签走**（`我 的 就 诊 · 7 次`），不另起一个 19px 的大数字：
+        <!-- 就诊次数**跟着标签走**（`我的就诊 · 7 次`），不另起一个 19px 的大数字：
              大数字会和下面 12.5px 的会话条目抢层级，而次数只是列表的量词 -->
-        <div class="p-eyebrow p-chat__lb">我 的 就 诊 · <b>{{ countText }}</b></div>
+        <div class="p-eyebrow p-chat__lb">我的就诊 · <b>{{ countText }}</b></div>
         <div class="p-chat__tabs">
-          <button :class="{ on: tab === 'all' }" @click="tab = 'all'">全 部 对 话</button>
-          <button :class="{ on: tab === 'booked' }" @click="tab = 'booked'">挂 号 历 史</button>
+          <button :class="{ on: tab === 'all' }" @click="tab = 'all'">全部对话</button>
+          <button :class="{ on: tab === 'booked' }" @click="tab = 'booked'">挂号历史</button>
         </div>
       </div>
 
@@ -73,13 +73,13 @@
               <span class="p-i__q">{{ s.questionCount }} 问</span>
               <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
             </button>
-            <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归 档</button>
+            <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归档</button>
           </div>
           <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
-            展 开 该 天 全 部 {{ day.sessions.length }} 次
+            展开该天全部 {{ day.sessions.length }} 次
           </button>
           <button v-else-if="expanded.has(day.date)" class="p-fold" @click="collapseDay(day.date)">
-            收 起 该 天
+            收起该天
           </button>
         </template>
         <p v-if="!shownDays.length" class="p-chat__nores">
@@ -89,7 +89,7 @@
         <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
         <template v-if="archivedDaysShown.length">
           <button class="p-fold" @click="archOpen = !archOpen">
-            {{ archOpen ? '收 起 归 档' : `已 归 档 · ${archivedTotal} 次` }}
+            {{ archOpen ? '收起归档' : `已归档 · ${archivedTotal} 次` }}
           </button>
           <template v-if="archOpen">
             <template v-for="day in archivedDaysShown" :key="day.date">
@@ -107,7 +107,7 @@
                   <span class="p-i__q">{{ s.questionCount }} 问</span>
                   <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
                 </button>
-                <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取 回</button>
+                <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取回</button>
               </div>
             </template>
           </template>
@@ -115,15 +115,15 @@
       </div>
 
       <!-- 底部用户区：一张压在侧栏底上的白卡，与选中条目同一层次。
-           昵称在上（它是"看挂号历史"的入口）、「健 康 档 案」在下当副标，
+           昵称在上（它是"看挂号历史"的入口）、「健康档案」在下当副标，
            退出收在最右的小字里——三件事都在，但不与列表的条目抢眼 -->
       <div class="p-chat__user">
         <span class="p-chat__uava" aria-hidden="true">{{ initial }}</span>
         <span class="p-chat__uinfo">
           <button class="p-chat__unick" title="看我的挂号历史" @click="emit('open-booked')">{{ name }}</button>
-          <button class="p-chat__uprof" title="填写健康档案（选填）" @click="emit('open-profile')">健 康 档 案</button>
+          <button class="p-chat__uprof" title="填写健康档案（选填）" @click="emit('open-profile')">健康档案</button>
         </span>
-        <button class="p-chat__uout" title="退出登录" @click="emit('logout')">退 出</button>
+        <button class="p-chat__uout" title="退出登录" @click="emit('logout')">退出</button>
       </div>
     </div>
   </aside>
@@ -176,7 +176,7 @@ const sideHidden = ref(localStorage.getItem(SIDE_HIDDEN_KEY) === '1')
 const isDesktop = ref(window.matchMedia('(min-width: 768px)').matches)
 
 /** 昵称为空时给个兜底：空白卡比"我的就诊"更像出错了 */
-const name = computed(() => props.nickname || '我 的 就 诊')
+const name = computed(() => props.nickname || '我的就诊')
 const initial = computed(() => (props.nickname || '我').slice(0, 1))
 /** 次数跟着当前 tab 走：全部对话报总次数，挂号历史报挂号次数 */
 const countText = computed(() => (tab.value === 'all' ? `${total.value} 次` : `${booked.value} 次挂号`))
@@ -322,7 +322,7 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
 .p-chat__brand small {
   display: block;
   margin-top: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: .06em;
   color: var(--ink-3);
@@ -339,7 +339,7 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   font-family: var(--sans);
   font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: .1em;
+  letter-spacing: .08em;
   box-shadow: var(--sh-primary);
   transition: background .18s ease;
 }
@@ -357,8 +357,8 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 11.5px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
   transition: background .18s ease, color .18s ease, box-shadow .18s ease;
 }
@@ -372,7 +372,7 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
 .p-chat__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; }
 .p-chat__nores {
   padding: 48px 12px;
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: .06em;
   color: var(--ink-3);
   text-align: center;
@@ -380,7 +380,7 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
 
 /* ---------- 底部用户区 ----------
    一张压在侧栏底上的白卡，与选中条目同一层次。里面三件事按重要性排成两行：
-   昵称（12.5px 600，"看挂号历史"的入口）在上、「健 康 档 案」（10px，作为副标）在下，
+   昵称（12.5px 600，"看挂号历史"的入口）在上、「健康档案」（10px，作为副标）在下，
    退出收在右端的小字——**静息态不画下划线**，靠 hover 变色给可点提示，
    否则四条带下划线的文字并排会把底卡变成一堵字墙。
 
@@ -456,9 +456,9 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   color: var(--ink-2);
 }
 .p-chat__unick:hover { color: var(--leaf-deep); text-decoration: underline; text-underline-offset: 3px; }
-.p-chat__uprof { font-size: 10px; letter-spacing: .1em; color: var(--ink-3); }
+.p-chat__uprof { font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
 .p-chat__uprof:hover { color: var(--leaf-deep); }
-.p-chat__uout { flex: none; font-size: 10px; letter-spacing: .1em; color: var(--ink-3); }
+.p-chat__uout { flex: none; font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
 .p-chat__uout:hover { color: var(--alert); }
 
 /* ---------- 目录条目：天头 + 条目 + 折叠条。侧栏底是 `--rail`，所以选中行用**实白卡片**
@@ -469,8 +469,8 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   justify-content: space-between;
   padding: 12px 8px 4px;
   font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .14em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-3);
 }
 .p-day .n { letter-spacing: .06em; }
@@ -504,7 +504,7 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
 .p-i__d {
   flex: none;
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 .p-i__q { letter-spacing: .06em; }
@@ -517,8 +517,8 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--leaf-deep);
 }
 .p-fold:hover { text-decoration: underline; }
@@ -535,8 +535,8 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
   background: none;
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .1em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--leaf-deep);
   opacity: 0;
   transition: opacity .18s ease;

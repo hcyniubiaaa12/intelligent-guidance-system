@@ -151,6 +151,15 @@ export function pickedLabel(picked = [], side = null) {
 }
 
 /**
+ * 把已提交的结构化位置反查回图上的区域 id。
+ * 方位只是声明前缀，全身词没有对应的图块，因此只剥离左/右/两侧后匹配区域词。
+ */
+export function regionsOfLocations(locations = []) {
+  const words = new Set(normalizeWords(locations).map(word => word.replace(/^(两侧|左|右)/, '')))
+  return REGIONS.filter(region => region.words.some(word => words.has(word))).map(region => region.id)
+}
+
+/**
  * 方位在"已选"区里的显示名：「左」显示成「左侧」更像人话，「两侧」原样。
  * 纯展示，与拼句无关（拼句里前缀就是「左」本身，"左腹部"才规范）。
  */

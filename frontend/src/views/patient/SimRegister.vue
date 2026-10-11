@@ -3,19 +3,19 @@
     <!-- 顶栏：病历抬头式 -->
     <header class="p-topbar">
       <div class="p-topbar__title">模拟挂号</div>
-      <div class="p-topbar__sub">就 诊 科 室 · 选 定</div>
+      <div class="p-topbar__sub">就诊科室 · 选定</div>
     </header>
 
     <main class="p-reg__body">
       <!-- 成功态（register_success；埋点由后端挂号接口补记） -->
       <section v-if="done" class="p-card p-reg__done">
-        <div class="p-eyebrow">挂 号 成 功</div>
+        <div class="p-eyebrow">挂号成功</div>
         <div class="p-card__dept">{{ booked.deptName }}</div>
         <p class="p-card__note">
           已为您登记就诊科室。请携此信息前往门诊导医台取号。
         </p>
         <div class="p-card__foot">
-          <span class="p-eyebrow">就 诊 信 息</span>
+          <span class="p-eyebrow">就诊信息</span>
           <p class="p-cite"><span class="p-cite__no">科室</span>　{{ booked.deptName }}</p>
           <p class="p-cite"><span class="p-cite__no">位置</span>　{{ booked.location }}</p>
           <p class="p-cite"><span class="p-cite__no">状态</span>　register_success</p>
@@ -42,7 +42,7 @@
         </div>
 
         <div class="p-eyebrow p-reg__eb">
-          {{ orderedDepts.length ? sectionEyebrow : '科 室 列 表 · 全 部 启 用' }}
+          {{ orderedDepts.length ? sectionEyebrow : '科室列表 · 全部启用' }}
         </div>
 
         <p v-if="loading" class="p-empty">正在加载科室…</p>
@@ -60,7 +60,7 @@
               {{ d.name }}
               <span class="p-cite p-dept__loc">{{ d.location }}</span>
             </span>
-            <span v-if="d.id === recDeptId" class="p-dept__hint">推 荐</span>
+            <span v-if="d.id === recDeptId" class="p-dept__hint">推荐</span>
             <span v-else-if="recRank(d.id)" class="p-dept__hint p-dept__hint--alt">备选 {{ recRank(d.id) }}</span>
           </button>
         </div>
@@ -102,7 +102,7 @@ const router = useRouter()
 
 // recordId 是挂号与埋点的唯一凭证：由对话页结论卡跳转时带上
 const recordId = route.query.recordId || ''
-// 推荐科室 id：结论卡带来的 top1 科室，列表内 teal 实心高亮 + 「推 荐」标记
+// 推荐科室 id：结论卡带来的 top1 科室，列表内 teal 实心高亮 + 「推荐」标记
 const recDeptId = route.query.deptId || ''
 
 const depts = ref([])
@@ -123,7 +123,7 @@ const recOrder = computed(() => {
     .filter(Boolean)
 })
 
-/** 某科室是 Top3 的第几位（0 = 不在 Top3 里，即非推荐科室；1 = top1 走「推 荐」不显示数字） */
+/** 某科室是 Top3 的第几位（0 = 不在 Top3 里，即非推荐科室；1 = top1 走「推荐」不显示数字） */
 function recRank(deptId) {
   const i = recOrder.value.indexOf(deptId)
   return i > 0 ? i + 1 : 0
@@ -141,7 +141,7 @@ const orderedDepts = computed(() => {
 
 // 列表顶部小标题：有推荐科室时说明「推荐在前、其余在后」，否则沿用原来的「全部启用」
 const sectionEyebrow = computed(() =>
-  recOrder.value.length ? '系 统 推 荐 在 前 · 其 余 科 室 在 下' : '科 室 列 表 · 全 部 启 用'
+  recOrder.value.length ? '系统推荐在前 · 其余科室在下' : '科室列表 · 全部启用'
 )
 
 // sim_register 触点：同一次访问里每个科室只上报一次，反复切换不刷量
@@ -203,6 +203,7 @@ onMounted(loadDepts)
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* 与对话页一样，底部流程条避让动态地址栏 */
   background: var(--bg);
 }
 .p-reg__body {

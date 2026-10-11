@@ -11,21 +11,21 @@
     </div>
 
     <!-- 锁定后：三格还在（① 打上勾），下面换成锁定回执 + 重选（草案 06 的 is-ready 形态） -->
-    <div class="p-hello__label">说 清 这 三 件 事 就 够 了</div>
+    <div class="p-hello__label">说清这三件事就够了</div>
     <div class="p-hello__three">
       <div class="p-hello__bub p-hello__bub--req">
         <span class="p-hello__must">必填</span>
-        <b>① 部 位</b>
+        <b>① 部位</b>
         <span class="p-hello__bubval">{{ partLabel ? `${partLabel} ✓` : '在图上选，或说"说不清"' }}</span>
       </div>
       <div class="p-hello__bub">
         <span class="p-hello__opt">随后问</span>
-        <b>② 时 间</b>
+        <b>② 时间</b>
         <span>大概多久了</span>
       </div>
       <div class="p-hello__bub">
         <span class="p-hello__opt">随后问</span>
-        <b>③ 感 觉</b>
+        <b>③ 感觉</b>
         <span>是怎么个难受法</span>
       </div>
     </div>
@@ -35,7 +35,7 @@
     <template v-if="stage === 'awaiting'">
       <button type="button" class="p-hello__pick" @click="emit('pickPart')">
         <span class="p-hello__pickic" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="5" r="2.4"/><path d="M12 7.6v6M12 13.6l-3.2 6M12 13.6l3.2 6M7.6 10h8.8"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><ellipse cx="12" cy="4.6" rx="2.6" ry="2.9"/><path d="M8.2 8.6c1.1-.6 2.4-.9 3.8-.9s2.7.3 3.8.9c1 .5 1.5 1.5 1.5 2.6v4.2c0 .6-.5 1-1 1h-.6l-.5 5.6c-.1.6-.6 1-1.2 1h-4c-.6 0-1.1-.4-1.2-1l-.5-5.6h-.6c-.5 0-1-.4-1-1v-4.2c0-1.1.5-2.1 1.5-2.6z"/></svg>
         </span>
         <span class="p-hello__pickt">
           <b>在人体图上选部位</b>
@@ -46,7 +46,7 @@
 
       <p class="p-hello__eg">"右下方肚子疼了两天，一阵一阵的，还伴着恶心，没发烧。"</p>
 
-      <div class="p-hello__label">常 见 主 诉 · 点 了 直 接 在 图 上 选 中</div>
+      <div class="p-hello__label">常见主诉 · 点了直接在图上选中</div>
       <div class="p-hello__chips">
         <button
           v-for="q in quickPicks"
@@ -61,6 +61,15 @@
     <!-- 锁定回执（草案 06）：选没选都算完成「声明」这一步，区别只写在回执里 -->
     <div v-else class="p-hello__locked">
       <div class="p-hello__lockedrow">
+        <HumanBodyFigure
+          v-if="locations.length"
+          class="p-hello__minibody"
+          :face="lockedFace"
+          :selected="id => lockedRegions.includes(id)"
+          :enabled="() => true"
+          :side="lockedSide"
+          readonly
+        />
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>
         <span>
           <template v-if="partLabel"><b>位置已锁定：{{ partLabel }}</b> —— 接着说一句就行，剩下来的我来问。</template>
@@ -73,7 +82,9 @@
 </template>
 
 <script setup>
-import { QUICK_PICKS as quickPicks } from '../../utils/bodyMap'
+import { computed } from 'vue'
+import { QUICK_PICKS as quickPicks, regionsOfLocations } from '../../utils/bodyMap'
+import HumanBodyFigure from './HumanBodyFigure.vue'
 
 /**
  * 空状态：一张还没填的导诊卡（草案 06 的引导 / 锁定两个形态）。
@@ -86,7 +97,7 @@ import { QUICK_PICKS as quickPicks } from '../../utils/bodyMap'
  * 不再是旧的"填进输入框"——那会让必填形同虚设。词表见 bodyMap.js 的 QUICK_PICKS
  * （「发热咳嗽」刻意不在列：它对应不了任何体表区域，留着等于给必开开后门）。
  */
-defineProps({
+const props = defineProps({
   /** awaiting = 还没声明（等待态）；locked = 已声明（选了或点了"说不清"都算） */
   stage: {
     type: String,
@@ -94,9 +105,13 @@ defineProps({
     validator: (v) => ['awaiting', 'locked'].includes(v)
   },
   /** 已声明的部位串（如「左腹部」）；空串 = 走了"说不清"出口 */
-  partLabel: { type: String, default: '' }
+  partLabel: { type: String, default: '' },
+  locations: { type: Array, default: () => [] }
 })
 const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
+const lockedRegions = computed(() => regionsOfLocations(props.locations))
+const lockedFace = computed(() => lockedRegions.value.length && lockedRegions.value.every(id => ['back', 'waist'].includes(id)) ? 'back' : 'front')
+const lockedSide = computed(() => props.locations.find(value => /^(两侧|左|右)/.test(value))?.match(/^(两侧|左|右)/)?.[0] || null)
 </script>
 
 <style scoped>
@@ -125,8 +140,8 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
 .p-hello__label {
   margin: 28px 0 12px;
   font-family: var(--sans);
-  font-size: 10px;
-  letter-spacing: .18em;
+  font-size: 12px;
+  letter-spacing: .08em;
   color: var(--ink-2);
 }
 
@@ -144,9 +159,9 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
 .p-hello__bub b {
   display: block;
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: .14em;
+  letter-spacing: .08em;
   color: var(--leaf-deep);
 }
 .p-hello__bub span { display: block; margin-top: 8px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
@@ -160,7 +175,7 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
   top: 11px;
   padding: 2px 7px;
   border-radius: var(--r-full);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .08em;
 }
@@ -195,11 +210,11 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
   width: 38px;
   height: 38px;
   border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, .18);
+  background: var(--accent-wash);
 }
 .p-hello__pickt { flex: 1; min-width: 0; }
 .p-hello__pickt b { display: block; font-size: 15px; font-weight: 600; }
-.p-hello__pickt small { display: block; margin-top: 5px; font-size: 11.5px; color: rgba(255, 255, 255, .82); }
+.p-hello__pickt small { display: block; margin-top: 5px; font-size: 12px; color: var(--on-accent-muted); }
 .p-hello__pickar { flex: none; font-size: 18px; opacity: .85; }
 
 .p-hello__eg {
@@ -251,6 +266,7 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
   line-height: 1.7;
 }
 .p-hello__lockedrow svg { flex: none; margin-top: 3px; }
+.p-hello__lockedrow .p-hello__minibody { width: 24px; height: 56px; margin-top: 0; }
 .p-hello__lockedrow b { font-weight: 600; }
 .p-hello__relink {
   min-height: 44px; /* 触控目标 ≥ 44px */
@@ -260,10 +276,18 @@ const emit = defineEmits(['pickPart', 'quick', 'rechoose'])
   border: 0;
   border-bottom: 1px dashed var(--line-2);
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-3);
   cursor: pointer;
   transition: color .18s ease, border-color .18s ease;
 }
 .p-hello__relink:hover { color: var(--leaf-deep); border-color: var(--leaf); }
+
+/* 窄屏三格横排会把一句说明挤碎，纵向保留完整可读的短句。 */
+@media (max-width: 480px) {
+  .p-hello__three { flex-direction: column; gap: 8px; }
+  .p-hello__bub { padding: 12px 16px; }
+  .p-hello__bub b { padding-right: 68px; }
+  .p-hello__t { font-size: 23px; }
+}
 </style>

@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+let nextEntryId = 1
+
 // 会话状态 store：当前会话、对话条目、SSE 流式状态
 // entries 为对话条目数组（一个聊天页可先后承载多个会话与多张结论卡），形态：
 //   { type: 'user' | 'ai' | 'question' | 'info', content }（info = 资料回答，患者问知识库内容时的复述）
@@ -15,7 +17,8 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 追加条目并返回其响应式引用（流式增量直接改引用即可触发渲染，避免整数组替换） */
   function pushEntry(entry) {
-    entries.value.push(entry)
+    // 删除占位气泡会移动下标，稳定 id 才能把复制等组件状态留在原消息上。
+    entries.value.push({ ...entry, id: `e-${nextEntryId++}` })
     return entries.value[entries.value.length - 1]
   }
 

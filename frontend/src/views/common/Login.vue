@@ -17,11 +17,11 @@
       </div>
 
       <div class="p-login__field">
-        <label class="p-eyebrow" for="u">用 户 名</label>
+        <label class="p-eyebrow" for="u">用户名</label>
         <input id="u" v-model="form.username" class="p-login__input" placeholder="请输入用户名" />
       </div>
       <div class="p-login__field">
-        <label class="p-eyebrow" for="p">密 码</label>
+        <label class="p-eyebrow" for="p">密码</label>
         <input
           id="p"
           v-model="form.password"
@@ -33,7 +33,7 @@
       </div>
 
       <div v-if="mode === 'register'" class="p-login__field">
-        <label class="p-eyebrow" for="n">昵 称（选填）</label>
+        <label class="p-eyebrow" for="n">昵称（选填）</label>
         <input
           id="n"
           v-model="form.nickname"
@@ -46,7 +46,7 @@
       <p v-if="error" class="p-login__err">{{ error }}</p>
 
       <button class="p-btn p-login__submit" :disabled="loading" @click="submit">
-        {{ loading ? '请稍候…' : mode === 'login' ? '登 录' : '注 册' }}
+        {{ loading ? '请稍候…' : mode === 'login' ? '登录' : '注册' }}
       </button>
 
       <p class="p-login__switch" @click="switchMode">
@@ -143,6 +143,7 @@ async function submit() {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh; /* 避免手机地址栏变化时把表单底部挡住 */
   padding: 20px;
   background: var(--bg);
 }
@@ -222,7 +223,7 @@ async function submit() {
 .p-login__tip {
   margin-top: 16px;
   text-align: center;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-3);
 }
 </style>

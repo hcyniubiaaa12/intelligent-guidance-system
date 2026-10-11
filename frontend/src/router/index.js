@@ -3,7 +3,8 @@ import { useUserStore } from '../stores/user'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('../views/common/Login.vue') },
-  // —— 患者端（Vant，手机）——
+  { path: '/preview', name: 'preview', component: () => import('../components/patient/BodyMapPreview.vue'), meta: { public: true } },
+  // —— 患者端（手写 CSS，手机与桌面）——
   { path: '/', name: 'chat', component: () => import('../views/patient/Chat.vue') },
   { path: '/register', name: 'sim-register', component: () => import('../views/patient/SimRegister.vue') },
   // 就诊记录已并入首页左侧栏（点会话即只读回放）；老链接重定向回首页，不留 404
@@ -57,7 +58,7 @@ const router = createRouter({
 // 路由守卫：未登录跳登录；admin 路由校验 ROLE_ADMIN
 router.beforeEach((to) => {
   const user = useUserStore()
-  if (to.path !== '/login' && !user.isLogin) {
+  if (to.path !== '/login' && !to.meta.public && !user.isLogin) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.meta.requiresAdmin && !user.isAdmin) {
