@@ -1,6 +1,6 @@
 # 人体图交互展示优化（spec）
 
-Status: ready-for-agent
+Status: resolved
 
 > 来源：2026-10-11 的 4 轮 grill（Q1–Q16）结论 + 两轮真实 Chrome 探针实测 + 三个文件的代码勘察
 > 上游：部位声明的链路与判定——见 `CONTEXT.md` 的「部位声明」「人体图」词条与 `总体架构与链路设计.md` 的链路 A。**本 spec 只改交互展示，不改链路、判定与提交契约**

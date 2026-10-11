@@ -9,10 +9,19 @@
 
 **Blocked by:** 03, 06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 侧栏标题显示的是该区域**实际会记下的词**，不是区域展示名
-- [ ] 细分词里当前生效的那一颗有可见标记，与"已选"区分得开
-- [ ] 点选后侧栏对应段有明显高亮，且**只用颜色 / 色条**，不用 transform
-- [ ] 窄屏点选后该段自动滚入视口；桌面不因此产生额外跳动
-- [ ] 高亮在 `prefers-reduced-motion` 下仍然可感知（退化为静态色块，而不是消失）
+- [x] 侧栏标题显示的是该区域**实际会记下的词**，不是区域展示名
+- [x] 细分词里当前生效的那一颗有可见标记，与"已选"区分得开
+- [x] 点选后侧栏对应段有明显高亮，且**只用颜色 / 色条**，不用 transform
+- [x] 窄屏点选后该段自动滚入视口；桌面不因此产生额外跳动
+- [x] 高亮在 `prefers-reduced-motion` 下仍然可感知（退化为静态色块，而不是消失）
+
+## Comments
+
+实现完成（集成分支 `feat/body-map-interaction`）。
+
+- 提交：`33c45f0`。
+- 探针：侧栏标题 = **「具体位置 已记录：腹部 · 可改成上腹 / 下腹」**（报的是**实际落词**，不是书面区域名）；`#body-map-location .p-map__chip.is-current` 恰 **1** 个（"✓ " 前缀 + 深色描边，与普通"已选"的实心填充区分得开）。
+- 窄屏点选后该段**自动进入视野**（true）；桌面**不产生任何滚动**（`pick/fig scrollTop = 0`，也不跳动）。
+- 高亮只用颜色 + 左侧色条（`background` + `box-shadow: inset`，0.2s 脉冲加长到 1.2s），不碰 transform；`prefers-reduced-motion: reduce` 下 `animationName=none`、`box-shadow: inset 3px`、背景 `rgb(230,243,239)`——**退化成静态色块而不是消失**。
