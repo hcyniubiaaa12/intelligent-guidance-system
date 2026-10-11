@@ -218,9 +218,17 @@ function pick(word) {
   const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
   state.value = selectWord(base, word)
 }
-// 一个部位都没选时方位没有意义（会留下一条孤零零的「左侧」）——顺手清掉。
+// 两条「取消之后必须一起收走」的状态，都挂在**这块还记不记得住词**上：
+//   ① 方位：一个部位都没选，它就是没有意义的（会留下一条孤零零的「左侧」）；
+//   ② act：图上那圈「正在编辑」绿描边是按 act 画的——取消掉这块（图上再点一次 / 已选里点 × /
+//      细分词里点掉它）之后若还留着 act，一块什么都没选的区域会继续亮着绿框，看起来像"取消没生效"
+//      （实测：取消后描边反而从 1 个变 2 个——方位一并清掉后 matchesSide 不再过滤，正反面两块都画上）。
+// 口径：「正在编辑」只在一块**真的记着词**的时候成立，act 与"这块有落词"是同一件事。
 watch(() => state.value.picked, (picked) => {
-  if (!picked.length && state.value.side) state.value = { ...state.value, side: null }
+  const patch = {}
+  if (state.value.side && !picked.length) patch.side = null
+  if (state.value.act && !pickedWordsOf(state.value.act, picked).length) patch.act = null
+  if (Object.keys(patch).length) state.value = { ...state.value, ...patch }
 })
 function setSide(s) { state.value = selectSide(state.value, s) }
 function onPoint(label) { pointedLabel.value = label || null }
