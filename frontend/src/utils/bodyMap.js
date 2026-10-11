@@ -33,25 +33,32 @@ export const PARTS = Object.freeze([
 ])
 
 /**
- * 「形 ↔ 词」映射：**形是前端资产**（哪块区域画在哪），词必须都在 {@link PARTS} 里。
+ * 「形 ↔ 词」映射：**形是前端资产**（哪块区域画在哪），词都取自 {@link PARTS}（那份词清单的镜像）。
  *
- * `id` 是区域标识（SVG 上的 data-r），`name` 是给人看的区域名，`words` 是这块区域包含的部位词。
+ * `id` 是区域标识（SVG 上的 data-r）；`name` 是区域**展示名**（侧栏标题一类地方用）；
+ * `words` 是这块区域包含的部位词；`label` 是**图上命名**——这块在图上、读屏里、已选栏里
+ * 写出来的那个字，取值恒为该区域的**首选落词**（所以图上写的就是一个真能落下的词，
+ * `npm run check` 的 ④ 钉住"命名必须是自己可选词里的一员"这条）。
+ *
+ * **命名不随实时词表漂移**：管理员停用「腿」时图上仍写「腿」，只是落词回落到「下肢」。
+ * 命名稳定优先——反过来的做法会让一次运营动作直接改写患者看到的解剖命名。
+ *
  * 「腹」刻意不在任何区域里——它是「腹部」的单字形式，图上重复给会让患者以为点的是两处。
  */
 export const REGIONS = Object.freeze([
-  { id: 'head', name: '头部', words: ['头', '眼', '鼻', '耳', '咽', '喉'] },
-  { id: 'neck', name: '颈部', words: ['颈'] },
-  { id: 'shoulder', name: '肩部', words: ['肩'] },
-  { id: 'chest', name: '胸部', words: ['胸', '胸口'] },
-  { id: 'abd', name: '腹部', words: ['上腹', '腹部', '下腹'] },
-  { id: 'hip', name: '髋部', words: ['髋'] },
-  { id: 'back', name: '背部', words: ['背'] },
-  { id: 'waist', name: '腰部', words: ['腰'] },
-  { id: 'arm', name: '上肢', words: ['上肢'] },
-  { id: 'hand', name: '手部', words: ['手'] },
-  { id: 'leg', name: '下肢', words: ['腿', '下肢'] },
-  { id: 'knee', name: '膝部', words: ['膝'] },
-  { id: 'foot', name: '足部', words: ['脚'] }
+  { id: 'head', name: '头部', label: '头', words: ['头', '眼', '鼻', '耳', '咽', '喉'] },
+  { id: 'neck', name: '颈部', label: '颈', words: ['颈'] },
+  { id: 'shoulder', name: '肩部', label: '肩', words: ['肩'] },
+  { id: 'chest', name: '胸部', label: '胸口', words: ['胸', '胸口'] },
+  { id: 'abd', name: '腹部', label: '腹部', words: ['上腹', '腹部', '下腹'] },
+  { id: 'hip', name: '髋部', label: '髋', words: ['髋'] },
+  { id: 'back', name: '背部', label: '背', words: ['背'] },
+  { id: 'waist', name: '腰部', label: '腰', words: ['腰'] },
+  { id: 'arm', name: '上肢', label: '上肢', words: ['上肢'] },
+  { id: 'hand', name: '手部', label: '手', words: ['手'] },
+  { id: 'leg', name: '下肢', label: '腿', words: ['腿', '下肢'] },
+  { id: 'knee', name: '膝部', label: '膝', words: ['膝'] },
+  { id: 'foot', name: '足部', label: '脚', words: ['脚'] }
 ])
 
 /**
@@ -188,6 +195,22 @@ export function visibleWords(region, available) {
 /** 区域在当前词表下是否还有词可选（覆盖层用它决定图上那块要不要画出来） */
 export function regionHasWords(region, available) {
   return visibleWords(region, available).length > 0
+}
+
+/**
+ * 点一下这块区域**实际会落下的那个词** = **首选落词 + 词表过滤后的回落**。
+ *
+ * 首选落词就是区域的 `label`；它被管理员停用（不在 `available` 里）时，回落到该区域
+ * 过滤后剩下的第一个词。**这条规则只有这一份实现**——图上命名直接读 `label`、
+ * 覆盖层落词读这个函数，页面里不许再写第二份（"同一份事实只允许一处拼装"）。
+ * 区域不存在 / 一个词都没得选 ⇒ null（覆盖层据此当"这块现在点不动"）。
+ */
+export function landingWord(regionId, available) {
+  const region = regionById(regionId)
+  if (!region) return null
+  const words = visibleWords(region, available)
+  if (!words.length) return null
+  return words.includes(region.label) ? region.label : words[0]
 }
 
 /** 覆盖层初始状态：什么都没选 */

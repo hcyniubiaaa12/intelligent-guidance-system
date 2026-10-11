@@ -121,7 +121,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
 import HumanBodyFigure from './HumanBodyFigure.vue'
-import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
+import { REGIONS, GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
 
 const props = defineProps({ open: { type: Boolean, default: false }, preset: { type: Object, default: null } })
 const emit = defineEmits(['update:open', 'submit'])
@@ -166,8 +166,7 @@ const pickedItems = computed(() => {
 function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', meta = {}) {
   if (!isRegionEnabled(id)) return
   const region = regionById(id)
-  const words = visibleWords(region, vocabulary.value)
-  const word = defaultWord(id, words)
+  const word = landingWord(id, vocabulary.value)
   const wasSelected = isRegionSelected(id)
   const alreadyPaired = REGIONS.some(r => PAIRED_IDS.includes(r.id) && r.words.some(w => state.value.picked.includes(w)))
   state.value = { ...state.value, view: face, act: id, picked: wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word] }
@@ -180,14 +179,9 @@ function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', 
 function pick(word) {
   const region = activeRegion.value
   const regionPicks = state.value.picked.filter(w => region?.words.includes(w))
-  const words = visibleWords(region, vocabulary.value)
-  const preferred = defaultWord(region?.id, words)
+  const preferred = landingWord(region?.id, vocabulary.value)
   const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
   state.value = selectWord(base, word)
-}
-function defaultWord(id, words) {
-  const preferred = { head: '头', chest: '胸口', abd: '腹部', leg: '腿' }[id]
-  return words.includes(preferred) ? preferred : words[0]
 }
 // 同一个区域可从图和细分词两处取消，建议对应的区域消失时一起撤回。
 watch(() => state.value.picked, () => {

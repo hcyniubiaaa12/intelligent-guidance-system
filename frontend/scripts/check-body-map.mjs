@@ -16,7 +16,7 @@
  */
 import {
   sentence, declarationLocations, pickedLabel, regionsOfLocations, sideLabel,
-  regionById, isGlobalWord, visibleWords, regionHasWords,
+  regionById, isGlobalWord, visibleWords, regionHasWords, landingWord,
   emptyState, selectWord, selectFeeling, selectSide, removeWord, clearAll,
   PARTS, REGIONS, GLOBAL_WORDS, QUICK_PICKS, NO_LOCATION_HINT
 } from '../src/utils/bodyMap.js'
@@ -86,17 +86,23 @@ for (const pick of QUICK_PICKS) {
 
 /* ---------- ④ 命名与可选词同源（"同一份事实只允许一处拼装"） ---------- */
 
-// 图上的字必须是一个**真能落下的词**：区域一旦带了命名，它就必须是自己可选词里的一员。
+// 图上的字必须是一个**真能落下的词**：每个区域都必须有命名，且命名是自己可选词里的一员。
 // 命名与可选词若各写一份，就会漂移成"图上说右大腿、已选栏写腿"。
-const labelled = REGIONS.filter((r) => r.label !== undefined)
-for (const region of labelled) {
+for (const region of REGIONS) {
   ok(typeof region.label === 'string' && region.label.length > 0, `区域 ${region.id} 的命名必须是非空字符串`)
   ok(region.words.includes(region.label),
     `区域 ${region.id} 的命名「${region.label}」必须是它自己可选词里的一员（实际：${region.words.join(' / ')}）`)
 }
-if (labelled.length === 0) {
-  console.log('· ④ 命名断言暂时空转：REGIONS 尚未带 label 字段——票 01 落地后自动生效')
-}
+
+/* ---------- ④b 首选落词 + 该词被停用后的回落（只此一份实现） ---------- */
+
+eq(landingWord('leg', ['腿', '下肢']), '腿', '有首选落词就用它（「腿」，不是「下肢」）')
+eq(landingWord('leg', ['下肢']), '下肢', '首选被停用 ⇒ 回落该区域剩下的第一个词')
+eq(landingWord('chest', ['胸', '胸口']), '胸口', '胸部的首选是「胸口」不是「胸」')
+eq(landingWord('abd', ['上腹', '腹部', '下腹']), '腹部', '腹部的首选是「腹部」')
+eq(landingWord('leg', []), '腿', '取不到词表（回落全量）⇒ 还是首选落词')
+eq(landingWord('leg', ['头']), null, '该区域一个可选词都没有 ⇒ null（这块现在点不动）')
+eq(landingWord('不存在的区域', ['腿']), null, '未知区域 ⇒ null，不抛')
 
 /* ---------- ⑤ 按后端词表过滤 ---------- */
 
