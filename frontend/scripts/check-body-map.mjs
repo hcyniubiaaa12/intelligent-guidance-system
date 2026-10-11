@@ -79,6 +79,11 @@ eq(regionsOfLocations([]), [], '空声明 ⇒ 不点亮任何区域')
 const ids = REGIONS.map((r) => r.id)
 ok(new Set(ids).size === ids.length, '区域 id 必须唯一')
 ok(REGIONS.every((r) => Array.isArray(r.words) && r.words.length > 0), '每个区域至少有一个可选词')
+for (const region of REGIONS) {
+  for (const w of region.words) {
+    ok(PARTS.includes(w), `区域 ${region.id} 的词「${w}」必须在人体图词表 PARTS 里（两处都在 bodyMap.js，必须一致）`)
+  }
+}
 ok(new Set(PARTS).size === PARTS.length, '词表镜像里不能有重复词')
 ok(typeof NO_LOCATION_HINT === 'string' && NO_LOCATION_HINT.length > 0, '未选部位的提示语不能为空')
 

@@ -1,5 +1,5 @@
 <template>
-  <svg ref="figureEl" class="p-body" :class="{ 'is-readonly': readonly }" viewBox="0 0 240 608" role="group" :aria-label="`${faceName}人体图`">
+  <svg ref="figureEl" class="p-body" viewBox="0 0 240 608" role="group" :aria-label="`${faceName}人体图`">
     <defs>
       <pattern :id="patternId" width="7" height="7" patternUnits="userSpaceOnUse">
         <rect width="7" height="7" class="p-body__patternbase" />
@@ -16,11 +16,11 @@
         :data-region="area.id"
         :data-part="area.part"
         :data-piece="area.key"
-        :role="readonly ? undefined : 'button'"
-        :tabindex="readonly ? undefined : enabled(area.id) && tabKey === area.key ? 0 : -1"
+        role="button"
+        :tabindex="enabled(area.id) && tabKey === area.key ? 0 : -1"
         :aria-label="`${faceName} ${area.label}`"
-        :aria-pressed="readonly ? undefined : selected(area.id)"
-        :aria-disabled="readonly ? undefined : !enabled(area.id)"
+        :aria-pressed="selected(area.id)"
+        :aria-disabled="!enabled(area.id)"
         @click="choose(area)"
         @keydown="onAreaKey($event, area)"
         @focus="onFocus($event, area)"
@@ -34,7 +34,7 @@
         <!-- 刻意**不放 `<title>`**：它在悬停时会弹浏览器原生 tooltip，正好压在人体上——
              那正是本次要治的遮挡。无障碍名由 `aria-label` 给（ARIA 优先于 title），
              名字另有图外那一行负责显示。 -->
-        <path v-if="!readonly && enabled(area.id)" class="p-body__hit" :d="area.path" />
+        <path v-if="enabled(area.id)" class="p-body__hit" :d="area.path" />
         <path class="p-body__region" :d="area.path" :style="!enabled(area.id) ? { fill: `url(#${patternId})` } : null" />
       </g>
     </g>
@@ -49,11 +49,11 @@
       </g>
     </g>
     <!-- 描边最后绘制，避免相邻色块把当前编辑或键盘焦点盖住。 -->
-    <g v-if="!readonly" class="p-body__rings" aria-hidden="true">
+    <g class="p-body__rings" aria-hidden="true">
       <path v-for="area in activeAreas" :key="area.key" :d="area.path" class="p-body__ring p-body__ring--active" />
       <path v-if="focusedArea" :d="focusedArea.path" class="p-body__ring p-body__ring--focus" />
     </g>
-    <g v-if="!readonly" class="p-body__sides" aria-hidden="true" :style="{ fontSize: `${12 * textScale}px` }">
+    <g class="p-body__sides" aria-hidden="true" :style="{ fontSize: `${12 * textScale}px` }">
       <text x="8" y="600">{{ face === 'front' ? '右' : '左' }}</text>
       <text x="232" y="600" text-anchor="end">{{ face === 'front' ? '左' : '右' }}</text>
     </g>
@@ -69,8 +69,7 @@ const props = defineProps({
   active: { type: String, default: null },
   selected: { type: Function, required: true },
   enabled: { type: Function, required: true },
-  sideOf: { type: Function, default: () => '' },
-  readonly: { type: Boolean, default: false }
+  sideOf: { type: Function, default: () => '' }
 })
 const emit = defineEmits(['select', 'point'])
 const patternId = `body-disabled-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
@@ -207,22 +206,20 @@ function setAreaRef(key, el) {
   else areaRefs.delete(key)
 }
 function choose(area) {
-  if (!props.readonly && props.enabled(area.id)) emit('select', area.id, { part: area.part, side: bodySide(props.face, area.part) })
+  if (props.enabled(area.id)) emit('select', area.id, { part: area.part, side: bodySide(props.face, area.part) })
 }
 function onFocus(e, area) {
-  if (props.readonly) return
   focusedKey.value = e.currentTarget.matches(':focus-visible') ? area.key : null
   rovingKey.value = area.key
 }
 function onPointerEnter(e, area) {
-  if (props.readonly) return
   if (e.pointerType === 'mouse' && window.matchMedia('(hover: hover)').matches) hoveredKey.value = area.key
 }
 function onPointerDown(e, area) {
-  if (!props.readonly && e.pointerType !== 'mouse' && props.enabled(area.id)) touchedKey.value = area.key
+  if (e.pointerType !== 'mouse' && props.enabled(area.id)) touchedKey.value = area.key
 }
 function onAreaKey(e, area) {
-  if (props.readonly || !props.enabled(area.id)) return
+  if (!props.enabled(area.id)) return
   focusedKey.value = area.key
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
@@ -259,7 +256,6 @@ onBeforeUnmount(() => figureObserver?.disconnect())
 .p-body { display: block; width: 100%; height: 100%; min-height: 0; overflow: visible; }
 .p-body__pieces { filter: drop-shadow(var(--sh-rest)); }
 .p-body__area { cursor: pointer; outline: none !important; }
-.p-body.is-readonly .p-body__area { cursor: default; }
 .p-body__region { fill: var(--body-skin); stroke: var(--body-gap); stroke-width: 2.4; stroke-linejoin: round; transition: fill .18s ease, opacity .18s ease; }
 .p-body__hit { fill: transparent; stroke: transparent; stroke-width: 10; pointer-events: all; }
 .p-body__area.is-selected .p-body__region { fill: var(--leaf); }
@@ -284,9 +280,6 @@ onBeforeUnmount(() => figureObserver?.disconnect())
   .p-body__area.is-selected.is-hovered:not(.is-disabled) .p-body__region { fill: var(--leaf-deep); }
   .p-body__area.is-soft.is-hovered:not(.is-disabled) .p-body__region { fill: var(--leaf-soft); }
 }
-.p-body.is-loading .p-body__region { fill: var(--line) !important; opacity: 1; animation: p-body-breathe 1.6s ease-in-out infinite alternate; }
-.p-body.is-loading .p-body__detail, .p-body.is-loading .p-body__sides { opacity: 0; }
-@keyframes p-body-breathe { from { opacity: .45; } to { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) {
   .p-body__region { transition: none; animation: none !important; }
 }
