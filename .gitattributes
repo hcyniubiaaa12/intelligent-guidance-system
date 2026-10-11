@@ -36,6 +36,10 @@
 mvnw          text eol=lf
 gradlew       text eol=lf
 
+# ---------- git hooks：无扩展名也被 * text=auto 收编，必须显式钉死 LF ----------
+# 否则 autocrlf=true 的机器检出成 CRLF，shebang 变成 `#!/bin/sh\r`、hook 直接跑不起来。
+.githooks/*   text eol=lf
+
 # ---------- Windows 脚本：必须 CRLF，否则 cmd.exe 解析出错 ----------
 *.bat         text eol=crlf
 *.cmd         text eol=crlf
