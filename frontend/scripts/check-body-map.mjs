@@ -16,9 +16,9 @@
  */
 import {
   sentence, declarationLocations, pickedLabel, regionsOfLocations, sideLabel,
-  regionById, isGlobalWord, visibleWords, regionHasWords, landingWord,
-  faceOfRegion, pickedWordsOf,
-  emptyState, selectWord, selectFeeling, selectSide, removeWord, clearAll,
+  regionById, regionOfWord, isGlobalWord, visibleWords, regionHasWords, landingWord,
+  faceOfRegion, pickedWordsOf, sideOfRegion, sideOfWord, setRegionSide, clickOutcome,
+  emptyState, selectWord, selectFeeling, removeWord, clearAll,
   PARTS, REGIONS, GLOBAL_WORDS, QUICK_PICKS, NO_LOCATION_HINT
 } from '../src/utils/bodyMap.js'
 
@@ -37,24 +37,32 @@ function ok(cond, what) {
   failures.push(what)
 }
 
-/* ---------- ① 拼句与结构化声明 ---------- */
+/* ---------- ① 拼句与结构化声明（方位是**每块一份**） ---------- */
 
-eq(declarationLocations(['腹部'], '左'), ['左腹部'], '方位前缀并进词里')
-eq(declarationLocations(['腹部'], null), ['腹部'], '没选方位 ⇒ 无前缀')
-eq(declarationLocations(['皮肤'], '左'), ['皮肤'], '全身性词不加方位前缀（"左皮肤"没有意义）')
-eq(declarationLocations(['关节'], '右'), ['关节'], '全身性词不加方位前缀')
-eq(declarationLocations([], '左'), [], '没选部位 ⇒ 空声明')
+eq(declarationLocations(['腹部'], { abd: '左' }), ['左腹部'], '方位前缀并进词里')
+eq(declarationLocations(['腹部'], {}), ['腹部'], '这块没标方位 ⇒ 无前缀')
+eq(declarationLocations(['皮肤'], { head: '左' }), ['皮肤'], '全身性词不加方位前缀（"左皮肤"没有意义）')
+eq(declarationLocations(['关节'], { leg: '右' }), ['关节'], '全身性词不加方位前缀')
+eq(declarationLocations([], { abd: '左' }), [], '没选部位 ⇒ 空声明')
 
-eq(sentence(['腹部'], ['疼'], '左'), '左腹部疼，', '拼句：部位段 + 感觉 + 「，」')
-eq(sentence(['上腹'], ['疼'], '左'), '左上腹疼，', '「上腹 + 左」拼成临床规范的「左上腹」')
-eq(sentence(['腹部', '腰'], ['疼', '胀'], '两侧'), '两侧腹部、两侧腰疼、胀，', '多个部位顿号连接')
-eq(sentence(['腹部'], [], '左'), '左腹部不舒服，', '没选感觉 ⇒ 回落"不舒服"（不是所有不适都疼）')
-eq(sentence(['腹部'], ['说不上来']), '腹部不舒服，', '「说不上来」是占位项，不进句子')
-eq(sentence(['腹部'], ['疼', '说不上来']), '腹部疼，', '「说不上来」可与其他感觉并存，但不进句子')
-eq(sentence([], ['疼'], '左'), '', '没选部位 ⇒ 空串（页面此时不该允许提交）')
+// 本模型的核心：每块各带各的方位，谁都不覆盖谁
+eq(declarationLocations(['上肢'], { arm: '左' }), ['左上肢'], '点左上肢')
+eq(declarationLocations(['上肢'], { arm: '两侧' }), ['两侧上肢'], '同一块点两个半边 ⇒ 两侧')
+eq(declarationLocations(['上肢', '腿'], { arm: '两侧', leg: '左' }), ['两侧上肢', '左腿'], '★ 点左上肢→点右上肢→点左腿：上肢仍「两侧」，腿记它自己的「左」')
+eq(declarationLocations(['上肢', '腿'], { arm: '左', leg: '右' }), ['左上肢', '右腿'], '两块各记各的侧')
+eq(declarationLocations(['腹部', '腿'], { leg: '左' }), ['腹部', '左腿'], '没标方位的那块不跟着别人加前缀')
 
-eq(pickedLabel(['腹部'], '左'), '左腹部', '「位置已锁定」回执里的部位串')
-eq(pickedLabel([], '左'), '', '没声明 ⇒ 回执换文案')
+eq(sentence(['腹部'], ['疼'], { abd: '左' }), '左腹部疼，', '拼句：部位段 + 感觉 + 「，」')
+eq(sentence(['上腹'], ['疼'], { abd: '左' }), '左上腹疼，', '「上腹 + 左」拼成临床规范的「左上腹」')
+eq(sentence(['腹部', '腰'], ['疼', '胀'], { abd: '两侧', waist: '两侧' }), '两侧腹部、两侧腰疼、胀，', '多个部位顿号连接')
+eq(sentence(['上肢', '腿'], ['疼'], { arm: '两侧', leg: '左' }), '两侧上肢、左腿疼，', '★ 用户给的目标序列（拼成一句话）')
+eq(sentence(['腹部'], [], { abd: '左' }), '左腹部不舒服，', '没选感觉 ⇒ 回落"不舒服"（不是所有不适都疼）')
+eq(sentence(['腹部'], ['说不上来'], {}), '腹部不舒服，', '「说不上来」是占位项，不进句子')
+eq(sentence(['腹部'], ['疼', '说不上来'], {}), '腹部疼，', '「说不上来」可与其他感觉并存，但不进句子')
+eq(sentence([], ['疼'], { abd: '左' }), '', '没选部位 ⇒ 空串（页面此时不该允许提交）')
+
+eq(pickedLabel(['腹部'], { abd: '左' }), '左腹部', '「位置已锁定」回执里的部位串')
+eq(pickedLabel([], { abd: '左' }), '', '没声明 ⇒ 回执换文案')
 
 /* ---------- ② 结构化位置反查回图上的区域 ---------- */
 
@@ -129,22 +137,49 @@ ok(regionById('不存在的区域') === null, '未知区域返回 null，不抛�
 
 /* ---------- ⑥ 选择态的纯派生 ---------- */
 
-eq(emptyState(), { view: 'front', act: null, picked: [], feelings: [], side: null }, '初始状态：什么都没选')
+eq(emptyState(), { view: 'front', act: null, picked: [], sides: {}, feelings: [] }, '初始状态：什么都没选')
 ok(emptyState() !== emptyState(), '初始状态每次都是新对象（不共享引用）')
 eq(selectWord(emptyState(), '腹部').picked, ['腹部'], '选词')
 eq(selectWord(selectWord(emptyState(), '腹部'), '腹部').picked, [], '再选一次 = 取消')
 eq(removeWord(selectWord(emptyState(), '腹部'), '腹部').picked, [], '逐条删除')
 eq(selectFeeling(emptyState(), '疼').feelings, ['疼'], '感觉可选')
-eq(selectSide(emptyState(), '左').side, '左', '方位单选')
-eq(selectSide(selectSide(emptyState(), '左'), '左').side, null, '再点一次同一个方位 = 取消')
 eq(clearAll().picked, [], '全部清空')
 eq(clearAll().feelings, [], '全部清空（感觉一并清）')
+eq(clearAll().sides, {}, '全部清空（方位一并清）')
 
 eq(isGlobalWord('皮肤'), true, '皮肤是全身性词')
 eq(isGlobalWord('腹部'), false, '腹部不是全身性词')
 eq(sideLabel('左'), '左侧', '方位显示名更像人话')
 eq(sideLabel('两侧'), '两侧', '「两侧」原样')
-eq(sideLabel(null), '', '没选方位 ⇒ 空串')
+eq(sideLabel(''), '', '没标方位 ⇒ 空串')
+
+/* ---------- ⑦ 方位：每块一份（工单 12） ---------- */
+
+eq(regionOfWord('腿')?.id, 'leg', '词反查区域')
+eq(regionOfWord('皮肤'), null, '全身词不属于任何区域')
+eq(sideOfRegion('arm', { arm: '左' }), '左', '按区域 id 取方位')
+eq(sideOfRegion('arm', {}), '', '这块没标 ⇒ 空串')
+eq(sideOfRegion(null, { arm: '左' }), '', '没有目标块 ⇒ 空串，不抛')
+eq(sideOfWord('上肢', { arm: '左' }), '左', '按词取方位（走它所属的区域）')
+eq(sideOfWord('皮肤', { skin: '左' }), '', '全身词永远不带方位')
+ok(sideOfRegion('arm', { arm: '左' }) !== sideOfRegion('leg', { arm: '左' }), '两块各取各的，不串味')
+
+eq(setRegionSide(emptyState(), 'arm', '左').sides, { arm: '左' }, '给某块定方位')
+eq(setRegionSide(setRegionSide(emptyState(), 'arm', '左'), 'leg', '右').sides, { arm: '左', leg: '右' }, '两块各记各的')
+eq(setRegionSide(setRegionSide(emptyState(), 'arm', '左'), 'arm', '').sides, {}, '改回"不标" ⇒ 条目删掉')
+eq(setRegionSide(emptyState(), null, '左').sides, {}, '没有目标块 ⇒ 原样返回，不抛')
+eq(removeWord(setRegionSide(selectWord(emptyState(), '上肢'), 'arm', '左'), '上肢').sides, {}, '取消这块钱 ⇒ 方位一起收走（不留孤儿）')
+eq(removeWord(setRegionSide(selectWord(emptyState(), '上肢'), 'arm', '左'), '上肢').picked, [], '取消这块 ⇒ 词也没了')
+
+// ★ 图上的点击规则（只此一份实现，覆盖层只管照做）
+eq(clickOutcome({ selected: false, current: '', clicked: '左' }), { keep: true, side: '左' }, '未选 ⇒ 选中，方位 = 点的那一侧')
+eq(clickOutcome({ selected: true, current: '左', clicked: '左' }), { keep: false }, '★ 同一侧再点一次 ⇒ 直接取消这块')
+eq(clickOutcome({ selected: true, current: '左', clicked: '右' }), { keep: true, side: '两侧' }, '点另一半边 ⇒ 两边都疼')
+eq(clickOutcome({ selected: true, current: '两侧', clicked: '右' }), { keep: true, side: '左' }, '从「两侧」点右 ⇒ 只剩左（规则使然）')
+eq(clickOutcome({ selected: true, current: '两侧', clicked: '左' }), { keep: true, side: '右' }, '从「两侧」点左 ⇒ 只剩右')
+eq(clickOutcome({ selected: true, current: '', clicked: '右' }), { keep: true, side: '右' }, '这块还没标过 ⇒ 点哪半边记哪侧')
+eq(clickOutcome({ selected: false, current: '', clicked: null }), { keep: true }, '中心块：点一下只选中，不碰方位')
+eq(clickOutcome({ selected: true, current: '左', clicked: null }), { keep: false }, '中心块：再点一下取消（中心块没有半边，方位不由点击决定）')
 
 /* ---------- 结果 ---------- */
 

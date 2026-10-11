@@ -45,7 +45,7 @@
                   :active="state.view === face.id ? state.act : null"
                   :selected="isRegionSelected"
                   :enabled="isRegionEnabled"
-                  :side="state.side"
+                  :side-of="regionSide"
                   :readonly="loading"
                   :class="{ 'is-loading': loading }"
                   @select="(id, meta) => activate(id, face.id, meta)"
@@ -94,12 +94,13 @@
               </div>
             </section>
             <section class="p-map__sec">
-              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.side" aria-controls="body-map-side" @click="toggleSection('side')"><span>哪一侧 <em>{{ state.side ? sideLabel(state.side) : '选填' }}</em></span><span aria-hidden="true">{{ mobileOpen.side ? '−' : '+' }}</span></button>
-              <h3 class="p-map__lb">哪一侧 <em>{{ state.side ? sideLabel(state.side) : '选填' }}</em></h3>
+              <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.side" aria-controls="body-map-side" @click="toggleSection('side')"><span>哪一侧 <em>{{ sideTarget }}</em></span><span aria-hidden="true">{{ mobileOpen.side ? '−' : '+' }}</span></button>
+              <h3 class="p-map__lb">哪一侧 <em>{{ sideTarget }}</em></h3>
               <div id="body-map-side" v-show="!isMobile || mobileOpen.side" class="p-map__sectionbody">
-                <!-- 方位定下来之后**只留生效那一颗**：图已经点明了是哪半边，再摆三颗只是重复与分心。
-                     点它可取消，取消后回到三个选项（「两侧」因此仍然选得到）。 -->
-                <div class="p-map__chips"><button v-for="s in sideOptions" :key="s" type="button" class="p-map__chip" :class="{ 'is-on': state.side === s }" :aria-pressed="state.side === s" :disabled="loading" @click="setSide(s)">{{ sideLabel(s) }}</button></div>
+                <!-- 三颗常驻：作用于**正在编辑的那一块**（标题报"哪一块 · 哪一侧"），
+                     实心那颗就是它现在的方位；点实心那颗 = 改回"不标"。
+                     三颗都在才保证 右侧 / 两侧 永远一点可达（工单 10 的"只显示一颗"已由工单 12 退回）。 -->
+                <div class="p-map__chips"><button v-for="s in SIDES" :key="s" type="button" class="p-map__chip" :class="{ 'is-on': actSide === s }" :aria-pressed="actSide === s" :disabled="loading || !state.act" @click="setSide(s)">{{ sideLabel(s) }}</button></div>
                 <p class="p-map__hint">{{ sideHint }}</p>
               </div>
             </section>
@@ -131,7 +132,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { listBodyParts } from '../../api/chat'
 import HumanBodyFigure from './HumanBodyFigure.vue'
-import { GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, faceOfRegion, pickedWordsOf, emptyState, selectWord, selectFeeling, selectSide, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
+import { GLOBAL_WORDS, FEELINGS, SIDES, NO_LOCATION_HINT, regionById, regionOfWord, sentence, sideLabel, declarationLocations, visibleWords, regionHasWords, landingWord, faceOfRegion, pickedWordsOf, sideOfRegion, setRegionSide, clickOutcome, emptyState, selectWord, selectFeeling, removeWord, removeFeeling, clearAll } from '../../utils/bodyMap'
 
 const props = defineProps({ open: { type: Boolean, default: false }, preset: { type: Object, default: null } })
 const emit = defineEmits(['update:open', 'submit'])
@@ -160,11 +161,17 @@ const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.valu
 // 「具体位置」栏的标题要报**这块实际记下的词**，而不是一个书面区域名（书上叫"下肢"、图上是"腿"）。
 // 注意与 landingWord 的区别：landingWord 是"点了会**将要**落下的词"，recorded 是"**已经**记下的词"。
 const recordedWords = computed(() => pickedWordsOf(state.value.act, state.value.picked))
-// 方位定下来之后**只显示它自己**（点一下可取消，取消后回到三个选项）。
-const sideOptions = computed(() => state.value.side ? [state.value.side] : SIDES)
-const sideHint = computed(() => state.value.side
-  ? `已标为${sideLabel(state.value.side)} · 点一下取消`
-  : '点图上任一侧会自动标好方位，也可直接选')
+// 方位是**每块一份**（`sideOfRegion(区域id)`），「哪一侧」那三颗作用于**正在编辑的那一块**：
+// 这样中心块（腹 / 胸 / 头…没有左右半边）也能带方位——点腹部、再点「左侧」⇒ 左腹部。
+const actSide = computed(() => sideOfRegion(state.value.act, state.value.sides))
+const sideTarget = computed(() => {
+  if (!state.value.act) return '选填'
+  const word = recordedWords.value[0] || ''
+  return `${word} · ${actSide.value ? sideLabel(actSide.value) : '选填'}`
+})
+const sideHint = computed(() => state.value.act
+  ? '点图上哪半边就记哪一侧；两边都点就是「两侧」'
+  : '先在图上点一块位置，再来标方位')
 const recordedLabel = computed(() => {
   const recorded = recordedWords.value
   if (!recorded.length) return '尚未选择'
@@ -172,7 +179,7 @@ const recordedLabel = computed(() => {
   return `已记录：${recorded.join('、')}${alt.length ? ` · 可改成${alt.join(' / ')}` : ''}`
 })
 const globalWords = computed(() => visibleWords({ words: [...GLOBAL_WORDS] }, vocabulary.value))
-const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.side) || NO_LOCATION_HINT)
+const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.sides) || NO_LOCATION_HINT)
 const allDisabled = computed(() => loadState.value === 'ready' && !vocabulary.value.length)
 const canFill = computed(() => !loading.value && !allDisabled.value && state.value.picked.length > 0)
 const visibleFaces = computed(() => isMobile.value ? FACES.filter(face => face.id === state.value.view) : FACES)
@@ -180,26 +187,33 @@ function isRegionEnabled(id) { return !loading.value && !allDisabled.value && re
 function isRegionSelected(id) { return pickedWordsOf(id, state.value.picked).length > 0 }
 const pickedItems = computed(() => {
   const s = state.value
-  const locations = declarationLocations(s.picked, s.side)
+  const locations = declarationLocations(s.picked, s.sides)
+  // 方位**不单列一条胶囊**：它已经长在部位那一条里了（「左上肢」/「两侧上肢」），再列一条是同一份事实写两遍。
   return [
     ...s.picked.map((word, i) => ({ key: `part:${word}`, kind: 'part', text: locations[i], remove: () => { state.value = removeWord(state.value, word) } })),
-    ...(s.side ? [{ key: 'side', kind: 'side', text: sideLabel(s.side), remove: () => { state.value = { ...state.value, side: null } } }] : []),
     ...s.feelings.map(f => ({ key: `feel:${f}`, kind: 'feel', text: f, remove: () => { state.value = removeFeeling(state.value, f) } }))
   ]
 })
+// 图上的每一块按**它自己的**方位渲染（另一半边画虚框的 `is-soft` 也走这条）。
+function regionSide(id) { return sideOfRegion(id, state.value.sides) }
 function activate(id, face = faceOfRegion(id), meta = {}) {
   if (!isRegionEnabled(id)) return
   const region = regionById(id)
-  const word = landingWord(id, vocabulary.value)
   const wasSelected = isRegionSelected(id)
-  // 方位**直接按点的那一块定下来**（左上肢 ⇒ 左侧），不再让患者点第二下确认。
-  // 点另一侧的块就跟着改成那一侧——"点哪儿就是哪侧"是唯一可预测的规则；
-  // 刻意**不**加"只在没设过方位时才自动"的护栏：那会造出"点了右腿却记成左腿"，
-  // 而这次要消掉的正是这种对不上。想改或想标「两侧」，去「哪一侧」点一下即可。
-  // 取消某一块（再点一次）不动方位；全部取消时由下面那条 watch 清掉。
-  const side = (!wasSelected && meta.side) ? meta.side : state.value.side
-  const picked = wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word]
-  state.value = { ...state.value, view: face, act: id, picked, side }
+  // 这一块该怎样，**由 bodyMap 的 clickOutcome 一处说了算**（纯函数，`npm run check` 钉着它的每一个分支）：
+  // 未选 ⇒ 选中并按点的那半边定方位；同一侧再点一次 ⇒ 直接取消；
+  // 点另一半边 ⇒ 这块记「两侧」；从「两侧」点任一半边 ⇒ 只剩另一半边。
+  const outcome = clickOutcome({ selected: wasSelected, current: sideOfRegion(id, state.value.sides), clicked: meta.side || null })
+  if (!outcome.keep) {
+    // 取消这块：**词与它的方位一起收走**（removeWord 负责）
+    state.value = removeWord(state.value, pickedWordsOf(id, state.value.picked)[0])
+  } else {
+    const word = wasSelected ? pickedWordsOf(id, state.value.picked)[0] : landingWord(id, vocabulary.value)
+    const picked = wasSelected ? state.value.picked : [...state.value.picked, word]
+    let next = { ...state.value, view: face, act: id, picked }
+    if (outcome.side !== undefined) next = setRegionSide(next, id, outcome.side)
+    state.value = next
+  }
   mobileOpen.value = { ...mobileOpen.value, location: true }
   locationPulse.value = false
   nextTick(() => {
@@ -216,27 +230,34 @@ function pick(word) {
   const regionPicks = pickedWordsOf(region?.id, state.value.picked)
   const preferred = landingWord(region?.id, vocabulary.value)
   const base = !state.value.picked.includes(word) && regionPicks.length === 1 && regionPicks[0] === preferred && region?.words.includes(word) ? { ...state.value, picked: state.value.picked.filter(w => w !== preferred) } : state.value
+  // 换细分词（腹部→上腹）时方位跟着走：`sides` 以区域 id 为键，不需要额外照顾。
   state.value = selectWord(base, word)
 }
-// 两条「取消之后必须一起收走」的状态，都挂在**这块还记不记得住词**上：
-//   ① 方位：一个部位都没选，它就是没有意义的（会留下一条孤零零的「左侧」）；
+// 两条「取消之后必须一起收走」的状态，统一挂在**这块还记不记得住词**上：
+//   ① sides：只保留"这块还在已选里"的条目。留孤儿的话，患者重新选中这块时会**带着旧方位**回来。
 //   ② act：图上那圈「正在编辑」绿描边是按 act 画的——取消掉这块（图上再点一次 / 已选里点 × /
 //      细分词里点掉它）之后若还留着 act，一块什么都没选的区域会继续亮着绿框，看起来像"取消没生效"
 //      （实测：取消后描边反而从 1 个变 2 个——方位一并清掉后 matchesSide 不再过滤，正反面两块都画上）。
 // 口径：「正在编辑」只在一块**真的记着词**的时候成立，act 与"这块有落词"是同一件事。
 watch(() => state.value.picked, (picked) => {
+  const alive = new Set(picked.map((w) => regionOfWord(w)?.id).filter(Boolean))
+  const sides = Object.fromEntries(Object.entries(state.value.sides).filter(([rid]) => alive.has(rid)))
   const patch = {}
-  if (state.value.side && !picked.length) patch.side = null
+  if (Object.keys(sides).length !== Object.keys(state.value.sides).length) patch.sides = sides
   if (state.value.act && !pickedWordsOf(state.value.act, picked).length) patch.act = null
   if (Object.keys(patch).length) state.value = { ...state.value, ...patch }
 })
-function setSide(s) { state.value = selectSide(state.value, s) }
+// 「哪一侧」那三颗作用于**正在编辑的那一块**；点生效那颗 = 改回"不标"。
+function setSide(s) {
+  const id = state.value.act
+  state.value = setRegionSide(state.value, id, sideOfRegion(id, state.value.sides) === s ? '' : s)
+}
 function onPoint(label) { pointedLabel.value = label || null }
 function toggleSection(key) { mobileOpen.value = { ...mobileOpen.value, [key]: !mobileOpen.value[key] } }
 function clearState() { state.value = clearAll(); mobileOpen.value = { location: true, side: false, feeling: false } }
 function fill() {
   if (!canFill.value) return
-  emit('submit', { locations: declarationLocations(state.value.picked, state.value.side), sentence: sentence(state.value.picked, state.value.feelings, state.value.side) })
+  emit('submit', { locations: declarationLocations(state.value.picked, state.value.sides), sentence: sentence(state.value.picked, state.value.feelings, state.value.sides) })
   close()
 }
 function giveUp() { emit('submit', { locations: [], sentence: '' }); close() }

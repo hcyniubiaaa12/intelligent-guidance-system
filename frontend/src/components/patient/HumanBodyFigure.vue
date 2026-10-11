@@ -69,7 +69,7 @@ const props = defineProps({
   active: { type: String, default: null },
   selected: { type: Function, required: true },
   enabled: { type: Function, required: true },
-  side: { type: String, default: null },
+  sideOf: { type: Function, default: () => '' },
   readonly: { type: Boolean, default: false }
 })
 const emit = defineEmits(['select', 'point'])
@@ -172,8 +172,11 @@ const areas = computed(() => {
 const enabledAreas = computed(() => areas.value.filter((area) => props.enabled(area.id)))
 const tabKey = computed(() => enabledAreas.value.find((area) => area.key === rovingKey.value)?.key || enabledAreas.value[0]?.key)
 const focusedArea = computed(() => areas.value.find((area) => area.key === focusedKey.value && props.enabled(area.id)))
+// 方位是**每块一份**，所以这里问的是"这一块"的方位（覆盖层把 `sideOfRegion(区域id)` 传进来）：
+// 记着「左」时，正面图上左边那半块填实、另一半画虚框（`is-soft`）；「两侧」/不标 ⇒ 两块同样对待。
 function matchesSide(area) {
-  return area.part === 'c' || !['左', '右'].includes(props.side) || bodySide(props.face, area.part) === props.side
+  const side = props.sideOf(area.id) || ''
+  return area.part === 'c' || !['左', '右'].includes(side) || bodySide(props.face, area.part) === side
 }
 const solidSelectedAreas = computed(() => areas.value.filter((area) => props.selected(area.id) && matchesSide(area) && props.enabled(area.id)))
 const activeAreas = computed(() => areas.value.filter((area) => area.id === props.active && matchesSide(area) && props.enabled(area.id)))

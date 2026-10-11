@@ -19,7 +19,7 @@
  * ③ **全身性词不加方位前缀**："左皮肤"没有意义。
  *
  * 输出形状：`{ locations, sentence }`
- *   - `locations` —— 方位前缀 + 部位词，进请求的部位声明字段（**结构化、只装部位**）
+ *   - `locations` —— **每块各自的**方位前缀 + 部位词，进请求的部位声明字段（**结构化、只装部位**）
  *   - `sentence`  —— 部位 + 感觉 +「，」，进患者那句话（`content`，患者可继续编辑）
  *
  * 为什么是两份而不是一份：患者随后可能改掉输入框里那句话，但"他在图上标过 X"这个事实始终为真。
@@ -122,9 +122,31 @@ export function regionById(id) {
   return REGIONS.find((r) => r.id === id) || null
 }
 
+/** 哪个区域包含这个词（每个词只属于一个区域）。不属于任何区域（皮肤 / 关节这类全身词）⇒ null */
+export function regionOfWord(word) {
+  return REGIONS.find((r) => r.words.includes(word)) || null
+}
+
 /** 该词是否全身性（决定加不加方位前缀） */
 export function isGlobalWord(word) {
   return GLOBAL_WORDS.includes(word)
+}
+
+/**
+ * 这块区域当前的方位：`''`（不标）/ `'左'` / `'右'` / `'两侧'`。
+ *
+ * **方位是每块一份**（`sides` 以**区域 id** 为键——不能按词存：换细分词"腹部→上腹"时方位会丢）。
+ * 为什么改掉"全局一份"：全局一份时"点另一块"必然要么覆盖、要么被覆盖，患者说的
+ * "上肢两侧、腿左侧"这种话在模型里根本表达不出来（2026-10-11 四轮 grill 的根因）。
+ */
+export function sideOfRegion(regionId, sides = {}) {
+  return (regionId && sides[regionId]) || ''
+}
+
+/** 某个词的方位；全身词永远空（"左皮肤"没有意义） */
+export function sideOfWord(word, sides = {}) {
+  if (isGlobalWord(word)) return ''
+  return sideOfRegion(regionOfWord(word)?.id, sides)
 }
 
 /** 这块区域画在哪一面：「背面」还是「正面」。点图与快捷词预选都要问，规则只写这一份。 */
@@ -146,15 +168,15 @@ export function pickedWordsOf(regionId, picked = []) {
 }
 
 /**
- * 结构化声明：**方位前缀 + 部位词**（全身词不加前缀）。
+ * 结构化声明：**每块各自的方位前缀 + 部位词**（全身词不加前缀，未标方位的块也不加）。
  * 这是随首条输入提交一次的部位声明字段，只装部位——感觉留在患者那句话的文本里。
  * 没选部位 ⇒ 空数组（走"说不清在哪儿"那条出口，链路回落到今天的行为）。
  */
-export function declarationLocations(picked = [], side = null) {
-  const words = normalizeWords(picked)
-  if (!words.length) return []
-  const prefix = side ? side : ''
-  return words.map((w) => (isGlobalWord(w) ? w : prefix + w))
+export function declarationLocations(picked = [], sides = {}) {
+  return normalizeWords(picked).map((w) => {
+    const side = sideOfWord(w, sides)
+    return side ? side + w : w
+  })
 }
 
 /**
@@ -164,8 +186,8 @@ export function declarationLocations(picked = [], side = null) {
  * 句子本身就是主诉的开头。感觉里已过滤掉"说不上来"；一个感觉都没选时回落成「不舒服」。
  * 没选部位 ⇒ 空串（页面此时不该允许提交）。
  */
-export function sentence(picked = [], feelings = [], side = null) {
-  const locations = declarationLocations(picked, side)
+export function sentence(picked = [], feelings = [], sides = {}) {
+  const locations = declarationLocations(picked, sides)
   if (!locations.length) return ''
   const feels = (Array.isArray(feelings) ? feelings : [])
     .filter((f) => typeof f === 'string' && f !== FEELING_UNSURE)
@@ -176,8 +198,8 @@ export function sentence(picked = [], feelings = [], side = null) {
  * 「位置已锁定」回执里的部位串（如「左腹部」）：结构化声明的展示形态。
  * 没声明（走了"说不清"出口）⇒ 空串，回执据此换文案。
  */
-export function pickedLabel(picked = [], side = null) {
-  const locations = declarationLocations(picked, side)
+export function pickedLabel(picked = [], sides = {}) {
+  const locations = declarationLocations(picked, sides)
   return locations.length ? locations.join('、') : ''
 }
 
@@ -239,7 +261,7 @@ export function landingWord(regionId, available) {
 
 /** 覆盖层初始状态：什么都没选 */
 export function emptyState() {
-  return { view: 'front', act: null, picked: [], feelings: [], side: null }
+  return { view: 'front', act: null, picked: [], sides: {}, feelings: [] }
 }
 
 /** 选择态的纯派生（覆盖层只管渲染这个结果的形状） */
@@ -252,14 +274,45 @@ export function selectFeeling(state, feeling) {
   return { ...state, feelings: toggle(state.feelings, feeling) }
 }
 
-/** 方位单选：再点一次同一个就是取消（患者不该为了反选去找"清除"按钮） */
-export function selectSide(state, side) {
-  return { ...state, side: state.side === side ? null : side }
+/** 给**某一块**显式定方位：`''`（不标）/ `'左'` / `'右'` / `'两侧'`；`''` 就把条目删掉 */
+export function setRegionSide(state, regionId, side) {
+  if (!regionId) return state
+  const sides = { ...state.sides }
+  if (side) sides[regionId] = side
+  else delete sides[regionId]
+  return { ...state, sides }
 }
 
-/** 逐条删除：已选区每条都能单独删，删错一条不必全部重来 */
+/**
+ * 图上点某一块的某半边 ⇒ 这块该怎样（**这条规则只此一份实现**，覆盖层的 `activate` 只管照做）。
+ *
+ *   clicked = null（中心块，没有左右半边）  未选 ⇒ 选中；已选 ⇒ 取消
+ *   未选                                     ⇒ 选中，方位 = 点的那一侧
+ *   已选，当前 = 点的那一侧                    ⇒ 取消这块（同一侧再点一次直接取消）
+ *   已选，当前 = 另一个单侧                    ⇒ 「两侧」（点另一半边 = 两边都疼）
+ *   已选，当前 = 「两侧」                      ⇒ 只剩另一半边（点右 ⇒ 左、点左 ⇒ 右）
+ *   已选，当前 = 未标                          ⇒ 点哪半边就记哪一侧
+ *
+ * 返回 `{ keep, side }`：`keep:false` = 把这块取消；否则保留，`side` 是这块的新方位。
+ */
+export function clickOutcome({ selected, current = '', clicked = null }) {
+  if (!clicked) return { keep: !selected }
+  if (!selected) return { keep: true, side: clicked }
+  if (current === clicked) return { keep: false }
+  if (current === '两侧') return { keep: true, side: clicked === '左' ? '右' : '左' }
+  if (!current) return { keep: true, side: clicked }
+  return { keep: true, side: '两侧' }
+}
+
+/**
+ * 逐条删除：已选区每条都能单独删，删错一条不必全部重来。
+ * **这块的方位跟着一起收走**——留着孤儿条目的话，患者重新选中这块时会"带着旧方位"回来。
+ */
 export function removeWord(state, word) {
-  return { ...state, picked: state.picked.filter((w) => w !== word) }
+  const region = regionOfWord(word)
+  const sides = { ...state.sides }
+  if (region) delete sides[region.id]
+  return { ...state, picked: state.picked.filter((w) => w !== word), sides }
 }
 
 export function removeFeeling(state, feeling) {
