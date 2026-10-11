@@ -22,7 +22,8 @@ function redirectToLogin() {
   // 连同对话 store 一起清：共用设备上换账号后不能看到上一位患者的主诉与结论卡
   useChatStore().reset()
   useUserStore().logout()
-  if (router.currentRoute.value.path !== '/login') {
+  // 公开路由（如人体图离线预览 /preview）路由守卫已放行，这里必须同口径——否则一进页面就被接口 401 踹回登录页
+  if (router.currentRoute.value.path !== '/login' && !router.currentRoute.value.meta.public) {
     router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
   }
 }
