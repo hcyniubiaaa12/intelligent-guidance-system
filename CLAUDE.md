@@ -78,6 +78,7 @@ scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / asy
 - 检索存储双写：chunk 改动必须同步 pgvector 与 ES 两路，外加 MySQL 里的切片正文副本（三处）；**不是同一事务**——MySQL 在事务内，pgvector 与 ES 不在，失败靠写时补偿（回删已写向量）与删除补偿顺序收敛
 - 约束：无新中间件；依赖方向未破坏；未绕过 LLM 适配层；埋点未侵入主流程；线程池未混用
 - 验证：后端编译通过；接口真实请求跑通；涉及链路 A/B/C/D 时核对基线文档对齐点
+- 前端：改完 `frontend/` 跑 `npm run check`（人体图纯规则自检）。它已接进 **pre-commit 硬闸**——暂存区含 `frontend/` 才触发，断言失败拒绝提交；一次性启用 `git config core.hooksPath .githooks`（见 `.githooks/README.md`）
 - 文档：涉及链路对齐点、参数、模块边界的改动，同步更新《总体架构与链路设计.md》
 - 进度：功能完成后立即回写——**过程记录**（完成内容、耗时、困难点与解法）写 `进度-施工日志.md`；**「总览」「已知坑」「下一步」三节**更新在 `进度.md`
 - 术语：新增/变更领域概念时同步更新 `CONTEXT.md`
