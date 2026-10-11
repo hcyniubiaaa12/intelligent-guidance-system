@@ -452,14 +452,6 @@ class ChatServiceTest {
         assertFalse(questions().contains(TEMPLATE_REPEAT), "也不应是第二档模板话术");
     }
 
-    @Test
-    @DisplayName("人体图部位词清单（listParts）：直读术语白名单的部位类")
-    void listPartsReadsFromTermVocabulary() {
-        when(medicalTermService.enabledParts()).thenReturn(List.of("腹部", "上腹"));
-
-        assertEquals(List.of("腹部", "上腹"), chatService.listParts());
-    }
-
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */
     @SuppressWarnings("unchecked")
     private void modelReturns(String raw) {

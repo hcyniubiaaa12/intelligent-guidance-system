@@ -145,17 +145,6 @@ public class ChatService {
         return guideService.confirmRegister(userId, request);
     }
 
-    /**
-     * 患者端「人体图」的部位词清单（部位声明的可选项）。
-     *
-     * <p>只给<b>词</b>，不给"图上哪块区域对应哪个词"——图形是前端资产，后端不需要知道。
-     * 词源唯一是术语白名单的部位类（{@code medical_term.type=part} 且启用），所以管理员在
-     * 管理端停用一个词，这里立刻就不给了：前端另存一份的话，停用会**只对管理端生效**。
-     */
-    public List<String> listParts() {
-        return medicalTermService.enabledParts();
-    }
-
     private void handle(String userId, ChatDTO.MessageReq request, SseEmitter emitter) {
         String sessionId = null;
         long start = System.currentTimeMillis();

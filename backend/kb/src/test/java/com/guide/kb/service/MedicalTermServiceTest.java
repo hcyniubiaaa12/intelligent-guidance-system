@@ -68,62 +68,6 @@ class MedicalTermServiceTest {
     }
 
     @Test
-    @DisplayName("按类型取词：只给部位词，症状词一个都不混进来")
-    void enabledPartsReturnsOnlyPartTerms() {
-        when(medicalTermMapper.selectList(any())).thenReturn(List.of(
-                term("t1", "腹部", TermType.PART, 1),
-                term("t2", "胸痛", TermType.SYMPTOM, 1),
-                term("t3", "上腹", TermType.PART, 1),
-                term("t4", "头痛", TermType.SYMPTOM, 1)));
-
-        assertThat(service.enabledParts()).containsExactly("腹部", "上腹");
-    }
-
-    @Test
-    @DisplayName("按类型取词：停用的部位词不返回（与防误杀白名单同一批查询，停用一处两处都掉）")
-    void enabledPartsSkipsDisabled() {
-        MedicalTerm on = term("t1", "腹部", TermType.PART, 1);
-        MedicalTerm off = term("t2", "腰", TermType.PART, 0);
-        when(medicalTermMapper.selectList(any())).thenReturn(List.of(on, off));
-
-        // 库里 enabled=0 的行本就查不出来；这里显式演一次"查得到却不是启用"的防线
-        assertThat(service.enabledParts()).containsExactly("腹部");
-    }
-
-    @Test
-    @DisplayName("按类型取词：type 为空的历史行不给（分类缺失的老数据不能被当成部位）")
-    void enabledPartsSkipsUntypedRows() {
-        MedicalTerm untyped = term("t9", "肚子", null, 1);
-        when(medicalTermMapper.selectList(any())).thenReturn(List.of(untyped, term("t1", "头部", TermType.PART, 1)));
-
-        assertThat(service.enabledParts()).containsExactly("头部");
-    }
-
-    @Test
-    @DisplayName("按类型取词：重复词按首次出现去重（图上选项重影会让人以为点错了）")
-    void enabledPartsDedupes() {
-        when(medicalTermMapper.selectList(any())).thenReturn(List.of(
-                term("t1", "腹部", TermType.PART, 1),
-                term("t2", "腹部", TermType.PART, 1)));
-
-        assertThat(service.enabledParts()).containsExactly("腹部");
-    }
-
-    @Test
-    @DisplayName("停用部位词：当场从部位词列表里消失，不等 TTL（患者端选项与管理端开关同源）")
-    void partToggleTakesEffectImmediately() {
-        MedicalTerm term = term("t1", "腹部", TermType.PART, 1);
-        when(medicalTermMapper.selectById("t1")).thenReturn(term);
-        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term), List.of());
-
-        assertThat(service.enabledParts()).containsExactly("腹部");
-
-        service.toggle("t1");
-
-        assertThat(service.enabledParts()).isEmpty();
-    }
-
-    @Test
     @DisplayName("术语不存在：拒绝且不写库")
     void rejectsUnknownTerm() {
         when(medicalTermMapper.selectById("nope")).thenReturn(null);
