@@ -76,11 +76,13 @@
                 <button type="button" class="p-map__clear" @click="clearState">全部清空</button>
               </div>
             </div>
-            <section class="p-map__sec" :class="{ 'is-pulse': locationPulse }">
+            <section ref="locationEl" class="p-map__sec" :class="{ 'is-pulse': locationPulse }">
               <button class="p-map__mobilehead" type="button" :aria-expanded="mobileOpen.location" aria-controls="body-map-location" @click="toggleSection('location')">
-                <span>具体位置 <em>{{ activeRegion ? activeRegion.name : '尚未选择' }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
+                <span>具体位置 <em>{{ landedLabel }}</em></span><span aria-hidden="true">{{ mobileOpen.location ? '−' : '+' }}</span>
               </button>
-              <h3 class="p-map__lb">具体位置 <em>{{ activeRegion ? activeRegion.name : '尚未选择' }}</em></h3>
+              <!-- 标题写的是**这块实际会记下的词**（不是区域展示名）：图上写「腿」、这里就报「腿」，
+                   患者不必去猜"下肢"和"腿"是不是一回事。 -->
+              <h3 class="p-map__lb">具体位置 <em>{{ landedLabel }}</em></h3>
               <div id="body-map-location" v-show="!isMobile || mobileOpen.location" class="p-map__sectionbody">
                 <div v-if="loading" class="p-map__skeleton" aria-hidden="true"><i v-for="i in 3" :key="i" /></div>
                 <div v-else-if="!activeRegion" class="p-map__hintbox">
@@ -88,7 +90,7 @@
                   <span>{{ isMobile ? '先在上面的图上点一下' : '先在左边的图上点一下' }}</span>
                 </div>
                 <div v-else-if="!subWords.length" class="p-map__hint">这个部位暂时不可选，您可以直接描述不适。</div>
-                <div v-else class="p-map__chips"><button v-for="w in subWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w) }" :aria-pressed="state.picked.includes(w)" @click="pick(w)">{{ w }}</button></div>
+                <div v-else class="p-map__chips"><button v-for="w in subWords" :key="w" type="button" class="p-map__chip" :class="{ 'is-on': state.picked.includes(w), 'is-current': landedWords.includes(w) }" :aria-pressed="state.picked.includes(w)" @click="pick(w)">{{ w }}</button></div>
               </div>
             </section>
             <section class="p-map__sec">
@@ -142,6 +144,7 @@ const isMobile = ref(false)
 const suggestSide = ref(null)
 const locationPulse = ref(false)
 const pointedLabel = ref(null)
+const locationEl = ref(null)
 const mobileOpen = ref({ location: true, side: false, feeling: false })
 const dialogEl = ref(null)
 const titleEl = ref(null)
@@ -155,6 +158,17 @@ let resizeObserver = null
 let pulseTimer = null
 const activeRegion = computed(() => state.value.act ? regionById(state.value.act) : null)
 const subWords = computed(() => visibleWords(activeRegion.value, vocabulary.value))
+// 「具体位置」栏的标题要报**实际落下的词**，而不是区域展示名（展示名是"下肢"、落词是"腿"）。
+const landedWords = computed(() => {
+  const region = activeRegion.value
+  return region ? state.value.picked.filter(w => region.words.includes(w)) : []
+})
+const landedLabel = computed(() => {
+  const landed = landedWords.value
+  if (!landed.length) return '尚未选择'
+  const alt = subWords.value.filter(w => !landed.includes(w))
+  return `已记录：${landed.join('、')}${alt.length ? ` · 可改成${alt.join(' / ')}` : ''}`
+})
 const globalWords = computed(() => visibleWords({ words: [...GLOBAL_WORDS] }, vocabulary.value))
 const previewText = computed(() => sentence(state.value.picked, state.value.feelings, state.value.side) || NO_LOCATION_HINT)
 const allDisabled = computed(() => loadState.value === 'ready' && !vocabulary.value.length)
@@ -180,7 +194,14 @@ function activate(id, face = ['back', 'waist'].includes(id) ? 'back' : 'front', 
   state.value = { ...state.value, view: face, act: id, picked: wasSelected ? state.value.picked.filter(w => !region.words.includes(w)) : [...state.value.picked, word] }
   mobileOpen.value = { ...mobileOpen.value, location: true }
   locationPulse.value = false
-  nextTick(() => { locationPulse.value = true; clearTimeout(pulseTimer); pulseTimer = setTimeout(() => { locationPulse.value = false }, 250) })
+  nextTick(() => {
+    locationPulse.value = true
+    clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => { locationPulse.value = false }, 1200)
+    // 窄屏：细分词那一栏在图**下方**，点完常常根本不在视野里，患者会以为"点了没反应"。
+    // 桌面不滚——那一栏就在图右边、本来就在视野里，凭空滚一次反而像页面在跳。
+    if (isMobile.value) locationEl.value?.scrollIntoView({ block: 'nearest' })
+  })
   // 方位对所有部位统一加前缀，只建议第一次点击的成对部位，不能静默替患者决定。
   if (!state.value.side && !wasSelected && meta.side && !alreadyPaired) suggestSide.value = { side: meta.side, id }
 }
@@ -341,8 +362,10 @@ onBeforeUnmount(() => {
 .p-map__global { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
 .p-map__global .p-map__hint { width: 100%; margin: 0; }
 .p-map__pick { width: 300px; flex: none; border-left: 1px solid var(--line); background: var(--surface); overflow-y: auto; }
-.p-map__sec { padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.p-map__sec.is-pulse { animation: p-map-pulse .2s ease; }
+.p-map__sec { padding: 10px 16px; border-bottom: 1px solid var(--line); scroll-margin-top: 88px; }
+/* 点选后把视线引到这一段：**只用颜色与左侧色条**，不碰 transform——
+   点一下图就位移/缩放，会让人以为图在动、以为自己点错了。 */
+.p-map__sec.is-pulse { background: var(--leaf-soft); box-shadow: inset 3px 0 0 var(--leaf); animation: p-map-pulse 1.2s ease; }
 .p-map__lb { margin-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--ink); padding-left: 10px; border-left: 2.5px solid var(--leaf); }
 .p-map__lb em, .p-map__mobilehead em { font-style: normal; font-weight: 400; margin-left: 8px; font-size: 12px; color: var(--ink-2); }
 .p-map__mobilehead { display: none; }
@@ -355,6 +378,10 @@ onBeforeUnmount(() => {
 .p-map__chip { min-height: 36px; padding: 4px 14px; border: 1px solid var(--leaf-line); border-radius: var(--r-full); background: var(--surface); font-family: var(--sans); font-size: 13px; color: var(--ink-2); cursor: pointer; transition: border-color .18s ease, color .18s ease, background .18s ease; }
 .p-map__chip:hover, .p-map__chip:focus-visible { border-color: var(--leaf); color: var(--leaf-deep); background: var(--leaf-soft); }
 .p-map__chip.is-on { background: var(--leaf); border-color: var(--leaf-deep); color: var(--on-accent); font-weight: 600; }
+/* 「当前生效的那一颗」——它同时也是"已选"，所以标记必须是**追加**的，不能只靠反色：
+   ✓ 前缀把"系统实际记下的就是这个词"与"另外还选了别的"分开。 */
+.p-map__chip.is-current { outline: 2px solid var(--leaf-deep); outline-offset: 1px; }
+.p-map__chip.is-current::before { content: '✓ '; font-weight: 700; }
 .p-map__chip.is-unsure { border-style: dashed; }
 .p-map__chip:disabled { cursor: default; opacity: .55; }
 .p-map__suggest { display: block; margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--leaf-line); border-radius: var(--r-xs); background: var(--leaf-soft); color: var(--leaf-deep); font: inherit; font-size: 12px; cursor: pointer; }
@@ -386,7 +413,7 @@ onBeforeUnmount(() => {
 /* 页脚要恒定高度：这句提示在"能确认"时只是看不见，**位置照旧占着**——
    用 v-if 摘掉它，窄屏下 acts 会少一整行，页脚仍然会变矮。 */
 .p-map__reason.is-off { visibility: hidden; }
-@keyframes p-map-pulse { 0% { background: var(--surface); } 50% { background: var(--leaf-soft); } 100% { background: var(--surface); } }
+@keyframes p-map-pulse { 0% { background: var(--surface); } 16% { background: var(--leaf-soft); } 100% { background: var(--surface); } }
 @keyframes p-map-breathe { from { opacity: .45; } to { opacity: .9; } }
 @container (max-width: 700px) {
   .p-map__bd { flex-direction: column; overflow-y: auto; }
@@ -424,7 +451,9 @@ onBeforeUnmount(() => {
   .p-map__ft { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .p-map__sec.is-pulse, .p-map__skeleton i, .p-map__face { animation: none; }
+  .p-map__skeleton i, .p-map__face { animation: none; }
   .p-map__chip, .p-map__prime, .p-map__ghost { transition: none; }
+  /* 高亮退化成**静态色块**、而不是消失——运动偏好不该把"点完该看哪儿"这条信息一起拿走。 */
+  .p-map__sec.is-pulse { animation: none; background: var(--leaf-soft); box-shadow: inset 3px 0 0 var(--leaf); }
 }
 </style>
