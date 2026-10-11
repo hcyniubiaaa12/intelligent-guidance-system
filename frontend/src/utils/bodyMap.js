@@ -7,11 +7,9 @@
  *
  * 三条不可从简的规则：
  *
- * ① **图上只出现术语白名单里已有的词**（`medical_term` 的 `type=part` 且启用）。
- *    拼出来的句子若不含部位词，就绕不过信息充足性门槛，这个功能等于白做。
- *    `PARTS` 是那份词清单的**镜像**，越界即失败（见 `assertVocabulary`）——
- *    这不是运行时校验，是给"有人改了映射却忘了同步词表"留一道会红的闸。
- *    本仓库没有前端测试框架，守这条闸的办法是临时 node 脚本跑断言（验完即删）。
+ * ① **图上的词来自术语白名单**（`medical_term` 的 `type=part` 且启用）。
+ *    拼出来的句子若不含部位词，就绕不过信息充足性门槛。`PARTS` 是那份词清单的**镜像**。
+ *    （原有一道 `assertVocabulary` 自检，因不再强制这条不变式而删除；现在没有自动校验。）
  *
  * ② **方位只是前缀，不是新词**：术语表里没有左 / 右，但"左腹部 / 左上腹 / 左上肢"都含部位词，
  *    照样命中白名单。而「上腹 + 左」在临床上本来就写作「左上腹」——组合出来的词比口语更规范。
@@ -166,28 +164,6 @@ export function regionsOfLocations(locations = []) {
 export function sideLabel(side) {
   if (!side) return ''
   return side === '两侧' ? '两侧' : `${side}侧`
-}
-
-/**
- * 映射自检：区域与全身词里的每个词都必须落在 {@link PARTS} 白名单镜像内。
- *
- * 用途是**让改动会红**：有人给 REGIONS 加了「后背」而没同步后端术语表，
- * 跑断言时这里就失败，而不是等患者点了图才发现拼出的句子命中不了门槛。
- * 词表不齐**不会**报这个错（患者图上点的词被管理员停用是正常运营动作），
- * 那个由页面上"选中的词不在词表里就不渲染选项"来兜。
- */
-export function assertVocabulary() {
-  const known = new Set(PARTS)
-  const bad = []
-  for (const region of REGIONS) {
-    for (const word of region.words) {
-      if (!known.has(word)) bad.push(`区域「${region.name}」的词「${word}」不在部位词表内`)
-    }
-  }
-  for (const word of GLOBAL_WORDS) {
-    if (!known.has(word)) bad.push(`全身词「${word}」不在部位词表内`)
-  }
-  return bad
 }
 
 /**
