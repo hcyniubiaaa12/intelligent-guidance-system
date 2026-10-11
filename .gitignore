@@ -48,3 +48,4 @@ Thumbs.db
 
 # 临时测试文档（API 探针、手工验证用，不入库）
 测试文档/
+.gitattributes
