@@ -27,7 +27,10 @@
 
           <div v-else class="p-map__fig">
             <div class="p-map__figurehead">
-              <span>点一下不舒服的位置</span>
+              <!-- 悬停/聚焦/按触某一块时，这里显示**这块的命名**（图上写什么，这里就报什么）；
+                   没指向时回落引导语。刻意**不加 aria-live**：区域按钮本身已经播报了区域名，
+                   加上会让聚焦某块时被重复播报一遍。 -->
+              <span class="p-map__pointer" :class="{ 'is-on': !!pointedLabel }">{{ pointedLabel || '点一下不舒服的位置' }}</span>
               <span class="p-map__count" aria-live="polite">{{ state.picked.length ? `已选 ${state.picked.length} 个部位` : '可多选' }}</span>
             </div>
             <p v-if="loadState === 'failed'" class="p-map__loadhint">部位清单没加载成功，先按默认清单选，不影响使用 <button type="button" @click="loadVocabulary">重试</button></p>
@@ -46,6 +49,7 @@
                   :readonly="loading"
                   :class="{ 'is-loading': loading }"
                   @select="(id, meta) => activate(id, face.id, meta)"
+                  @point="onPoint"
                 />
                 <figcaption :class="{ 'is-on': state.view === face.id && state.act }">{{ face.label }}</figcaption>
               </figure>
@@ -137,6 +141,7 @@ const loadState = ref('loading')
 const isMobile = ref(false)
 const suggestSide = ref(null)
 const locationPulse = ref(false)
+const pointedLabel = ref(null)
 const mobileOpen = ref({ location: true, side: false, feeling: false })
 const dialogEl = ref(null)
 const titleEl = ref(null)
@@ -191,6 +196,7 @@ watch(() => state.value.picked, () => {
   if (suggestSide.value && !isRegionSelected(suggestSide.value.id)) suggestSide.value = null
 })
 function setSide(s) { state.value = selectSide(state.value, s); suggestSide.value = null }
+function onPoint(label) { pointedLabel.value = label || null }
 function applySuggest() { state.value = selectSide(state.value, suggestSide.value.side); suggestSide.value = null }
 function toggleSection(key) { mobileOpen.value = { ...mobileOpen.value, [key]: !mobileOpen.value[key] } }
 function clearState() { state.value = clearAll(); suggestSide.value = null; mobileOpen.value = { location: true, side: false, feeling: false } }
@@ -307,6 +313,9 @@ onBeforeUnmount(() => {
 .p-map__bd { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .p-map__fig { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 22px; overflow-y: auto; }
 .p-map__figurehead { display: flex; justify-content: space-between; align-items: center; flex: none; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+/* 图外那一行：悬停 / 聚焦 / 按触某块时显示它的命名——提示永远不压在人身上，也不必推算尺寸。 */
+.p-map__pointer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color .15s ease; }
+.p-map__pointer.is-on { color: var(--leaf-deep); }
 .p-map__count { font-size: 12px; font-weight: 600; color: var(--leaf-deep); background: var(--leaf-soft); padding: 2px 10px; border-radius: var(--r-full); border: 1px solid var(--leaf-line); }
 .p-map__loadhint { margin: 0; color: var(--ink-2); font-size: 12px; }
 .p-map__loadhint button { padding: 0; border: 0; background: none; color: var(--leaf-deep); text-decoration: underline; cursor: pointer; }

@@ -51,10 +51,6 @@
       <path v-for="area in activeAreas" :key="area.key" :d="area.path" class="p-body__ring p-body__ring--active" />
       <path v-if="focusedArea" :d="focusedArea.path" class="p-body__ring p-body__ring--focus" />
     </g>
-    <g v-if="!readonly && tooltip" class="p-body__tooltip" :transform="`translate(${tooltip.x} ${tooltip.y})`" aria-hidden="true">
-      <rect :x="-tooltip.width / 2" :y="-tooltip.height / 2" :width="tooltip.width" :height="tooltip.height" :rx="6 * textScale" />
-      <text text-anchor="middle" dominant-baseline="central" :style="{ fontSize: `${13 * textScale}px` }">{{ tooltip.label }}</text>
-    </g>
     <g v-if="!readonly" class="p-body__sides" aria-hidden="true" :style="{ fontSize: `${12 * textScale}px` }">
       <text x="8" y="600">{{ face === 'front' ? '右' : '左' }}</text>
       <text x="232" y="600" text-anchor="end">{{ face === 'front' ? '左' : '右' }}</text>
@@ -63,7 +59,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { regionById } from '../../utils/bodyMap'
 
 const props = defineProps({
@@ -74,7 +70,7 @@ const props = defineProps({
   side: { type: String, default: null },
   readonly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'point'])
 const patternId = `body-disabled-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
 const figureEl = ref(null)
 const areaRefs = new Map()
@@ -179,18 +175,19 @@ function matchesSide(area) {
 }
 const solidSelectedAreas = computed(() => areas.value.filter((area) => props.selected(area.id) && matchesSide(area) && props.enabled(area.id)))
 const activeAreas = computed(() => areas.value.filter((area) => area.id === props.active && matchesSide(area) && props.enabled(area.id)))
-const tooltip = computed(() => {
+/**
+ * 当前**指向**的这块区域（按触 → 悬停 → 聚焦的优先级取第一个），没指向就是 null。
+ * 名称**不画在图里**——画在图里就一定会遮住人体（原先气泡固定在被点区域上方 22 单位处，
+ * 悬停"腹部"时盖住的正是"胸部"，还因为小尺寸下反向放大文字而占到图宽的 38%）。
+ * 这里只把"指向了谁"告诉父组件，由它在**图外固定那一行**渲染名字。
+ */
+const pointed = computed(() => {
   const key = touchedKey.value || hoveredKey.value || focusedKey.value
   const area = areas.value.find((item) => item.key === key && props.enabled(item.id))
-  if (!area) return null
-  const width = (area.label.length * 13 + 20) * textScale.value
-  const edge = Math.max(30, width / 2 + 2)
-  return {
-    label: area.label, width, height: 26 * textScale.value,
-    x: Math.max(edge, Math.min(240 - edge, area.x)),
-    y: Math.max(13 * textScale.value + 2, area.y - 22)
-  }
+  return area ? area.label : null
 })
+// immediate：切换正反面会换掉组件实例，新实例挂载时要把上一次的指向清掉，否则图外那行会留着旧名字。
+watch(pointed, (label) => emit('point', label), { immediate: true })
 function areaClasses(area) {
   return {
     'is-selected': props.selected(area.id) && matchesSide(area),
@@ -242,7 +239,8 @@ function onAreaKey(e, area) {
 }
 let figureObserver = null
 onMounted(() => {
-  // SVG 会随画布缩小，反向补偿文字尺寸，避免气泡和左右提示也缩成难读的小字。
+  // SVG 会随画布缩小，反向补偿文字尺寸，让**图下缘的左右方位标注**保持可读。
+  // （原先这套反向放大还被用来给图内气泡推算尺寸，气泡移出图外后只剩这一处消费者。）
   figureObserver = new ResizeObserver(() => {
     const rect = figureEl.value?.getBoundingClientRect()
     if (rect?.width && rect.height) textScale.value = 1 / Math.min(rect.width / 240, rect.height / 608)
@@ -275,9 +273,6 @@ onBeforeUnmount(() => figureObserver?.disconnect())
    点一下就缩一圈（1.025→1）会让患者以为图在动、以为自己点错了。 */
 .p-body__ring--active { stroke: var(--leaf-deep); filter: drop-shadow(0 0 4px var(--leaf-glow)); }
 .p-body__ring--focus { stroke: var(--ink); }
-.p-body__tooltip { pointer-events: none; filter: drop-shadow(var(--sh-raised)); }
-.p-body__tooltip rect { fill: var(--surface); }
-.p-body__tooltip text { fill: var(--ink); font-family: var(--sans); letter-spacing: 0; }
 .p-body__sides { fill: var(--ink-2); font-family: var(--sans); pointer-events: none; letter-spacing: 0; }
 @media (hover: hover) {
   .p-body__area.is-hovered:not(.is-disabled) .p-body__region { fill: var(--body-skin-hover); }
