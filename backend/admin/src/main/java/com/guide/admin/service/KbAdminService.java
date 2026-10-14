@@ -140,7 +140,7 @@ public class KbAdminService {
     }
 
     /**
-     * 查看切片：切片正文的事实源在 MySQL，pgvector 里那份只是排查用的副本。
+     * 查看切片（**分页**）：切片正文的事实源在 MySQL，pgvector 里那份只是排查用的副本。
      *
      * <p>顺带算出「本标题下第几块」（{@code noInSection}）——**派生数据，不落库**（2026-10-01 定案）：
      * {@code seq} 已经给出文档内位置、{@code chunk_type} 已经标出标题边界，一趟扫就有的东西，
@@ -150,14 +150,41 @@ public class KbAdminService {
      * 两处都叫「注意事项」的标题是两个节，按 title 文字分组会把它们并成一个计数器）；
      * **只统计 text 片**（标题片就是节名本身、表格片是整块语义单元，都不占号）。
      * 文档开头那批没有前置标题片的正文自成一段，同样从 1 起。
+     *
+     * <p><b>分页与推导的关系</b>（2026-10-14 加）：推导吃的是**全篇的瘦投影**（只有 id 与类型），
+     * **不是当前页**——节会跨页，只看这一页会把"从上一页开始的那一节"重新数成第 1 块。
+     * 正文则按页取。规则只有下面这一处实现，**不复制到 SQL**（那是第二份事实）。
      */
-    public List<KbAdminDTO.ChunkVO> chunks(String docId) {
+    public KbAdminDTO.PageVO<KbAdminDTO.ChunkVO> chunks(String docId, long pageNum, long pageSize) {
         kbDocService.require(docId);
-        List<KbChunk> chunks = kbDocService.listChunks(docId);
 
-        // 一节 = 一个标题片 + 它之后的块，到下一个标题片为止
         Map<String, Integer> noInSection = new HashMap<>();
         Map<String, Integer> sectionTotal = new HashMap<>();
+        numberWithinSections(kbDocService.listChunkSkeleton(docId), noInSection, sectionTotal);
+
+        IPage<KbChunk> page = kbDocService.pageChunks(docId, Math.max(1, pageNum), clamp(pageSize));
+        List<KbAdminDTO.ChunkVO> records = new ArrayList<>(page.getRecords().size());
+        for (KbChunk chunk : page.getRecords()) {
+            KbAdminDTO.ChunkVO vo = new KbAdminDTO.ChunkVO();
+            vo.setId(chunk.getId());
+            vo.setTitle(chunk.getTitle());
+            vo.setContent(chunk.getContent());
+            vo.setSeq(chunk.getSeq());
+            vo.setChunkType(chunk.getChunkType() == null ? null : chunk.getChunkType().getCode());
+            vo.setNoInSection(noInSection.get(chunk.getId()));
+            vo.setSectionTotal(sectionTotal.get(chunk.getId()));
+            records.add(vo);
+        }
+        return pageVO(page.getTotal(), records);
+    }
+
+    /**
+     * 「一节 = 一个标题片 + 它之后的块，到下一个标题片为止」——**推导只此一处**（口径见 {@link #chunks}）。
+     *
+     * <p>入参是**全篇**的瘦投影：节可能跨页，分页只影响"这一响应带哪些片"，不影响编号。
+     */
+    private void numberWithinSections(List<KbChunk> chunks, Map<String, Integer> noInSection,
+                                      Map<String, Integer> sectionTotal) {
         int start = 0;
         while (start < chunks.size()) {
             int end = start + 1;
@@ -173,20 +200,6 @@ public class KbAdminService {
             }
             start = end;
         }
-
-        List<KbAdminDTO.ChunkVO> result = new ArrayList<>(chunks.size());
-        for (KbChunk chunk : chunks) {
-            KbAdminDTO.ChunkVO vo = new KbAdminDTO.ChunkVO();
-            vo.setId(chunk.getId());
-            vo.setTitle(chunk.getTitle());
-            vo.setContent(chunk.getContent());
-            vo.setSeq(chunk.getSeq());
-            vo.setChunkType(chunk.getChunkType() == null ? null : chunk.getChunkType().getCode());
-            vo.setNoInSection(noInSection.get(chunk.getId()));
-            vo.setSectionTotal(sectionTotal.get(chunk.getId()));
-            result.add(vo);
-        }
-        return result;
     }
 
     /** 科室蓝本（科室 tab 与上传表单共用一份数据；含停用科室——停用只在导诊入口生效） */

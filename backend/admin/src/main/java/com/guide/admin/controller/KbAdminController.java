@@ -62,10 +62,12 @@ public class KbAdminController {
         return Result.ok(kbAdminService.task(taskId));
     }
 
-    /** 查看切片 */
+    /** 查看切片（分页；页码与每页条数同文档列表口径） */
     @GetMapping("/docs/{docId}/chunks")
-    public Result<List<KbAdminDTO.ChunkVO>> chunks(@PathVariable String docId) {
-        return Result.ok(kbAdminService.chunks(docId));
+    public Result<KbAdminDTO.PageVO<KbAdminDTO.ChunkVO>> chunks(@PathVariable String docId,
+                                                               @RequestParam(defaultValue = "1") long page,
+                                                               @RequestParam(defaultValue = "10") long size) {
+        return Result.ok(kbAdminService.chunks(docId, page, size));
     }
 
     /** 重新处理（先删旧切片再重建，用 MinIO 里的原文件） */
