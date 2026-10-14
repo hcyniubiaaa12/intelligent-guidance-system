@@ -251,7 +251,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useChatStore } from '../../stores/chat'
@@ -307,8 +307,20 @@ const profileOpen = ref(false)
 const parts = ref(emptyParts())
 const partStage = ref('awaiting') // 'awaiting' | 'locked'
 const mapOpen = ref(false)
-/** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，只在打开那一刻生效 */
+/** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，**只在打开那一刻生效，用过即清** */
 const mapPreset = ref(null)
+/**
+ * 预选是**一次性**的：快捷词点一次只服务紧接着打开的那一次图，浮层一关就作废。
+ *
+ * 为什么必须清（2026-10-14 探针抓到的真缺陷）：`mapPreset` 曾经设了就不清，而覆盖层每次打开都
+ * 无条件应用它 —— 于是用过一次快捷词之后，**之后每次手动开图都会被重新预选那个词**。声明还带不
+ * 出去的时候看不出来（顶多图上多亮一块），声明真能送到模型之后它就变成了**错误的位置事实**
+ * （实测：第 2 次就诊只想点「皮肤」，声明却成了「腰、皮肤」）。
+ * 清在「浮层关闭」而不是「提交」：点了快捷词又关掉浮层，那个预选同样不该留到下一次。
+ */
+watch(mapOpen, (open) => {
+  if (!open) mapPreset.value = null
+})
 /**
  * 这份声明是不是**已经跟着某条消息发出去了**。
  *
