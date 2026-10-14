@@ -259,7 +259,7 @@ class RecordServiceTest {
         assertEquals(3, vo.messages().size());
         assertNull(vo.messages().get(1).questionNo(), "追问是 AI 发的，没有书签编号");
         assertEquals(2, vo.messages().get(2).questionNo());
-        assertNull(vo.card(), "没出结论的会话没有结论卡");
+        assertTrue(vo.cards().isEmpty(), "没出结论的会话没有结论卡");
     }
 
     @Test
@@ -284,7 +284,7 @@ class RecordServiceTest {
                 + "{\\\"dept\\\":\\\"神经内科\\\",\\\"confidence\\\":0.85,\\\"note\\\":\\\"后枕部胀痛伴低头加重\\\"}\"}");
         when(recordMapper.selectList(any())).thenReturn(List.of(record));
 
-        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").card();
+        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").cards().get(0);
 
         assertEquals("神经内科", card.dept());
         assertEquals(3, card.top3().size());
@@ -327,7 +327,7 @@ class RecordServiceTest {
         when(chunkTextProvider.loadTexts(List.of("c2")))
                 .thenReturn(Map.of("c2", new ChunkTextProvider.ChunkText("颈肩腰腿痛的分诊要点", "颈部僵硬伴手指麻木者首诊骨科")));
 
-        List<ChatDTO.Cite> cites = service.sessionDetail(ME, "s1").card().cites();
+        List<ChatDTO.Cite> cites = service.sessionDetail(ME, "s1").cards().get(0).cites();
 
         assertEquals(2, cites.size(), "注3 模型没引用，不该列进判断依据");
         assertEquals(1, cites.get(0).no());
@@ -350,7 +350,7 @@ class RecordServiceTest {
         record.setEvidence("{也不是");
         when(recordMapper.selectList(any())).thenReturn(List.of(record));
 
-        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").card();
+        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").cards().get(0);
 
         assertEquals("神经内科", card.dept());
         assertTrue(card.top3().isEmpty());
@@ -379,7 +379,7 @@ class RecordServiceTest {
                 """);
         when(recordMapper.selectList(any())).thenReturn(List.of(record));
 
-        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").card();
+        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").cards().get(0);
 
         assertEquals("男、45-59岁、2型糖尿病", card.profileText());
     }
@@ -394,14 +394,81 @@ class RecordServiceTest {
         noNode.setRecDeptId("d-neuro");
         noNode.setEvidence("{\"retrieved\":[]}"); // 单据 04 之前的老快照：没有 profile 节点
         when(recordMapper.selectList(any())).thenReturn(List.of(noNode));
-        assertNull(service.sessionDetail(ME, "s1").card().profileText(), "缺节点 → 空，不炸");
+        assertNull(service.sessionDetail(ME, "s1").cards().get(0).profileText(), "缺节点 → 空，不炸");
 
         GuideRecord nullNode = new GuideRecord();
         nullNode.setSessionId("s1");
         nullNode.setRecDeptId("d-neuro");
         nullNode.setEvidence("{\"retrieved\":[],\"profile\":null}"); // 无档案记录：节点为 null
         when(recordMapper.selectList(any())).thenReturn(List.of(nullNode));
-        assertNull(service.sessionDetail(ME, "s1").card().profileText(), "null 节点 → 空，不炸");
+        assertNull(service.sessionDetail(ME, "s1").cards().get(0).profileText(), "null 节点 → 空，不炸");
+    }
+
+    @Test
+    @DisplayName("一条会话出多张卡：回放两张都在、各插在自己那一轮之后（工单 05 ③）")
+    void multipleCardsAreReplayedInPosition() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 2));
+        // 两轮对话：第一轮出卡①、患者补一句 → 第二轮出卡②（挂号挂在②上）。
+        // id 用数字串，且按真实插库顺序排：患者消息 → 导诊记录 → AI 回复（saveConclusion 在 saveMessage(AI) 之前）
+        ChatMessage q1 = message("s1", MessageRole.USER, "腰疼两天了", at(20, 9, 0));
+        q1.setId("1000");
+        ChatMessage a1 = message("s1", MessageRole.AI, "建议骨科", at(20, 9, 1));
+        a1.setId("1002");
+        ChatMessage q2 = message("s1", MessageRole.USER, "还伴着尿频尿急", at(20, 9, 2));
+        q2.setId("1003");
+        ChatMessage a2 = message("s1", MessageRole.AI, "建议泌尿外科", at(20, 9, 3));
+        a2.setId("1005");
+        when(messageMapper.selectList(any())).thenReturn(List.of(q1, a1, q2, a2));
+
+        GuideRecord card1 = record("1001", "d-digest", null);
+        GuideRecord card2 = record("1004", "d-neuro", "d-neuro");
+        when(recordMapper.selectList(any())).thenReturn(List.of(card1, card2));
+
+        RecordDTO.SessionDetailVO vo = service.sessionDetail(ME, "s1");
+
+        assertEquals(2, vo.cards().size(), "一条会话的两张卡都要还回去，不能只给最新那张");
+        // 卡①：下一条患者消息是 q2（下标 2）⇒ 插在 a1（下标 1）之后——跟着它自己那一轮走
+        assertEquals(1, vo.cards().get(0).afterMessageIndex());
+        // 卡②：没有更晚的患者消息 ⇒ 落在最后一条消息之后
+        assertEquals(3, vo.cards().get(1).afterMessageIndex());
+        // 每张卡的挂号态跟着自己的记录走：挂的是②，①不带就诊信息
+        assertFalse(vo.cards().get(0).booked());
+        assertTrue(vo.cards().get(1).booked());
+    }
+
+    @Test
+    @DisplayName("「已挂号 / 挂到哪个科」取**已挂号的那条记录**，不是最新那张（工单 05 ③）")
+    void bookedFollowsTheBookedRecordNotTheLatest() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 1));
+        when(messageMapper.selectList(any())).thenReturn(List.of(
+                message("s1", MessageRole.USER, "头疼", at(20, 9, 0))));
+
+        GuideRecord earlier = record("2001", "d-digest", null);      // 先出、没挂
+        GuideRecord booked = record("2002", "d-neuro", "d-neuro");   // 中间出、挂了这张
+        GuideRecord later = record("2003", "d-digest", null);        // 最后出、也没挂
+        when(recordMapper.selectList(any())).thenReturn(List.of(earlier, booked, later));
+
+        RecordDTO.SessionItem item = service.sessionDetail(ME, "s1").session();
+
+        assertTrue(item.booked(), "会话里有人挂过号 ⇒ 已挂号");
+        assertEquals("神经内科", item.actualDept(), "挂到的是那条记录，不是最新那张（最新是消化内科）");
+        // 「结论」仍按最新一张展示：患者最近看到的那张
+        assertEquals("消化内科", item.recDept());
+    }
+
+    @Test
+    @DisplayName("会话没有任何挂号：已挂号为 false、不查实际科室（不产生假事实）")
+    void noBookingMeansNotBooked() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.ONGOING, 1));
+        when(messageMapper.selectList(any())).thenReturn(List.of(
+                message("s1", MessageRole.USER, "头疼", at(20, 9, 0))));
+        when(recordMapper.selectList(any())).thenReturn(List.of(record("r1", "d-neuro", null)));
+
+        RecordDTO.SessionItem item = service.sessionDetail(ME, "s1").session();
+
+        assertFalse(item.booked());
+        assertNull(item.actualDept());
+        assertEquals("神经内科", item.recDept(), "没挂号不影响结论行：仍按最新一张展示");
     }
 
     // ---------------------------------------------------------------- 夹具
@@ -433,6 +500,17 @@ class RecordServiceTest {
         message.setContent(content);
         message.setCreatedAt(at);
         return message;
+    }
+
+    /** 一条导诊记录；{@code actualDeptId} 为空即这条卡没挂号 */
+    private GuideRecord record(String id, String recDeptId, String actualDeptId) {
+        GuideRecord record = new GuideRecord();
+        record.setId(id);
+        record.setSessionId("s1");
+        record.setRecDeptId(recDeptId);
+        record.setActualDeptId(actualDeptId);
+        record.setLowConfidence(0);
+        return record;
     }
 
     /** 2026-09-{day} {h}:{m} —— 用固定年份，断言里好对 */

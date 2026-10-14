@@ -119,7 +119,17 @@ public class GuideService {
         record.setEvidence(evidenceJson(context, answer, rawOutput, profile));
         guideRecordMapper.insert(record);
 
+        // 出卡即归零追问预算，并标记"这条会话已经出过结论"（同一次 updateById，两个事实一起落）。
+        //
+        // ask_round 的语义由此重定义为「**距最近一张结论卡，已追问几轮**」：
+        // 出卡归零之后，结论后继续追问时日志里的"追问轮次 1/N"读起来就是"这张卡之后问了几轮"，
+        // 而不是冻结在出卡时的 N/N；ruleGate 的"预算用尽则规则让路"也随之恢复可用（不再永久生效）。
+        //
+        // ⚠️ 不许因为"askRound 归零"就把 ChatService.isFirstTurn 里的 `has_result != 1` 去掉——
+        // 归零之后 askRound==0，那一半正是唯一能阻止"出卡后的下一轮被误判成首轮"的判据
+        // （误判会让声明被重新采纳、模板追问回来）。两处是咬合的。
         session.setHasResult(1);
+        session.setAskRound(0);
         sessionMapper.updateById(session);
 
         log.info("结论落库：recordId={} 科室={} 置信度={} 低置信度={}（阈值 {}）Top3={} 条 证据片段={} 条",
