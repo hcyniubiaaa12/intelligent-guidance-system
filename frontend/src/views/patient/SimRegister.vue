@@ -21,7 +21,7 @@
           <p class="p-cite"><span class="p-cite__no">状态</span>　register_success</p>
         </div>
         <button class="p-btn p-btn--ghost p-reg__gap" @click="backToChat">
-          返回继续咨询
+          开始新的咨询
         </button>
       </section>
 
@@ -93,12 +93,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listDepts, confirmRegister } from '../../api/chat'
+import { listDepts, confirmRegister, getRegisterStatus } from '../../api/chat'
+import { useChatStore } from '../../stores/chat'
 import { track } from '../../utils/track'
 import '../../styles/patient.css'
 
 const route = useRoute()
 const router = useRouter()
+const chat = useChatStore()
 
 // recordId 是挂号与埋点的唯一凭证：由对话页结论卡跳转时带上
 const recordId = route.query.recordId || ''
@@ -179,6 +181,7 @@ async function confirm() {
     // 成功 = 写 actual_dept / 命中标记 / 会话置 closed；register_success 埋点由后端补记
     booked.value = await confirmRegister({ recordId, deptId: selected.value.id })
     done.value = true
+    closeConversation()
   } catch (e) {
     error.value = { message: e.message || '挂号失败，请稍后重试', action: '' }
   } finally {
@@ -186,11 +189,62 @@ async function confirm() {
   }
 }
 
+/**
+ * 挂号成功 = 这次就诊收尾（2026-10-14 工单 04 定案）。
+ *
+ * 成对做两件事，然后跳回对话页：
+ *   ① `chat.reset()` —— 这条会话不再是"当前会话"（sessionId 清空、消息流清空）；
+ *   ② `chat.requestReplay(sessionId)` —— 把**刚结束的这条会话**按只读回放打开。
+ *
+ * 为什么必须在成功**这一刻**做，而不是"回到对话页时再判"：
+ *   - 这是唯一的确定信号：后端就在这一刻把会话置 closed（挂号是会话唯一的结束信号）；
+ *   - 只有一个落点：chat store 跨路由持久，页面级状态随 Chat.vue 重新挂载天然归零，
+ *     不需要跨组件传标记、不需要路由参数；
+ *   - 不依赖"下一句输入"：患者挂号后不返回也成立，下次进来就是新咨询。
+ *
+ * 为什么走 store 内存态而不走 URL query：只读态是一次性提示，刷新页面回到普通空状态
+ * 才是对的（那确实是新的一次就诊）；走 query 会让刷新也恢复只读态，与规则 3 冲突。
+ * 注意 `chat.reset()` 会清掉 sessionId，所以**必须先取走**再 reset。
+ */
+function closeConversation() {
+  const endedSessionId = chat.sessionId
+  chat.reset()
+  chat.requestReplay(endedSessionId)
+  router.push('/')
+}
+
 function backToChat() {
   router.push('/')
 }
 
-onMounted(loadDepts)
+/**
+ * 加载：先按 recordId 查一次挂号状态——**已挂过号就直接渲染成功态**（工单 04 规则 6）。
+ *
+ * 这条路径专治"挂号成功后后退 / 刷新挂号页"：患者看到的是成功态（科室名 + 位置 +
+ * register_success），**没有可点的「确认挂号」**。点了也会被后端拒（已挂过号），
+ * 那是"报了错再说"，不如一开始就不给这个入口。
+ *
+ * 查询失败（网络等）不拦路：照常走选科室流程，真去点确认时由后端拒——失败提示一样说得出原因。
+ */
+async function loadStatus() {
+  if (!recordId) return
+  try {
+    const status = await getRegisterStatus(recordId)
+    if (status?.booked) {
+      booked.value = { deptName: status.actualDept, location: status.actualDeptLocation }
+      done.value = true
+      return true
+    }
+  } catch (e) {
+    console.warn('[register] 挂号状态查询失败，按未挂号走选科室流程', e)
+  }
+  return false
+}
+
+onMounted(async () => {
+  if (await loadStatus()) return
+  loadDepts()
+})
 </script>
 
 <style scoped>

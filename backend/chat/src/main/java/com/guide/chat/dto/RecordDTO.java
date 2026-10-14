@@ -138,4 +138,18 @@ public class RecordDTO {
             List<QuestionAnchor> questions,
             List<CardVO> cards) {
     }
+
+    /**
+     * 一条结论卡的挂号状态（患者端挂号页用）。
+     *
+     * <p>只读查询：挂号页加载时按 {@code recordId} 查一次，已挂号就直接渲染成功态，
+     * 不再摆一个可点的「确认挂号」（点了也会被后端拒，不如一开始就不给这个入口）。
+     */
+    public record RegisterStatusVO(
+            boolean booked,
+            /** 挂到哪个科；未挂号为 null */
+            String actualDept,
+            /** 该科位置；未挂号（或科室已删）为 null */
+            String actualDeptLocation) {
+    }
 }

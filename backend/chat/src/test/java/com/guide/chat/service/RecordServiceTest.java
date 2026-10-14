@@ -471,6 +471,42 @@ class RecordServiceTest {
         assertEquals("神经内科", item.recDept(), "没挂号不影响结论行：仍按最新一张展示");
     }
 
+    @Test
+    @DisplayName("按 recordId 查挂号状态：已挂号给出科室与位置（工单 04 的后退进挂号页用）")
+    void registerStatusReturnsBooking() {
+        GuideRecord booked = record("2002", "d-neuro", "d-neuro");
+        when(recordMapper.selectById("2002")).thenReturn(booked);
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 1));
+
+        RecordDTO.RegisterStatusVO vo = service.registerStatus(ME, "2002");
+
+        assertTrue(vo.booked());
+        assertEquals("神经内科", vo.actualDept());
+        assertEquals("门诊楼 4 层 A 区", vo.actualDeptLocation());
+    }
+
+    @Test
+    @DisplayName("按 recordId 查挂号状态：没挂号 ⇒ booked=false，不编科室")
+    void registerStatusWithoutBooking() {
+        when(recordMapper.selectById("2001")).thenReturn(record("2001", "d-neuro", null));
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.ONGOING, 1));
+
+        RecordDTO.RegisterStatusVO vo = service.registerStatus(ME, "2001");
+
+        assertFalse(vo.booked());
+        assertNull(vo.actualDept());
+        assertNull(vo.actualDeptLocation());
+    }
+
+    @Test
+    @DisplayName("查别人的记录挂号状态：按「不存在」处理（不泄露存在性）")
+    void registerStatusOfOthersIsNotFound() {
+        when(recordMapper.selectById("2002")).thenReturn(record("2002", "d-neuro", "d-neuro"));
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", OTHER, at(20, 9, 0), SessionStatus.CLOSED, 1));
+
+        assertThrows(BizException.class, () -> service.registerStatus(ME, "2002"));
+    }
+
     // ---------------------------------------------------------------- 夹具
 
     private Dept dept(String id, String name, String location) {

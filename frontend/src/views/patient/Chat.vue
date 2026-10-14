@@ -194,7 +194,9 @@
             </div>
           </footer>
           <div v-else class="p-chat__lock">
-            <span class="p-chat__locktxt">历史记录 · 只读</span>
+            <!-- 两种进入方式要说不同的话：挂号刚结束那次是"本次已收尾"，
+                 回放历史会话仍是"历史记录"——别把翻旧账也说成刚才那次 -->
+            <span class="p-chat__locktxt">{{ lockText }}</span>
             <button class="p-chat__lockbtn" @click="startNew">开始新的咨询</button>
           </div>
         </div>
@@ -390,9 +392,17 @@ let turnAbort = null
 
 // ---------------------------------------------------------------- 回放
 
-const replay = ref(null)
+const replay = ref(null) // { session, entries, questions, justBooked }
 const activeQ = ref(null)
 const qRefs = ref({})
+
+/**
+ * 只读条文案：**挂号刚结束**的那次是专用句（本次挂号已结束 · 记录在左侧，随时可回看），
+ * 从侧栏点开的**历史**回放仍用原句（历史记录 · 只读）——两种进入方式必须能区分，
+ * 否则翻旧账会被说成"刚才那次"，患者以为刚出的结论丢了（工单 04 规则 4）。
+ */
+const lockText = computed(() =>
+  replay.value?.justBooked ? '本次挂号已结束 · 记录在左侧，随时可回看' : '历史记录 · 只读')
 
 const isReplay = computed(() => !!replay.value)
 /** 一句话都还没说过：空状态把欢迎块、输入框、免责当成一整块居中 */
@@ -442,11 +452,20 @@ function toReplayEntries(d) {
   return out
 }
 
-async function openSession(id) {
+/**
+ * 打开一条会话的只读回放。
+ * @param justBooked 这条是"挂号刚结束"的那一次——只读条换成专用句（工单 04）
+ */
+async function openSession(id, justBooked = false) {
   sideOpen.value = false
   try {
     const d = await sessionDetail(id)
-    replay.value = { session: d.session, entries: toReplayEntries(d), questions: d.questions || [] }
+    replay.value = {
+      session: d.session,
+      entries: toReplayEntries(d),
+      questions: d.questions || [],
+      justBooked
+    }
     hasNewReply.value = false
     followingBottom.value = false
     clearCopied()
@@ -825,6 +844,10 @@ function hhmm(at) {
 
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') marksRO = new ResizeObserver(syncMarksScroll)
+  // 挂号成功那一刻把"刚结束的这条会话"交代给了 store（内存态）——这里按只读回放打开它。
+  // 只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  const pending = chat.consumeReplay()
+  if (pending) openSession(pending.sessionId, true)
 })
 
 onBeforeUnmount(() => {
