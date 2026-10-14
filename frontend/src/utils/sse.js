@@ -6,6 +6,7 @@
 import router from '../router'
 import { useUserStore } from '../stores/user'
 import { useChatStore } from '../stores/chat'
+import { buildChatBody } from './chatBody'
 
 // SSE 事件名 → handlers 回调名
 const HANDLER = {
@@ -53,9 +54,12 @@ async function readFailure(res) {
  *
  * @param {{sessionId?: string, content: string, parts?: string[]}} payload
  *   续聊回传 sessionId；为空则后端开新会话。
- *   parts = 患者在人体图上标明的部位（**仅首轮带**，见下）；为空或缺省则链路与今天完全一致
+ *   parts = 患者在人体图上标明的部位：**带不带由调用方按自己的状态决定**（见 `utils/chatBody.js`），
+ *   **接不接纳由后端裁决**（非首轮一律丢弃）。为空或缺省则链路与今天完全一致
  * @param {object} handlers 事件回调：onSession/onDelta/onQuestion/onInfo/onResult/onNotice/onDone/onError
  *   参数为该事件的 data（JSON 已解析）；网络异常与流中断也回落到 onError({ message })
+ *   `onSession` 的载荷是 `{ sessionId, firstTurn }`——`firstTurn` 是**后端对会话状态的判定**
+ *   （本轮是不是该会话的首条主诉），前端据此对齐"是不是新的一次就诊"，不必自己拿 sessionId 推
  * @param {AbortSignal} [signal] 可选：离开页面时中断，不写已卸载组件
  * @returns {Promise<void>} 流结束（或异常已回落 onError）后 resolve
  */
@@ -85,14 +89,10 @@ export async function streamChat({ sessionId, content, parts }, handlers = {}, s
         Accept: 'text/event-stream, application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
-      // parts 刻意**只在新会话那一次**带上：位置在追问轮的上下文里已经有了，
-      // 再带一次是重复注入（后端也会按会话状态机再挡一次，两端同一条纪律）。
-      // 空数组与缺省等价，所以只在真有内容时才写这个键。
-      body: JSON.stringify({
-        sessionId: sessionId || undefined,
-        content,
-        ...(sessionId || !parts?.length ? {} : { parts })
-      }),
+      // 请求体组装是纯函数（`utils/chatBody.js`）：**声明有就带，不看 sessionId**，
+      // 接不接纳由后端按会话状态机裁决。曾经这里拿 sessionId 猜"是不是新会话"，
+      // 猜错的那一轮（出结论后接着问 / 挂号成功后回来问）正是唯一需要声明的那一轮。
+      body: JSON.stringify(buildChatBody({ sessionId, content, parts })),
       signal
     })
   } catch (e) {

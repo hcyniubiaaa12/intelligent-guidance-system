@@ -309,8 +309,17 @@ const partStage = ref('awaiting') // 'awaiting' | 'locked'
 const mapOpen = ref(false)
 /** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，只在打开那一刻生效 */
 const mapPreset = ref(null)
+/**
+ * 这份声明是不是**已经跟着某条消息发出去了**。
+ *
+ * 为什么需要它：声明只在新就诊的首条生效，重复带是无效注入（后端也会丢弃，但载荷应当诚实）。
+ * 判据用的全是**前端自己的状态**——"我手里这份声明花掉了没有"。**不再拿 `sessionId` 有没有
+ * 去猜"后端会不会开新会话"**：猜错的那一刻正是唯一需要声明的那一轮（出结论后接着问、
+ * 挂号成功后回来问，后端都会新建会话并愿意收声明）。**接不接纳由后端裁决**，前端不猜。
+ */
+const partsSubmitted = ref(false)
 
-/** 空声明：开新咨询、重选、登出三处都要用，字面量只写这一处 */
+/** 空声明：开新咨询、重选、归档当前会话三处都要用，字面量只写这一处（登出靠组件卸载，不必清） */
 function emptyParts() {
   return { locations: [], sentence: '' }
 }
@@ -322,6 +331,7 @@ const partLabel = computed(() => pickedLabel(parts.value.locations))
 function onPartsSubmit(result) {
   parts.value = { locations: result.locations, sentence: result.sentence }
   partStage.value = 'locked'
+  partsSubmitted.value = false // 新一轮声明：还没发出去过（含「说不清在哪儿」出口——出口也是完成声明）
   if (result.sentence) {
     const now = draft.value.trim()
     // 输入框里已有患者自己写的话（如从"说不清"出来又重选过）就接在后面，不覆盖——
@@ -336,6 +346,7 @@ function onPartsSubmit(result) {
 function rechooseParts() {
   parts.value = emptyParts()
   partStage.value = 'awaiting'
+  partsSubmitted.value = false
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
@@ -428,6 +439,7 @@ function startNew() {
   // 门禁也回等待态——新的一次就诊要重新声明（工单 05）
   parts.value = emptyParts()
   partStage.value = 'awaiting'
+  partsSubmitted.value = false
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
@@ -439,8 +451,17 @@ function startNew() {
  */
 function onArchiveChange({ session, archived }) {
   if (!archived) return
-  if (replay.value?.session?.id === session.id) replay.value = null
-  else if (chat.sessionId === session.id) chat.reset()
+  if (replay.value?.session?.id === session.id) {
+    replay.value = null
+  } else if (chat.sessionId === session.id) {
+    // 正在聊的这条被归档 ⇒ 下一条消息就是新的一次就诊（sessionId 清掉，后端会开新会话）。
+    // 声明状态必须跟 startNew() 同一口径一起归零：若留着「locked + 已提交」，门禁不会拦、
+    // 声明又带不出去，新就诊就等于没有位置声明——正是工单 01 要修的那种静默丢失。
+    chat.reset()
+    parts.value = emptyParts()
+    partStage.value = 'awaiting'
+    partsSubmitted.value = false
+  }
 }
 
 function openBooked() {
@@ -616,12 +637,25 @@ async function runTurn(content) {
     scrollToBottom()
   }
 
+  // 本轮带不带位置声明：按**前端自己的状态**决定（走了声明流程、且这份声明还没发出去过）。
+  // **后端会不会采纳是后端的事**——非首轮它一律丢弃，且有日志。不拿 sessionId 猜会话状态。
+  const partsToSend = partStage.value === 'locked' && !partsSubmitted.value ? parts.value.locations : []
+
   turnAbort = new AbortController()
   try {
     await streamChat(
-      { sessionId: chat.sessionId, content, parts: parts.value.locations },
+      { sessionId: chat.sessionId, content, parts: partsToSend },
       {
-        onSession: ({ sessionId }) => chat.setSession(sessionId),
+        // 会话事实由后端给（不再自己拿 sessionId 推）：
+        //   ① 收到 session 事件 ⇒ 请求确实到了后端 ⇒ 这份声明算「已提交」，追问轮不再重复带；
+        //   ② firstTurn = 后端把这轮当成新就诊的首条。若患者这轮**没走过声明流程**
+        //      （本地不是 locked），说明会话在后端已经翻页而我们还在旧形态里（比如挂号成功后
+        //      会话被置 closed，下一句就是新会话），把门禁摆回等待态请患者重新声明。
+        onSession: ({ sessionId, firstTurn }) => {
+          chat.setSession(sessionId)
+          if (partsToSend.length) partsSubmitted.value = true
+          if (firstTurn && partStage.value !== 'locked') partStage.value = 'awaiting'
+        },
 
         onDelta: ({ text }) => {
           bubble.content += text
@@ -687,6 +721,7 @@ async function runTurn(content) {
           if (hasResult) {
             parts.value = emptyParts()
             partStage.value = 'awaiting'
+            partsSubmitted.value = false // 下一次就诊要重新声明，声明状态跟着门禁一起归零
           }
           endTurn(bubble.content ? `助手已回复：${bubble.content.slice(0, 40)}` : '')
         },

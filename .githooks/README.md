@@ -16,8 +16,9 @@ git config core.hooksPath   # 应输出 .githooks
 
 ## pre-commit 做什么
 
-- **只在暂存区含 `frontend/` 时**跑 `frontend/scripts/check-body-map.mjs`（人体图纯规则自检，等价于 `npm run check`）。
+- **只在暂存区含 `frontend/` 时**跑 `frontend/scripts/` 下**所有** `check-*.mjs`（纯规则自检，等价于 `npm run check`）。
   只改 `backend/` 的提交不触发——否则每次后端提交都被无关检查拖慢，很快就有人 `--no-verify` 绕过，闸就废了。
+- **脚本清单是通配出来的**（`check-*.mjs`），不是写死的名单：新增一个自检脚本即自动受闸保护。写死名单时曾经发生过"新脚本静默绕过闸"——那正是这道闸存在的意义所在。
 - 断言失败即**拒绝提交**，并把失败那几条原样打出来。
 - 确认是误报才绕过：`git commit --no-verify`。
 
