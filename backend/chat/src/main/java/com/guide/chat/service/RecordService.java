@@ -209,6 +209,35 @@ public class RecordService {
         }
     }
 
+    /**
+     * 按 recordId 查**这条结论卡的挂号状态**（患者端挂号页用）。
+     *
+     * <p>为什么需要它：患者挂号成功后从挂号页**后退**回来（或直接刷新挂号页），
+     * 页面要能直接显示"已挂号"的成功态，而不是再摆一个可点的「确认挂号」——
+     * 点了也会被后端拒（{@code RECORD_ALREADY_REGISTERED}），那是"报了错再说"，
+     * 不如一开始就不给这个入口。
+     *
+     * <p>只读：不写任何表、不改任何状态。归属校验同 {@link #sessionDetail}——
+     * 不是自己的记录按「不存在」处理（返回"无权访问"等于告诉调用方这条记录存在）。
+     */
+    public RecordDTO.RegisterStatusVO registerStatus(String userId, String recordId) {
+        GuideRecord record = guideRecordMapper.selectById(recordId);
+        if (record == null) {
+            throw new BizException(ErrorCode.RECORD_NOT_FOUND);
+        }
+        ChatSession session = sessionMapper.selectById(record.getSessionId());
+        if (session == null || !userId.equals(session.getUserId())) {
+            throw new BizException(ErrorCode.RECORD_NOT_FOUND);
+        }
+        if (record.getActualDeptId() == null) {
+            return new RecordDTO.RegisterStatusVO(false, null, null);
+        }
+        Dept actual = dept(record.getActualDeptId(), new LinkedHashMap<>());
+        return new RecordDTO.RegisterStatusVO(true,
+                actual == null ? null : actual.getName(),
+                actual == null ? null : actual.getLocation());
+    }
+
     // ---------------------------------------------------------------- 组装
 
     /**

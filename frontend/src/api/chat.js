@@ -9,6 +9,15 @@ export function listDepts() {
 }
 
 /**
+ * 一条结论卡的挂号状态（挂号页加载时按 recordId 查一次）。
+ * resolve = { booked, actualDept, actualDeptLocation }；
+ * 已挂号 ⇒ 页面直接渲染成功态，不再出现可点的「确认挂号」
+ */
+export function getRegisterStatus(recordId) {
+  return http.get('/chat/register-status', { params: { recordId } })
+}
+
+/**
  * 挂号确认：写 actual_dept / 命中标记 / 会话置 closed。
  * resolve = { sessionId, deptId, deptName, location }；
  * register_success 埋点由后端接口补记，前端不上报
