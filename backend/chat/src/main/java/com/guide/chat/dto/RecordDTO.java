@@ -28,8 +28,12 @@ public class RecordDTO {
             LocalDateTime startedAt,
             /** 最后一条消息的时间；无消息时同 startedAt */
             LocalDateTime endedAt,
-            /** SessionStatus 的 code：ongoing / closed */
+            /** SessionStatus 的 code：ongoing / closed（closed = 已挂号，会话唯一的结束信号） */
             String status,
+            /**
+             * 距**最近一张结论卡**已追问几轮（出卡时归零，2026-10-14 工单 05 重定义语义）。
+             * 患者端不读它，只给管理端看。
+             */
             int askRound,
             boolean hasResult,
             /** 用户问题数 = 会话里 role=user 的消息数（也是书签的数量预告） */
@@ -39,8 +43,13 @@ public class RecordDTO {
             /** 推荐科室置信度百分比；模型未给合法置信度为 null（前端显示「—」） */
             Integer confidence,
             boolean lowConfidence,
-            /** 是否挂过号（guide_record.actual_dept_id 非空） */
+            /**
+             * 是否挂过号（该会话里有记录 actual_dept_id 非空）。
+             * **以会话为口径**：一条会话可能出多张卡，取的是**已挂号的那条记录**，
+             * 不是最新那张（患者挂的不是最后一张时，按"最新"会指错，工单 05 ③）。
+             */
             boolean booked,
+            /** 挂到哪个科；同 {@link #booked()} 的口径——取已挂号的那条记录 */
             String actualDept,
             /** 是否被患者收进了「已归档」（收纳区，不是删除：仍可回放、可取回） */
             boolean archived) {
@@ -78,9 +87,29 @@ public class RecordDTO {
     public record QuestionAnchor(int no, String content, LocalDateTime at) {
     }
 
-    /** 只读回放的结论卡（从 guide_record 快照重建，字段含义同 result 事件载荷） */
+    /**
+     * 只读回放的结论卡（从 guide_record 快照重建，字段含义同 result 事件载荷）。
+     *
+     * <p><b>一条会话可以有多张卡</b>（出结论后患者继续补充、模型再出结论，2026-10-14 工单 05 定案），
+     * 所以卡必须带自己在消息流里的位置，否则回放会把它们一律堆到最后——那是**数据与展示不一致**，
+     * 而回放是取证的地方（审核侧「证据链回放」看的是同一份事实，必须与当时发生的一致）。
+     */
     public record CardVO(
             String recordId,
+            /**
+             * 这张卡插在消息流里哪一条**之后**（0 基下标）。
+             *
+             * <p>规则（只此一处实现，在 {@code RecordService}）：本会话里第一条 {@code role=user}
+             * 且 {@code id > 本卡对应记录 id} 的消息的下标 − 1；没有这样的消息时取最后一条消息的下标。
+             * 前端只负责"插到这条后面"，**不自己再推一次位置**。
+             *
+             * <p>为什么用"下一条患者消息"当右边界而不是 {@code created_at}：{@code created_at} 是
+             * {@code DATETIME} 无小数秒，同一秒内多条消息的先后不可靠；而 {@code chat_message} 与
+             * {@code guide_record} 的 id 出自同一套雪花生成器（MyBatis-Plus {@code ASSIGN_ID}），
+             * 按插入顺序单调递增，导诊记录在本轮结束时落库、下一轮患者消息必然更晚——用它定右边界，
+             * 卡一定落在**它自己那一轮的最后一条消息之后**，且不受时间戳打平影响。
+             */
+            int afterMessageIndex,
             String dept,
             Double confidence,
             List<ChatDTO.Top3Item> top3,
@@ -97,11 +126,35 @@ public class RecordDTO {
             String profileText) {
     }
 
-    /** 一条会话的完整回放（右页正文 + 书签 + 结论卡） */
+    /**
+     * 一条会话的完整回放（右页正文 + 书签 + 结论卡）。
+     *
+     * <p>{@code cards} 按产生顺序给出**这条会话出过的每一张卡**（可能多张，见 {@link CardVO}）；
+     * 前端按 {@link CardVO#afterMessageIndex()} 把它们插回消息流的对应位置。
+     */
     public record SessionDetailVO(
             SessionItem session,
             List<MessageItem> messages,
             List<QuestionAnchor> questions,
-            CardVO card) {
+            List<CardVO> cards) {
+    }
+
+    /**
+     * 一条结论卡的挂号状态（患者端挂号页用）。
+     *
+     * <p>只读查询：挂号页加载时按 {@code recordId} 查一次，已挂号就直接渲染成功态，
+     * 不再摆一个可点的「确认挂号」（点了也会被后端拒，不如一开始就不给这个入口）。
+     *
+     * <p>三个字段与 {@link CardVO} 的挂号三件套同名同义，但**刻意不抽成共用的嵌套类型**：
+     * 两者是不同接口的不同响应（一个是"这条会话出过的卡"、一个是"这张卡挂没挂"），
+     * 捆在一起只会让前端多一层 {@code card.booking.booked} 的空洞，也看不出哪个字段真被用到。
+     * 真出现第四个消费方再抽不迟。
+     */
+    public record RegisterStatusVO(
+            boolean booked,
+            /** 挂到哪个科；未挂号为 null */
+            String actualDept,
+            /** 该科位置；未挂号（或科室已删）为 null */
+            String actualDeptLocation) {
     }
 }

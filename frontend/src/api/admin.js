@@ -102,9 +102,10 @@ export function getKbTask(taskId) {
   return http.get(`/admin/kb/tasks/${taskId}`)
 }
 
-// 查看切片：正文以 MySQL 为准（pgvector 里那份只是排查用的副本）
-export function getKbChunks(docId) {
-  return http.get(`/admin/kb/docs/${docId}/chunks`)
+// 查看切片：正文以 MySQL 为准（pgvector 里那份只是排查用的副本）。
+// 分页只决定"这一次响应带哪些片"；「本标题下第几块 / 共几块」由后端按全篇算，翻页不会串号
+export function getKbChunks(docId, page, size) {
+  return http.get(`/admin/kb/docs/${docId}/chunks`, { params: { page, size } })
 }
 
 // 重新处理：先删旧切片再重建，用 MinIO 里的原文件（没有"替换文件"这个操作）

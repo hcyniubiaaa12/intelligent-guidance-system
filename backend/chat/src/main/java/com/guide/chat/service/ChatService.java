@@ -155,9 +155,13 @@ public class ChatService {
             sessionId = session.getId();
             // 轮次标记进 MDC：本轮所有日志（含 rag/kb/llm 各层）都带同一个标记，便于顺链排查
             MDC.put(TURN_KEY, turnTag(session));
-            log.info("会话{}：askRound={} hasResult={} status={}", resolution.created() ? "新建" : "续聊",
-                    session.getAskRound(), session.getHasResult(), session.getStatus());
-            handleTurn(userId, session, content, resolveParts(session, request.getParts()), emitter);
+            // 「本轮是不是该会话的首条主诉」**只算这一处**：两个消费者（声明是否采纳、session 事件带的
+            // firstTurn）拿的都是这个值。曾经它在两处各算一次——前端还另按 sessionId 猜了一遍，
+            // 结果出结论后接着问的那一轮，后端愿意收、前端却不带，声明就这么静默丢了。
+            boolean firstTurn = isFirstTurn(session);
+            log.info("会话{}：askRound={} hasResult={} status={} 首轮={}", resolution.created() ? "新建" : "续聊",
+                    session.getAskRound(), session.getHasResult(), session.getStatus(), firstTurn);
+            handleTurn(userId, session, firstTurn, content, resolveParts(firstTurn, request.getParts()), emitter);
         } catch (BizException e) {
             log.warn("导诊流业务异常：{}", e.getMessage());
             emitError(emitter, sessionId, patientMessage(e));
@@ -174,32 +178,34 @@ public class ChatService {
     /**
      * 部位声明<b>只在新会话的首条输入生效</b>，其余轮一律丢弃。
      *
-     * <p>与前端「只在首条带」的约定是同一条纪律的两端，但**这里必须再兜一次**：后端是唯一能
-     * 判定"这条是新主诉"的地方（{@link #isFirstTurn}，用的是会话状态机字段而非消息条数）。
-     * 若只在约定侧收窄，一个改过的前端在追问轮继续带上位置，就会把同一条已知信息反复注入——
-     * 多余的注入会让模型觉得患者在强调位置，进而在不该出结论时先给结论。
+     * <p>参数是**算好的首轮判定**（调用方算一次，同时喂 session 事件），不在这里再判一遍：
+     * 同一个值服务两个消费者时，只许有一处算它。
+     *
+     * <p>前端带不带声明是它自己的事（按"我手里有没有还没提交的声明"决定）；**接不接纳在后端**——
+     * 追问轮即便带了也在这里丢弃，避免把同一条已知信息反复注入：多余的注入会让模型觉得患者
+     * 在强调位置，进而在不该出结论时先给结论。
      *
      * <p>丢弃而不是报错：多带一个可选字段不该让患者的这一轮导诊失败。
      */
-    private List<String> resolveParts(ChatSession session, List<String> requested) {
+    private List<String> resolveParts(boolean firstTurn, List<String> requested) {
         if (requested == null || requested.isEmpty()) {
             return List.of();
         }
-        if (!isFirstTurn(session)) {
-            log.info("部位声明丢弃：本轮非首条主诉（askRound={} hasResult={}），位置信息上下文里已有",
-                    session.getAskRound(), session.getHasResult());
+        if (!firstTurn) {
+            // 具体是哪个会话状态（askRound / hasResult）由上面那行「会话新建/续聊：…首轮=false」给
+            log.info("部位声明丢弃：本轮非首条主诉，位置信息上下文里已有");
             return List.of();
         }
         return requested;
     }
 
     /** 单轮编排主体：会话落定后执行（sessionId 已确定，异常由外层统一转 SSE error） */
-    private void handleTurn(String userId, ChatSession session, String content,
+    private void handleTurn(String userId, ChatSession session, boolean firstTurn, String content,
                             List<String> parts, SseEmitter emitter) {
         {
             String sessionId = session.getId();
             log.info("患者输入：{}", abbreviate(content, 120));
-            send(emitter, SseEvents.SESSION, new SseEvents.SessionEvent(sessionId));
+            send(emitter, SseEvents.SESSION, new SseEvents.SessionEvent(sessionId, firstTurn));
 
             saveMessage(sessionId, MessageRole.USER, content);
 
@@ -227,7 +233,7 @@ public class ChatService {
             // ② 规则硬门槛：确定性无效输入 / 首条主诉过于笼统 → 模板追问，不调模型
             int askMaxRounds = sysConfigService.getInt(SysConfigService.KEY_ASK_MAX_ROUNDS, 3);
             int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
-            GateHit gateHit = ruleGate(session, content, askRound, askMaxRounds);
+            GateHit gateHit = ruleGate(firstTurn, content, askRound, askMaxRounds);
             if (gateHit != null) {
                 // 连发无效输入时换第二档话术（否则患者看到同一句复读）——按"本会话是否已回过模板追问"切档
                 String question = templateQuestionAsked(sessionId, sufficiencyRule.templateQuestion())
@@ -246,7 +252,12 @@ public class ChatService {
             }
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
-            boolean forceConclusion = askRound >= askMaxRounds;
+            // forceConclusion 的两半都必要：askRound 达到上限只是"该收口了"，而 !hasResult 才是
+            // "这条会话还没出过卡、收口有意义"。出卡后不再强制收口的原因（工单 05 ②）：
+            // 强制收口会兜底弹第二张卡，而一张补充后兜底出的低置信度卡会把患者原本要挂的那张
+            // （高置信度）卡的入口挡掉——前端只有最后一张卡能挂号（Chat.vue 的 can-register）。
+            boolean hasResult = session.getHasResult() != null && session.getHasResult() == 1;
+            boolean forceConclusion = !hasResult && askRound >= askMaxRounds;
             // 健康档案由 chat 读档组装成两段文本再传进 rag（rag 不感知业务状态，不查档案）：
             //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
@@ -263,7 +274,7 @@ public class ChatService {
                     profileQuery == null ? "无" : profileQuery.length() + " 字",
                     parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
-                    askRound, forceConclusion,
+                    forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
                     profileText, profileQuery, parts);
@@ -410,8 +421,11 @@ public class ChatService {
     }
 
     /**
-     * 会话状态机（新主诉判定双信号）：请求带的会话可续聊（ongoing 且未出结论）则续聊，
+     * 会话状态机（新主诉判定**单信号**：只认挂号）：请求带的会话未关闭（ongoing）则续聊，
      * 否则开新会话——判定是状态机字段，不做模型语义判断。
+     *
+     * <p>出结论不再是边界（2026-10-14 定案，工单 05）：出卡之后患者再说话仍是同一次就诊的续聊，
+     * 不新建会话、不要求重新声明部位。
      */
     private SessionResolution resolveSession(String userId, String sessionId) {
         if (StringUtils.hasText(sessionId)) {
@@ -460,8 +474,15 @@ public class ChatService {
     }
 
     /**
-     * 是否仍是本会话的首条主诉：用状态机信号判定（尚未追问、尚未出结论），
-     * 不用消息条数——被敏感词拦截的消息也会落库，按条数判定会让规则门槛在拦截后失效。
+     * 是否仍是本会话的首条主诉：**首轮只算会话的第一条**（askRound==0 且 has_result!=1）。
+     *
+     * <p>为什么用状态机信号而不是消息条数——被敏感词拦截的消息也会落库，按条数判定会让规则门槛在拦截后失效。
+     *
+     * <p><b>为什么 {@code has_result != 1} 这一半必须保留（工单 05 ② 的咬合点）</b>：
+     * {@code saveConclusion} 出卡时会把 {@code ask_round} 归零，于是"出卡后的下一轮"必然满足
+     * {@code askRound==0}——若这里只看 {@code askRound==0}，那一轮就会被判成**首轮** ⇒ 声明被重新采纳、
+     * 模板追问回来（位置信息其实早已在上下文里，见 {@link #resolveParts} 的注释）。
+     * 保留之后它的语义自洽：**首轮 = 会话的第一条**（会话首条也可能直接出结论，此时 askRound==0 而 has_result==1）。
      */
     private boolean isFirstTurn(ChatSession session) {
         int askRound = session.getAskRound() == null ? 0 : session.getAskRound();
@@ -488,14 +509,14 @@ public class ChatService {
      * forceConclusion 永不触发，会话会卡死在"回答 → 被问同一句 → 再回答"的循环里。
      * （现在只有 ② 会涨轮次，护栏就是为它留的。）
      */
-    private GateHit ruleGate(ChatSession session, String content, int askRound, int askMaxRounds) {
+    private GateHit ruleGate(boolean firstTurn, String content, int askRound, int askMaxRounds) {
         if (askRound >= askMaxRounds) {
             return null;
         }
         if (sufficiencyRule.noSignal(content)) {
             return new GateHit("确定性无效输入", false);
         }
-        if (isFirstTurn(session) && sufficiencyRule.tooVague(content)) {
+        if (firstTurn && sufficiencyRule.tooVague(content)) {
             return new GateHit("首条主诉过于笼统（未命中术语且过短）", true);
         }
         return null;

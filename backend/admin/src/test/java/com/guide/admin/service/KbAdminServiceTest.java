@@ -19,6 +19,7 @@ import com.guide.kb.service.KbDocService;
 import com.guide.kb.service.MedicalTermService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -128,18 +130,13 @@ class KbAdminServiceTest {
     @Test
     @DisplayName("查看切片：标「本标题下第几块」——遇新标题重置、只数 text 片、表格与标题不占号")
     void chunksNumberWithinSection() {
-        when(kbDocService.listChunks("doc1")).thenReturn(List.of(
-                chunk("c1", 1, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),     // 开头无标题片，自成一段
-                chunk("c2", 2, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),
-                chunk("c3", 3, LayoutBlock.BlockType.TITLE, "注意事项"),        // 标题一
-                chunk("c4", 4, LayoutBlock.BlockType.TEXT, "注意事项"),
-                chunk("c5", 5, LayoutBlock.BlockType.TABLE, "注意事项"),        // 表格不占号，也不打断计数
-                chunk("c6", 6, LayoutBlock.BlockType.TEXT, "注意事项"),
-                chunk("c7", 7, LayoutBlock.BlockType.TITLE, "注意事项"),        // 同名标题——仍是新的一节
-                chunk("c8", 8, LayoutBlock.BlockType.TEXT, "注意事项")));
+        List<KbChunk> all = eightChunks();
+        stubChunks("doc1", all, 1, 100);
 
-        List<KbAdminDTO.ChunkVO> vos = service.chunks("doc1");
+        KbAdminDTO.PageVO<KbAdminDTO.ChunkVO> page = service.chunks("doc1", 1, 100);
+        List<KbAdminDTO.ChunkVO> vos = page.getRecords();
 
+        assertThat(page.getTotal()).isEqualTo(8);
         assertThat(vos).hasSize(8);
         assertThat(vos.get(0).getNoInSection()).isEqualTo(1);
         assertThat(vos.get(0).getSectionTotal()).isEqualTo(2);
@@ -159,6 +156,67 @@ class KbAdminServiceTest {
         assertThat(vos.get(0).getChunkType()).isEqualTo("text");
         assertThat(vos.get(2).getChunkType()).isEqualTo("title");
         assertThat(vos.get(4).getChunkType()).isEqualTo("table");
+    }
+
+    @Test
+    @DisplayName("查看切片分页：节跨页时「第几块 / 共几块」仍按全篇算（页内重新推导会算成 1/1）")
+    void chunksNumberingSurvivesPaging() {
+        // 第 3 页、每页 2 条 ⇒ 只有 c5（表格）与 c6（正文）回来。
+        // c6 所属的那一节从**上一页**的标题片 c3 开始，正文是 c4 与 c6 ⇒ c6 该是「第 2 块 / 共 2 块」。
+        // 若实现改成"只看这一页"，页内第一个片就是节首、正文只有 c6 一个，会算成「第 1 块 / 共 1 块」。
+        stubChunks("doc1", eightChunks(), 3, 2);
+
+        KbAdminDTO.PageVO<KbAdminDTO.ChunkVO> page = service.chunks("doc1", 3, 2);
+
+        assertThat(page.getTotal()).isEqualTo(8);
+        assertThat(page.getRecords()).hasSize(2);
+        assertThat(page.getRecords().get(0).getSeq()).isEqualTo(5);
+        assertThat(page.getRecords().get(0).getNoInSection()).isNull();   // 表格片不占号
+        assertThat(page.getRecords().get(1).getId()).isEqualTo("c6");
+        assertThat(page.getRecords().get(1).getNoInSection()).isEqualTo(2);
+        assertThat(page.getRecords().get(1).getSectionTotal()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("查看切片分页：页码与每页条数按既有口径夹紧，总数取分页结果")
+    void chunksClampsPageArgs() {
+        when(kbDocService.listChunkSkeleton("doc1")).thenReturn(eightChunks());
+        Page<KbChunk> any = new Page<>(1, 100, 8);
+        any.setRecords(eightChunks());
+        when(kbDocService.pageChunks(eq("doc1"), anyLong(), anyLong())).thenReturn(any);
+
+        KbAdminDTO.PageVO<KbAdminDTO.ChunkVO> page = service.chunks("doc1", 0, 9999);
+
+        // 与文档列表同一套口径：页码最小 1，每页条数夹在 1..100（MAX_PAGE_SIZE）
+        ArgumentCaptor<Long> num = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<Long> size = ArgumentCaptor.forClass(Long.class);
+        verify(kbDocService).pageChunks(eq("doc1"), num.capture(), size.capture());
+        assertThat(num.getValue()).isEqualTo(1);
+        assertThat(size.getValue()).isEqualTo(100);
+        assertThat(page.getTotal()).isEqualTo(8);
+    }
+
+    /** 查看切片那条链路的夹具：开头无标题的一节（2 块正文）+ 两节同名标题（各自的 text 片） */
+    private List<KbChunk> eightChunks() {
+        return List.of(
+                chunk("c1", 1, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),     // 开头无标题片，自成一段
+                chunk("c2", 2, LayoutBlock.BlockType.TEXT, "腰痛挂什么科"),
+                chunk("c3", 3, LayoutBlock.BlockType.TITLE, "注意事项"),        // 标题一
+                chunk("c4", 4, LayoutBlock.BlockType.TEXT, "注意事项"),
+                chunk("c5", 5, LayoutBlock.BlockType.TABLE, "注意事项"),        // 表格不占号，也不打断计数
+                chunk("c6", 6, LayoutBlock.BlockType.TEXT, "注意事项"),
+                chunk("c7", 7, LayoutBlock.BlockType.TITLE, "注意事项"),        // 同名标题——仍是新的一节
+                chunk("c8", 8, LayoutBlock.BlockType.TEXT, "注意事项"));
+    }
+
+    /** 按"SQL 只取这一页"的方式打桩：瘦投影给全篇（推导要看全篇），正文只给这一页 */
+    private void stubChunks(String docId, List<KbChunk> all, long pageNum, long pageSize) {
+        when(kbDocService.listChunkSkeleton(docId)).thenReturn(all);
+        long from = Math.min(all.size(), Math.max(0, (pageNum - 1) * pageSize));
+        long to = Math.min(all.size(), from + pageSize);
+        Page<KbChunk> page = new Page<>(pageNum, pageSize, all.size());
+        page.setRecords(List.copyOf(all.subList((int) from, (int) to)));
+        when(kbDocService.pageChunks(docId, pageNum, pageSize)).thenReturn(page);
     }
 
     private KbChunk chunk(String id, int seq, LayoutBlock.BlockType type, String title) {

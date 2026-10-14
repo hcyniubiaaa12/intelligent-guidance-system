@@ -157,6 +157,26 @@ public class KbDocService {
                 .orderByAsc(KbChunk::getSeq));
     }
 
+    /** 该文档的切片**页**（管理端「查看切片」分页用）：内容按需取，不在一次响应里把全篇正文捞回来 */
+    public IPage<KbChunk> pageChunks(String docId, long pageNum, long pageSize) {
+        return kbChunkMapper.selectPage(new Page<>(pageNum, pageSize), Wrappers.<KbChunk>lambdaQuery()
+                .eq(KbChunk::getDocId, docId)
+                .orderByAsc(KbChunk::getSeq));
+    }
+
+    /**
+     * 该文档全部切片的**瘦投影**（只有 id 与类型，按 seq 排）。
+     *
+     * <p>给「本标题下第几块」那条推导用：节会**跨页**，所以推导必须看全篇，不能只看当前页；
+     * 但它只需要 id 与 chunk_type 两个字段——正文照旧只按页取，两边的顺序都由 seq 保证、按 id 对齐。
+     */
+    public List<KbChunk> listChunkSkeleton(String docId) {
+        return kbChunkMapper.selectList(Wrappers.<KbChunk>lambdaQuery()
+                .select(KbChunk::getId, KbChunk::getChunkType)
+                .eq(KbChunk::getDocId, docId)
+                .orderByAsc(KbChunk::getSeq));
+    }
+
     /** 每个科室的文档数（上传表单的科室选项要显示"这个科室下有几份"） */
     public Map<String, Long> countByDept() {
         return kbDocMapper.selectList(Wrappers.<KbDoc>lambdaQuery()

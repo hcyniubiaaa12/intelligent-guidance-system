@@ -20,8 +20,17 @@ public final class SseEvents {
     public static final String DONE = "done";
     public static final String ERROR = "error";
 
-    /** 建流即发：本轮流所属会话 id（前端续聊时回传） */
-    public record SessionEvent(String sessionId) {
+    /**
+     * 建流即发：本轮流所属会话 id（前端续聊时回传）+ **本轮是否该会话的首条主诉**。
+     *
+     * <p>{@code firstTurn} 是**后端对会话状态的判定结果**，前端据此对齐"是不是新的一次就诊"，
+     * 不必自己拿 {@code sessionId} 有没有来推。
+     *
+     * <p>注意它的边界：事件是**服务端 → 客户端**，所以它<strong>无法</strong>决定同一轮请求体里要不要带
+     * {@code parts}（顺序上不可能）。带不带声明由前端按自己的状态决定，**接不接纳**由后端裁决
+     * （{@code ChatService.resolveParts}：非首轮一律丢弃，有日志）。
+     */
+    public record SessionEvent(String sessionId, boolean firstTurn) {
     }
 
     /** 流式增量文本（逐字渲染同一气泡） */

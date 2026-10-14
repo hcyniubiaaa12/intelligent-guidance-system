@@ -15,6 +15,16 @@ export const useChatStore = defineStore('chat', () => {
   const entries = ref([])
   const streaming = ref(false)
 
+  /**
+   * 挂号成功那一刻「要回放的那条会话」——**内存态，不落 URL query、不落本地存储**（工单 04）。
+   *
+   * 为什么必须是内存态：只读态是"这次挂号刚结束"的一次性提示，刷新页面回到普通空状态
+   * 才是对的（那确实是新的一次就诊）；走 URL query 会让刷新也恢复只读态，说反了。
+   * 走 store 是因为 chat store 跨路由持久，而页面级状态（门禁 / 声明）随 Chat.vue
+   * 重新挂载天然归零——不需要跨组件传标记、不需要路由参数。
+   */
+  const pendingReplay = ref(null) // { sessionId, justBooked: true }
+
   /** 追加条目并返回其响应式引用（流式增量直接改引用即可触发渲染，避免整数组替换） */
   function pushEntry(entry) {
     // 删除占位气泡会移动下标，稳定 id 才能把复制等组件状态留在原消息上。
@@ -38,5 +48,20 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
   }
 
-  return { sessionId, entries, streaming, pushEntry, removeEntry, setSession, reset }
+  /** 挂号成功：把刚结束的这条会话交给对话页按只读回放打开（调用方须先取走 sessionId） */
+  function requestReplay(sessionId) {
+    if (sessionId) pendingReplay.value = { sessionId, justBooked: true }
+  }
+
+  /** 取走待回放的会话并清空（一次性：刷新或再次进入都不该重复触发） */
+  function consumeReplay() {
+    const next = pendingReplay.value
+    pendingReplay.value = null
+    return next
+  }
+
+  return {
+    sessionId, entries, streaming, pendingReplay,
+    pushEntry, removeEntry, setSession, reset, requestReplay, consumeReplay
+  }
 })

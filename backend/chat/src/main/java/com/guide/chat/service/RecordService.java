@@ -80,13 +80,13 @@ public class RecordService {
 
         List<String> sessionIds = sessions.stream().map(ChatSession::getId).toList();
         Map<String, List<ChatMessage>> messagesBySession = loadMessages(sessionIds);
-        Map<String, GuideRecord> latestRecord = loadLatestRecords(sessionIds);
+        Map<String, List<GuideRecord>> recordsBySession = loadRecordsBySession(sessionIds);
         Map<String, Dept> deptCache = new LinkedHashMap<>();
 
         List<RecordDTO.SessionItem> items = new ArrayList<>();
         for (ChatSession session : sessions) {
             items.add(toItem(session, messagesBySession.getOrDefault(session.getId(), List.of()),
-                    latestRecord.get(session.getId()), deptCache));
+                    recordsBySession.getOrDefault(session.getId(), List.of()), deptCache));
         }
 
         // 主区与收纳区分开：主区的天头要显示"这天几次"，混着归档条目每个计数都得重算。
@@ -131,7 +131,9 @@ public class RecordService {
 
         List<ChatMessage> messages = messageMapper.selectList(Wrappers.<ChatMessage>lambdaQuery()
                 .eq(ChatMessage::getSessionId, sessionId)
-                .orderByAsc(ChatMessage::getCreatedAt));
+                .orderByAsc(ChatMessage::getCreatedAt)
+                // 同一秒内 created_at 打平（DATETIME 无小数秒），id 作稳定次序：雪花按插入顺序单调递增
+                .orderByAsc(ChatMessage::getId));
 
         // 用户问题 = role=user 的消息，按时间从 1 编号——书签注号就是它，与轮次无关
         List<RecordDTO.QuestionAnchor> questions = new ArrayList<>();
@@ -147,17 +149,111 @@ public class RecordService {
                     message.getCreatedAt(), questionNo));
         }
 
-        GuideRecord record = loadLatestRecords(List.of(sessionId)).get(sessionId);
+        List<GuideRecord> records = loadRecordsBySession(List.of(sessionId))
+                .getOrDefault(sessionId, List.of());
         Map<String, Dept> deptCache = new LinkedHashMap<>();
         return new RecordDTO.SessionDetailVO(
-                toItem(session, messages, record, deptCache),
-                replay, questions, toCard(record, deptCache));
+                toItem(session, messages, records, deptCache),
+                replay, questions, buildCards(records, messages, deptCache));
+    }
+
+    /**
+     * 这条会话出过的**每一张卡**（可能多张），各带自己在消息流里的插入位置。
+     *
+     * <p>为什么不把卡一律堆到最后：库里两张、回放只一张就是**数据与展示不一致**，而回放是取证的地方。
+     */
+    private List<RecordDTO.CardVO> buildCards(List<GuideRecord> records, List<ChatMessage> messages,
+                                              Map<String, Dept> deptCache) {
+        List<RecordDTO.CardVO> cards = new ArrayList<>();
+        for (GuideRecord record : records) {
+            cards.add(toCard(record, afterMessageIndex(messages, record.getId()), deptCache));
+        }
+        return cards;
+    }
+
+    /**
+     * 这张卡该插在消息流里哪一条之后（0 基下标）——**只此一处实现**，前端不自己再推。
+     *
+     * <p>规则：本会话里第一条 {@code role=user} 且 {@code id > recordId} 的消息的下标 − 1；
+     * 没有这样的消息（这条卡是会话里最后发生的事）时取最后一条消息的下标。
+     *
+     * <p>为什么用"下一条患者消息"当右边界：导诊记录在本轮结束时落库，下一轮患者消息必然更晚
+     * （同源雪花 id 单调递增），所以这个下标一定落在**这张卡自己那一轮的最后一条消息之后**；
+     * 若改用 {@code created_at}，同一秒内多条消息的先后不可靠（DATETIME 无小数秒），卡会串位。
+     *
+     * <p>兜底夹到 0：按本规则的语义下标本就不会为负（记录总在本轮患者消息之后落库），
+     * 夹一下只为防御历史数据异常，不让前端拿到一个越界下标。
+     */
+    private int afterMessageIndex(List<ChatMessage> messages, String recordId) {
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage message = messages.get(i);
+            if (message.getRole() == MessageRole.USER && idAfter(message.getId(), recordId)) {
+                return Math.max(0, i - 1);
+            }
+        }
+        return Math.max(0, messages.size() - 1);
+    }
+
+    /**
+     * 消息 id 是否晚于记录 id（MyBatis-Plus {@code ASSIGN_ID}：雪花，按插入顺序单调递增）。
+     *
+     * <p>不写"非数字 id 就退回字符串比较"那类兜底：库里的 id 全是本应用自己生成的数字雪花，
+     * 真出现非数字只会是数据被外部改坏——那时**该响亮地炸**，而不是悄悄换一套比较规则，
+     * 把回放的卡位默默放错（回放是取证的地方，错位比报错更糟）。
+     *
+     * <p>{@code null} 一律当"不晚于"：只会出现在没落过库的实体上（测试夹具），
+     * 此时没有"下一条患者消息"可依，卡落在会话末尾，与旧行为一致。
+     */
+    private boolean idAfter(String messageId, String recordId) {
+        return messageId != null && recordId != null
+                && Long.compare(Long.parseLong(messageId), Long.parseLong(recordId)) > 0;
+    }
+
+    /**
+     * 按 recordId 查**这条结论卡的挂号状态**（患者端挂号页用）。
+     *
+     * <p>为什么需要它：患者挂号成功后从挂号页**后退**回来（或直接刷新挂号页），
+     * 页面要能直接显示"已挂号"的成功态，而不是再摆一个可点的「确认挂号」——
+     * 点了也会被后端拒（{@code RECORD_ALREADY_REGISTERED}），那是"报了错再说"，
+     * 不如一开始就不给这个入口。
+     *
+     * <p>只读：不写任何表、不改任何状态。归属校验同 {@link #sessionDetail}——
+     * 不是自己的记录按「不存在」处理（返回"无权访问"等于告诉调用方这条记录存在）。
+     */
+    public RecordDTO.RegisterStatusVO registerStatus(String userId, String recordId) {
+        GuideRecord record = guideRecordMapper.selectById(recordId);
+        if (record == null) {
+            throw new BizException(ErrorCode.RECORD_NOT_FOUND);
+        }
+        ChatSession session = sessionMapper.selectById(record.getSessionId());
+        if (session == null || !userId.equals(session.getUserId())) {
+            throw new BizException(ErrorCode.RECORD_NOT_FOUND);
+        }
+        if (record.getActualDeptId() == null) {
+            return new RecordDTO.RegisterStatusVO(false, null, null);
+        }
+        Dept actual = dept(record.getActualDeptId(), new LinkedHashMap<>());
+        return new RecordDTO.RegisterStatusVO(true,
+                actual == null ? null : actual.getName(),
+                actual == null ? null : actual.getLocation());
     }
 
     // ---------------------------------------------------------------- 组装
 
+    /**
+     * 会话条目。一条会话可能出多张卡（工单 05），所以这里收的是**全部记录**，两个口径分别派生：
+     *
+     * <ul>
+     *   <li>「结论」= **最新一张**（患者最近看到的那张卡，侧栏与详情展示口径）；</li>
+     *   <li>「是否已挂号 / 挂到哪个科」= **已挂号的那一条**（以会话为口径）。</li>
+     * </ul>
+     *
+     * <p>为什么后者不能跟着"最新一张"走：患者可以只给其中一张挂号，而后又追问出第三张——
+     * 那时"最新一张"并不是挂过号的那张，按它取会让侧栏把"已挂号 / 挂哪个科"指到一张没挂的卡上。
+     * 一个会话最多只有 0 或 1 条已挂号记录（挂号即 {@code CLOSED}，会话不再可续），故这里取到即止。
+     */
     private RecordDTO.SessionItem toItem(ChatSession session, List<ChatMessage> messages,
-                                         GuideRecord record, Map<String, Dept> deptCache) {
+                                         List<GuideRecord> records, Map<String, Dept> deptCache) {
         List<ChatMessage> userMessages = messages.stream()
                 .filter(m -> m.getRole() == MessageRole.USER)
                 .toList();
@@ -165,21 +261,23 @@ public class RecordService {
         LocalDateTime startedAt = session.getCreatedAt();
         LocalDateTime endedAt = messages.isEmpty() ? startedAt : messages.get(messages.size() - 1).getCreatedAt();
 
+        GuideRecord latest = records.isEmpty() ? null : records.get(records.size() - 1);
+        GuideRecord bookedRecord = bookedOf(records);
+
         String recDept = null;
         Integer confidence = null;
         boolean lowConfidence = false;
-        boolean booked = false;
-        String actualDept = null;
-        if (record != null) {
-            Dept rec = dept(record.getRecDeptId(), deptCache);
+        if (latest != null) {
+            Dept rec = dept(latest.getRecDeptId(), deptCache);
             recDept = rec == null ? null : rec.getName();
-            confidence = percent(record.getConfidence());
-            lowConfidence = record.getLowConfidence() != null && record.getLowConfidence() == 1;
-            booked = record.getActualDeptId() != null;
-            if (booked) {
-                Dept actual = dept(record.getActualDeptId(), deptCache);
-                actualDept = actual == null ? null : actual.getName();
-            }
+            confidence = percent(latest.getConfidence());
+            lowConfidence = latest.getLowConfidence() != null && latest.getLowConfidence() == 1;
+        }
+        boolean booked = bookedRecord != null;
+        String actualDept = null;
+        if (booked) {
+            Dept actual = dept(bookedRecord.getActualDeptId(), deptCache);
+            actualDept = actual == null ? null : actual.getName();
         }
         return new RecordDTO.SessionItem(session.getId(), firstComplaint, startedAt, endedAt,
                 statusCode(session.getStatus()), session.getAskRound() == null ? 0 : session.getAskRound(),
@@ -188,11 +286,18 @@ public class RecordService {
                 session.getArchived() != null && session.getArchived() == 1);
     }
 
-    /** 结论卡：从 rec_top3 与 evidence 两份只写快照重建，语义与 result 事件载荷一致 */
-    private RecordDTO.CardVO toCard(GuideRecord record, Map<String, Dept> deptCache) {
-        if (record == null) {
-            return null;
+    /** 该会话**已挂号的那条记录**；没有（或没出过结论）时为 null。最多一条，见 {@link #toItem} 说明 */
+    private GuideRecord bookedOf(List<GuideRecord> records) {
+        for (GuideRecord record : records) {
+            if (record.getActualDeptId() != null) {
+                return record;
+            }
         }
+        return null;
+    }
+
+    /** 结论卡：从 rec_top3 与 evidence 两份只写快照重建，语义与 result 事件载荷一致 */
+    private RecordDTO.CardVO toCard(GuideRecord record, int afterMessageIndex, Map<String, Dept> deptCache) {
         Dept rec = dept(record.getRecDeptId(), deptCache);
         boolean booked = record.getActualDeptId() != null;
         Dept actual = booked ? dept(record.getActualDeptId(), deptCache) : null;
@@ -253,7 +358,7 @@ public class RecordService {
         } catch (Exception e) {
             log.warn("结论卡重建失败（记录 {}）：{}", record.getId(), e.getMessage());
         }
-        return new RecordDTO.CardVO(record.getId(),
+        return new RecordDTO.CardVO(record.getId(), afterMessageIndex,
                 rec == null ? null : rec.getName(), record.getConfidence(), top3, note, cites,
                 record.getLowConfidence() != null && record.getLowConfidence() == 1,
                 booked, actual == null ? null : actual.getName(),
@@ -315,18 +420,21 @@ public class RecordService {
     }
 
     /**
-     * 每个会话最新的那条导诊记录。
-     * 一个会话可能落多条（追问后重出结论），回放只认最后落库的那条——与「历史不回改」一致。
+     * 每个会话的**全部**导诊记录，按产生顺序（createdAt → id）升序——数组最后一个即"最新一张"。
+     *
+     * <p>一条会话可能落多条（出结论后患者继续补充、模型再出结论，2026-10-14 工单 05 定案），
+     * 回放要把每一张都还回去；「已挂号的那条」也在这里派生（见 {@link #toItem}）。
      */
-    private Map<String, GuideRecord> loadLatestRecords(List<String> sessionIds) {
-        Map<String, GuideRecord> latest = new LinkedHashMap<>();
+    private Map<String, List<GuideRecord>> loadRecordsBySession(List<String> sessionIds) {
+        Map<String, List<GuideRecord>> bySession = new LinkedHashMap<>();
         List<GuideRecord> records = guideRecordMapper.selectList(Wrappers.<GuideRecord>lambdaQuery()
                 .in(GuideRecord::getSessionId, sessionIds)
-                .orderByAsc(GuideRecord::getCreatedAt));
+                .orderByAsc(GuideRecord::getCreatedAt)
+                .orderByAsc(GuideRecord::getId));
         for (GuideRecord record : records) {
-            latest.put(record.getSessionId(), record); // 升序遍历 → 最后留下的即最新
+            bySession.computeIfAbsent(record.getSessionId(), k -> new ArrayList<>()).add(record);
         }
-        return latest;
+        return bySession;
     }
 
     private Dept dept(String deptId, Map<String, Dept> cache) {

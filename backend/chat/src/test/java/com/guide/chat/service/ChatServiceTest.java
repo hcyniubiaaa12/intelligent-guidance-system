@@ -408,9 +408,11 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("已出结论的旧会话再带声明：开新会话，声明<b>保留</b>（下一句就是新主诉，该重新声明）")
-    void partsKeptWhenOldSessionOpenedNewOne() {
-        // 已出结论的会话 continuable=false ⇒ resolveSession 开新会话 ⇒ 落在新会话的首轮
+    @DisplayName("已出结论的进行中会话再带声明：**同会话续聊**，声明丢弃（出结论不再是边界，工单 05）")
+    void partsDroppedAfterConclusionInSameSession() {
+        // continuable() = ongoing（不再看 has_result）⇒ 续聊；askRound 出卡时已归零，
+        // 但 isFirstTurn 的 has_result!=1 那一半仍在 ⇒ 判成非首轮 ⇒ 声明丢弃。
+        // 这就是"两处咬合"：若有人删掉 has_result!=1，这一轮会被误判成首轮、声明被重新采纳。
         ChatSession done = ongoingSession(0);
         done.setHasResult(1);
         when(sessionMapper.selectById("s1234567890")).thenReturn(done);
@@ -420,8 +422,59 @@ class ChatServiceTest {
 
         ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
         verify(ragService).retrieve(ragCaptor.capture());
+        assertTrue(ragCaptor.getValue().parts().isEmpty(),
+                "出结论后是同会话续聊：位置信息上下文里已有，声明不再采纳");
+        // 会话没有被重建：更新的是同一个 id（新建过的话 turnTag 会拿新 id）
+        verify(sessionMapper, never()).insert(any(ChatSession.class));
+    }
+
+    @Test
+    @DisplayName("挂号（closed）后的下一句：开新会话并**保留**声明——这才是唯一的会话边界")
+    void closedSessionStartsNewOneAndKeepsParts() {
+        ChatSession closed = ongoingSession(2);
+        closed.setStatus(SessionStatus.CLOSED);
+        closed.setHasResult(1);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(closed);
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("又疼了", "s1234567890", List.of("胸部")));
+
+        verify(sessionMapper).insert(any(ChatSession.class));
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
         assertEquals(List.of("胸部"), ragCaptor.getValue().parts(),
-                "新主诉要重新声明位置，不能因为上一轮声明过就丢掉");
+                "挂号后才翻页：新主诉要重新声明位置");
+    }
+
+    @Test
+    @DisplayName("已出结论的会话预算即使已满也不再强制收口：不再兜底弹第二张卡（工单 05 ②）")
+    void noForcedConclusionAfterResult() {
+        // 出卡时 ask_round 已归零，这里刻意把它顶回上限，模拟"归零前就已用满"的历史状态——
+        // 只要 has_result=1，forceConclusion 就必须为 false，否则补充信息会被逼出一张兜底卡，
+        // 而只有最后一张卡能挂号（Chat.vue: can-register="i === lastCardIndex"），
+        // 低置信度的兜底卡会把患者原本要挂的那张卡的入口挡掉。
+        ChatSession done = ongoingSession(3);
+        done.setHasResult(1);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(done);
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("那我该注意什么", "s1234567890"));
+
+        assertFalse(questions().isEmpty(), "模型 ASK ⇒ 正常追问");
+        verify(guideService, never()).saveConclusion(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("未出结论且预算用尽：仍强制收口（工单 05 ② 的互补面：!hasResult 只在出卡后才让路）")
+    void forcedConclusionStillAppliesBeforeResult() {
+        ChatSession ongoing = ongoingSession(3);
+        when(sessionMapper.selectById("s1234567890")).thenReturn(ongoing);
+        when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("继续说", "s1234567890"));
+
+        verify(guideService).saveConclusion(any(), any(), any(), any(), any());
     }
 
     @Test

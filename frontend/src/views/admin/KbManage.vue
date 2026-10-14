@@ -380,7 +380,9 @@
     <!-- 切片抽屉 -->
     <el-drawer v-model="chunksVisible" :title="chunksTitle" size="620px">
       <div v-if="chunksLoading" class="a-empty">加载中…</div>
-      <div v-else-if="!chunks.length" class="a-empty">这份文档还没有切片</div>
+      <div v-else-if="!chunks.length" class="a-empty">
+        {{ chunkPage.total ? '本页没有切片' : '这份文档还没有切片' }}
+      </div>
       <div v-else class="kb-chunks">
         <div v-for="c in chunks" :key="c.id" class="kb-chunk">
           <div class="kb-chunk__head">
@@ -401,6 +403,19 @@
           <pre v-if="!isTitleChunk(c)" class="kb-chunk__body">{{ c.content }}</pre>
         </div>
       </div>
+      <!-- 分页在抽屉底部常驻：一份几百片的文档不该一屏全渲染出来（2026-10-14 起后端按页取） -->
+      <el-pagination
+        v-if="chunkPage.total > 0"
+        v-model:current-page="chunkPage.current"
+        :page-size="chunkPage.size"
+        :page-sizes="PAGE_SIZES"
+        :total="chunkPage.total"
+        :layout="PAGE_LAYOUT"
+        background
+        style="margin-top: 12px"
+        @current-change="loadChunks"
+        @size-change="onChunkSize"
+      />
     </el-drawer>
   </section>
 </template>
@@ -780,6 +795,9 @@ const chunksVisible = ref(false)
 const chunksLoading = ref(false)
 const chunks = ref([])
 const chunksTitle = ref('切片')
+/** 抽屉当前看的是哪份文档：翻页/切条数要带着它重新请求 */
+const chunksDocId = ref('')
+const chunkPage = reactive({ current: 1, size: 10, total: 0 })
 
 /** 片类型展示文案：后端给的是枚举编码值（小写），文案只在这里映射一次 */
 const CHUNK_TYPE_TEXT = {
@@ -813,18 +831,33 @@ function isTitleChunk(c) {
   return (c.chunkType || '') === 'title'
 }
 
-async function openChunks(row) {
-  chunksTitle.value = `${row.title} · 切片`
-  chunks.value = []
-  chunksVisible.value = true
+async function loadChunks(pageNo = chunkPage.current) {
   chunksLoading.value = true
   try {
-    chunks.value = await getKbChunks(row.id)
+    const data = await getKbChunks(chunksDocId.value, pageNo, chunkPage.size)
+    chunks.value = data.records || []
+    chunkPage.total = data.total || 0
+    chunkPage.current = pageNo
   } catch (e) {
     ElMessage.error(errText(e))
   } finally {
     chunksLoading.value = false
   }
+}
+
+function onChunkSize(size) {
+  // 统一下沉到 utils/pager：先改 current 再请求，否则 el-pagination 会连发两次（见那里的注释）
+  applySizeChange(chunkPage, size, () => loadChunks(1))
+}
+
+async function openChunks(row) {
+  chunksDocId.value = row.id
+  chunksTitle.value = `${row.title} · 切片`
+  chunks.value = []
+  chunkPage.current = 1
+  chunkPage.total = 0
+  chunksVisible.value = true
+  await loadChunks(1)
 }
 
 // —— 映射台账（只读）——

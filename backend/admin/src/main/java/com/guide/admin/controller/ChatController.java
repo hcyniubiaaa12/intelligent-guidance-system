@@ -3,7 +3,9 @@ package com.guide.admin.controller;
 import com.guide.auth.security.LoginUser;
 import com.guide.auth.security.LoginUserHolder;
 import com.guide.chat.dto.ChatDTO;
+import com.guide.chat.dto.RecordDTO;
 import com.guide.chat.service.ChatService;
+import com.guide.chat.service.RecordService;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.api.Result;
 import com.guide.common.exception.BizException;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -34,6 +37,7 @@ import java.util.List;
 public class ChatController {
 
     private final ChatService chatService;
+    private final RecordService recordService;
     private final TrackService trackService;
 
     /** 发送消息并建立 SSE 流（delta / question / result / done / error） */
@@ -60,6 +64,15 @@ public class ChatController {
             log.warn("register_success 埋点落库失败（不影响挂号）：{}", e.getMessage());
         }
         return Result.ok(result);
+    }
+
+    /**
+     * 一条结论卡的挂号状态（患者端挂号页加载时查一次）。
+     * 已挂号 ⇒ 页面直接渲染成功态，不再出现可点的「确认挂号」（工单 04 规则 6）。
+     */
+    @GetMapping("/register-status")
+    public Result<RecordDTO.RegisterStatusVO> registerStatus(@RequestParam String recordId) {
+        return Result.ok(recordService.registerStatus(currentUserId(), recordId));
     }
 
     private String currentUserId() {

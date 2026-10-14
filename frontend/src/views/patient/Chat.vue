@@ -194,7 +194,9 @@
             </div>
           </footer>
           <div v-else class="p-chat__lock">
-            <span class="p-chat__locktxt">历史记录 · 只读</span>
+            <!-- 两种进入方式要说不同的话：挂号刚结束那次是"本次已收尾"，
+                 回放历史会话仍是"历史记录"——别把翻旧账也说成刚才那次 -->
+            <span class="p-chat__locktxt">{{ lockText }}</span>
             <button class="p-chat__lockbtn" @click="startNew">开始新的咨询</button>
           </div>
         </div>
@@ -251,7 +253,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useChatStore } from '../../stores/chat'
@@ -300,17 +302,40 @@ const profileOpen = ref(false)
  *
  * 什么时候回到 awaiting（与后端「新主诉判定」同口径，**以后端状态为准**）：
  *   - startNew()：患者主动开新咨询；
- *   - done 事件带回 hasResult=1：已出结论，下一句输入就是新会话（追问轮、归档续聊不在此列——
- *     它们期间 partStage 一直是 locked，不会被拦）。
+ *   - 挂号成功那一刻（SimRegister.vue 的成功回调 → chat.reset()）：会话被置 closed，
+ *     这是会话**唯一**的结束信号（工单 05）。
+ *   出结论**不再**回 waiting：患者出结论后接着问仍是同一次就诊的续聊，
+ *   期间 partStage 一直是 locked、partsSubmitted 已为 true ⇒ 不重复带声明，两端一致。
  * 回放是只读的，根本没有输入框，天然不涉及门禁。
  */
 const parts = ref(emptyParts())
 const partStage = ref('awaiting') // 'awaiting' | 'locked'
 const mapOpen = ref(false)
-/** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，只在打开那一刻生效 */
+/** 快捷词带来的预选（{ region, word } | null）：交给覆盖层，**只在打开那一刻生效，用过即清** */
 const mapPreset = ref(null)
+/**
+ * 预选是**一次性**的：快捷词点一次只服务紧接着打开的那一次图，浮层一关就作废。
+ *
+ * 为什么必须清（2026-10-14 探针抓到的真缺陷）：`mapPreset` 曾经设了就不清，而覆盖层每次打开都
+ * 无条件应用它 —— 于是用过一次快捷词之后，**之后每次手动开图都会被重新预选那个词**。声明还带不
+ * 出去的时候看不出来（顶多图上多亮一块），声明真能送到模型之后它就变成了**错误的位置事实**
+ * （实测：第 2 次就诊只想点「皮肤」，声明却成了「腰、皮肤」）。
+ * 清在「浮层关闭」而不是「提交」：点了快捷词又关掉浮层，那个预选同样不该留到下一次。
+ */
+watch(mapOpen, (open) => {
+  if (!open) mapPreset.value = null
+})
+/**
+ * 这份声明是不是**已经跟着某条消息发出去了**。
+ *
+ * 为什么需要它：声明只在新就诊的首条生效，重复带是无效注入（后端也会丢弃，但载荷应当诚实）。
+ * 判据用的全是**前端自己的状态**——"我手里这份声明花掉了没有"。**不再拿 `sessionId` 有没有
+ * 去猜"后端会不会开新会话"**：猜错的那一刻正是唯一需要声明的那一轮（出结论后接着问、
+ * 挂号成功后回来问，后端都会新建会话并愿意收声明）。**接不接纳由后端裁决**，前端不猜。
+ */
+const partsSubmitted = ref(false)
 
-/** 空声明：开新咨询、重选、登出三处都要用，字面量只写这一处 */
+/** 空声明：开新咨询、重选、归档当前会话三处都要用，字面量只写这一处（登出靠组件卸载，不必清） */
 function emptyParts() {
   return { locations: [], sentence: '' }
 }
@@ -322,6 +347,7 @@ const partLabel = computed(() => pickedLabel(parts.value.locations))
 function onPartsSubmit(result) {
   parts.value = { locations: result.locations, sentence: result.sentence }
   partStage.value = 'locked'
+  partsSubmitted.value = false // 新一轮声明：还没发出去过（含「说不清在哪儿」出口——出口也是完成声明）
   if (result.sentence) {
     const now = draft.value.trim()
     // 输入框里已有患者自己写的话（如从"说不清"出来又重选过）就接在后面，不覆盖——
@@ -336,6 +362,7 @@ function onPartsSubmit(result) {
 function rechooseParts() {
   parts.value = emptyParts()
   partStage.value = 'awaiting'
+  partsSubmitted.value = false
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
@@ -365,9 +392,17 @@ let turnAbort = null
 
 // ---------------------------------------------------------------- 回放
 
-const replay = ref(null)
+const replay = ref(null) // { session, entries, questions, justBooked }
 const activeQ = ref(null)
 const qRefs = ref({})
+
+/**
+ * 只读条文案：**挂号刚结束**的那次是专用句（本次挂号已结束 · 记录在左侧，随时可回看），
+ * 从侧栏点开的**历史**回放仍用原句（历史记录 · 只读）——两种进入方式必须能区分，
+ * 否则翻旧账会被说成"刚才那次"，患者以为刚出的结论丢了（工单 04 规则 4）。
+ */
+const lockText = computed(() =>
+  replay.value?.justBooked ? '本次挂号已结束 · 记录在左侧，随时可回看' : '历史记录 · 只读')
 
 const isReplay = computed(() => !!replay.value)
 /** 一句话都还没说过：空状态把欢迎块、输入框、免责当成一整块居中 */
@@ -379,7 +414,13 @@ const marks = computed(() => replay.value?.questions || [])
 /** 正在看的是哪一条：看历史就是历史的，实时对话就是本轮的（侧栏据此高亮） */
 const activeSessionId = computed(() => replay.value?.session?.id || chat.sessionId || null)
 
-/** 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致 */
+/**
+ * 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致。
+ *
+ * 一条会话可以出**多张**结论卡（出结论后患者继续补充、模型再出结论，工单 05 定案）：
+ * 卡插回消息流的哪个位置由后端算好（CardVO.afterMessageIndex，规则只有一处 Java 实现），
+ * 前端只负责"插到这条消息之后"，**不再自己推位置**——同一份事实不许两处各算一次。
+ */
 function toReplayEntries(d) {
   // 会话前缀防止切换两份回放时复用另一会话的组件状态。
   const prefix = `r-${d.session?.id || activeSessionId.value || 'replay'}`
@@ -390,15 +431,41 @@ function toReplayEntries(d) {
     content: m.content,
     qNo: m.role === 'user' ? m.questionNo : undefined
   }))
-  if (d.card) out.push({ id: `${prefix}-card`, type: 'card', recordId: null, card: { ...d.card } })
+  // 卡按锚点分组，再**从后往前**插：往后插会让后面那些下标因为数组变长而错位
+  const lastIndex = Math.max(0, out.length - 1)
+  const byAnchor = new Map()
+  for (const c of d.cards || []) {
+    const at = Math.min(Math.max(Number(c.afterMessageIndex) || 0, 0), lastIndex)
+    byAnchor.set(at, [...(byAnchor.get(at) || []), c])
+  }
+  for (const at of [...byAnchor.keys()].sort((a, b) => b - a)) {
+    out.splice(
+      at + 1,
+      0,
+      ...byAnchor.get(at).map((c) => {
+        // afterMessageIndex 是回放位置，不是卡的内容，别混进 props
+        const { afterMessageIndex, ...card } = c
+        return { id: `${prefix}-card-${c.recordId}`, type: 'card', recordId: c.recordId, card }
+      })
+    )
+  }
   return out
 }
 
-async function openSession(id) {
+/**
+ * 打开一条会话的只读回放。
+ * @param justBooked 这条是"挂号刚结束"的那一次——只读条换成专用句（工单 04）
+ */
+async function openSession(id, justBooked = false) {
   sideOpen.value = false
   try {
     const d = await sessionDetail(id)
-    replay.value = { session: d.session, entries: toReplayEntries(d), questions: d.questions || [] }
+    replay.value = {
+      session: d.session,
+      entries: toReplayEntries(d),
+      questions: d.questions || [],
+      justBooked
+    }
     hasNewReply.value = false
     followingBottom.value = false
     clearCopied()
@@ -428,6 +495,7 @@ function startNew() {
   // 门禁也回等待态——新的一次就诊要重新声明（工单 05）
   parts.value = emptyParts()
   partStage.value = 'awaiting'
+  partsSubmitted.value = false
   draft.value = ''
   nextTick(() => inputEl.value?.focus())
 }
@@ -439,8 +507,17 @@ function startNew() {
  */
 function onArchiveChange({ session, archived }) {
   if (!archived) return
-  if (replay.value?.session?.id === session.id) replay.value = null
-  else if (chat.sessionId === session.id) chat.reset()
+  if (replay.value?.session?.id === session.id) {
+    replay.value = null
+  } else if (chat.sessionId === session.id) {
+    // 正在聊的这条被归档 ⇒ 下一条消息就是新的一次就诊（sessionId 清掉，后端会开新会话）。
+    // 声明状态必须跟 startNew() 同一口径一起归零：若留着「locked + 已提交」，门禁不会拦、
+    // 声明又带不出去，新就诊就等于没有位置声明——正是工单 01 要修的那种静默丢失。
+    chat.reset()
+    parts.value = emptyParts()
+    partStage.value = 'awaiting'
+    partsSubmitted.value = false
+  }
 }
 
 function openBooked() {
@@ -616,12 +693,25 @@ async function runTurn(content) {
     scrollToBottom()
   }
 
+  // 本轮带不带位置声明：按**前端自己的状态**决定（走了声明流程、且这份声明还没发出去过）。
+  // **后端会不会采纳是后端的事**——非首轮它一律丢弃，且有日志。不拿 sessionId 猜会话状态。
+  const partsToSend = partStage.value === 'locked' && !partsSubmitted.value ? parts.value.locations : []
+
   turnAbort = new AbortController()
   try {
     await streamChat(
-      { sessionId: chat.sessionId, content, parts: parts.value.locations },
+      { sessionId: chat.sessionId, content, parts: partsToSend },
       {
-        onSession: ({ sessionId }) => chat.setSession(sessionId),
+        // 会话事实由后端给（不再自己拿 sessionId 推）：
+        //   ① 收到 session 事件 ⇒ 请求确实到了后端 ⇒ 这份声明算「已提交」，追问轮不再重复带；
+        //   ② firstTurn = 后端把这轮当成新就诊的首条。若患者这轮**没走过声明流程**
+        //      （本地不是 locked），说明会话在后端已经翻页而我们还在旧形态里（比如挂号成功后
+        //      会话被置 closed，下一句就是新会话），把门禁摆回等待态请患者重新声明。
+        onSession: ({ sessionId, firstTurn }) => {
+          chat.setSession(sessionId)
+          if (partsToSend.length) partsSubmitted.value = true
+          if (firstTurn && partStage.value !== 'locked') partStage.value = 'awaiting'
+        },
 
         onDelta: ({ text }) => {
           bubble.content += text
@@ -681,13 +771,10 @@ async function runTurn(content) {
         },
 
         // error 之后后端还会补一个 done：此时流式态已结束，重复收尾无害。
-        // hasResult=1 ⇒ 本会话已出结论，下一句输入就是**新会话**（后端「新主诉判定」）——
-        // 门禁据此回到等待态。这是"以后端状态为准"的落点：前端不自判是不是新主诉。
-        onDone: ({ hasResult } = {}) => {
-          if (hasResult) {
-            parts.value = emptyParts()
-            partStage.value = 'awaiting'
-          }
+        // 出结论**不再**把门禁摆回等待态（工单 05）：会话边界从"出结论"改成"挂号"（status=closed），
+        // 患者出结论后接着问「那我该注意什么」仍是同一次就诊的续聊，不该被要求重新声明部位。
+        // 归零门禁的唯一时机是挂号成功那一刻（见 SimRegister.vue 的成功回调 → chat.reset()）。
+        onDone: () => {
           endTurn(bubble.content ? `助手已回复：${bubble.content.slice(0, 40)}` : '')
         },
 
@@ -757,6 +844,10 @@ function hhmm(at) {
 
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') marksRO = new ResizeObserver(syncMarksScroll)
+  // 挂号成功那一刻把"刚结束的这条会话"交代给了 store（内存态）——这里按只读回放打开它。
+  // 只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  const pending = chat.consumeReplay()
+  if (pending) openSession(pending.sessionId, true)
 })
 
 onBeforeUnmount(() => {
