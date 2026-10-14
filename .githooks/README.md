@@ -1,6 +1,6 @@
 # .githooks —— 随仓库分发的 git hooks
 
-本目录被 git 跟踪（`.git/hooks/` 里的东西不会跟着仓库走，这里会）。目前只有一个 `pre-commit`。
+本目录被 git 跟踪（`.git/hooks/` 里的东西不会跟着仓库走，这里会）。目前有 `pre-commit` 与 `pre-merge-commit` 两个。
 
 ## 启用（每台机器、每个克隆做一次）
 
@@ -14,9 +14,17 @@ git config core.hooksPath .githooks
 git config core.hooksPath   # 应输出 .githooks
 ```
 
-## pre-commit 做什么
+## 两个 hook 的关系：闸只有一份
 
-三道闸，**各看自己那一片的暂存文件**，互不拖累（只改前端却要等后端编译，很快就会有人 `--no-verify` 绕过，闸就废了）：
+`pre-merge-commit` **只是一层转发**（`exec pre-commit`），不复制任何检查逻辑。为什么不合并成一个文件：**`git merge` 的自动合并提交不触发 `pre-commit`**——`pre-commit` 是 `git commit` 的钩子，而一次无冲突的 merge 由内部机制直接落提交、绕过它；git 为这条路径单独留了 `pre-merge-commit`。
+
+代价真踩到过：本仓库没有 CI，这套 hook 是唯一的 guardrail，而一次功能合并（17 个提交）**完全不设防**地落进了 `main`。功能合并恰恰是最该设防的时刻——它是"一整批改动一次性进主干"。
+
+⇒ **以后加闸只改 `pre-commit` 一处**，`git commit` 与 `git merge` 两条路径自动同时受益。
+
+## 三道闸
+
+**各看自己那一片的暂存文件**，互不拖累（只改前端却要等后端编译，很快就会有人 `--no-verify` 绕过，闸就废了）：
 
 | 闸 | 触发条件 | 跑什么 | 失败时 |
 |---|---|---|---|
@@ -45,6 +53,11 @@ git config core.hooksPath   # 应输出 .githooks
 - hook 里给 Maven 设了 `-Dstdout.encoding=UTF-8`：这台机器控制台默认 GBK，javac 的中文错误会变成乱码，而乱码会让人下意识跳过错误段——闸拦住了却看不懂为什么，等于没拦。
 - **编译过 ≠ 测试过**。功能完成后仍要自己跑 `cd backend && mvn -B test`（闸不替你做这个）。
 
+## 绕不过去时要走哪条路
+
+`git commit --no-verify` **只对 commit 有效**，merge 那条路径要用 `git merge --no-verify`（两者都同理：确认是误报才用）。
+
 ## 将来接 CI
 
 若引入 CI，跑同两条命令（`cd frontend && npm run check`、`cd backend && mvn -B test`）即可——**不要另写第二份断言逻辑**。
+
