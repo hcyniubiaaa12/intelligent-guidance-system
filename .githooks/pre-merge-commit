@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# 合并提交的闸：把 pre-commit 原样接过来。
+#
+# 为什么需要这个文件：**`git merge` 的自动合并提交不触发 `pre-commit`**——`pre-commit` 是
+# `git commit` 的钩子，而一次无冲突的 merge 由内部机制直接落提交，绕过它。git 为这条路径
+# 单独留了 `pre-merge-commit`。
+#
+# 代价是真踩到过：本仓库唯一的 guardrail 就是这套 hook，而一次功能合并（17 个提交）
+# 是**完全不设防**地落进 main 的。功能合并恰恰是最该设防的时刻——它是"一整批改动一次性进主干"。
+#
+# 不在这里复制一份检查逻辑：闸只有一份（`pre-commit`），这里只做转发。
+# 将来加闸也只改 `pre-commit` 一处，两条路径自动同时受益。
+
+exec "$(dirname "$0")/pre-commit"
