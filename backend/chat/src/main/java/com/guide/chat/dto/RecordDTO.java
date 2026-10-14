@@ -144,6 +144,11 @@ public class RecordDTO {
      *
      * <p>只读查询：挂号页加载时按 {@code recordId} 查一次，已挂号就直接渲染成功态，
      * 不再摆一个可点的「确认挂号」（点了也会被后端拒，不如一开始就不给这个入口）。
+     *
+     * <p>三个字段与 {@link CardVO} 的挂号三件套同名同义，但**刻意不抽成共用的嵌套类型**：
+     * 两者是不同接口的不同响应（一个是"这条会话出过的卡"、一个是"这张卡挂没挂"），
+     * 捆在一起只会让前端多一层 {@code card.booking.booked} 的空洞，也看不出哪个字段真被用到。
+     * 真出现第四个消费方再抽不迟。
      */
     public record RegisterStatusVO(
             boolean booked,

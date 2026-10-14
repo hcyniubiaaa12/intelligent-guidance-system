@@ -94,7 +94,7 @@
 
 **Blocked by:** 无（三条口径已定案）
 
-**Status:** open（口径全部定案，未实现）
+**Status:** resolved（2026-10-14 实现并合并进 `feat/session-fact-and-paging`；真机探针待用户跑）
 
 ## Comments
 
@@ -103,3 +103,18 @@
 **为什么它比看上去大**：'一次会话 = 一次就诊"这条模型撑着侧栏按会话铺开、归档、准确率分母、回放取证四处。改边界 ⇒ 这四处都要过一遍；本票把查到的四处**逐条列在影响面**里，就是为了不让它们在下游变成惊喜。
 
 **建议的实施顺序**：先落工单 04（纯收尾，不依赖本票），再落本票——本票改完，04 的门禁分支只需把"结论后回等待态"那段删掉即完成对接。
+
+## Comments
+
+**2026-10-14 · 实现记录**（commit `3e21954`，合并进 `feat/session-fact-and-paging`）：
+
+- **两票实际是 05 → 04 的顺序落的**（不是建议的 04 → 05）：05 先把"会话边界"与多卡回放的地基铺好，04 再在其上做收尾，免得 04 写完后 05 又要回来改它的门禁分支。两票共用 `Chat.vue` / `RecordService.java` 同一片区域，串行比并行稳。
+- **工单没写死的一处，实现时定死了**：多卡回放"卡插哪儿"。规则 = 本会话第一条 `role=user` 且 `id > 记录 id` 的消息下标 − 1，没有则落最后一条。**不用 `created_at`**——它是秒级 `DATETIME`，同一秒内多条消息先后不可靠；而 `chat_message` 与 `guide_record` 的 id 出自同一套雪花生成器（`ASSIGN_ID`）按插入顺序单调递增，导诊记录在本轮结束时落库、下一轮患者消息必然更晚，用"下一条患者消息"当右边界，卡一定落在自己那一轮的最后一条消息之后。规则只在 `RecordService.afterMessageIndex()` 一处实现，DTO 带 `afterMessageIndex`，前端只 splice 不推导。
+- **核实后推翻了两条工单里的说法**：
+  1. 「审核侧『证据链回放』吃的是同一个接口」——**不属实**。全仓只有 `Chat.vue` 消费 `GET /records/sessions/{id}`，管理端 `views/admin/EvidenceReplay.vue` 走的是审核侧自己的记录查询。故没有为管理端改任何东西。
+  2. 「看板口径现状已经就是它，不用改 SQL」——**属实**。`DashboardService` 两处都是 `isNotNull("actual_dept_id")`，逐条过滤天然"按张计"；只加了注释 + 一条断言（`unbookedCardsAreNotInAccuracyDenominator`，capture QueryWrapper 断言 SQL 段含 `actual_dept_id` 与 `low_confidence`）。
+- `RagRequest.askRound`：**核实后确为死字段**（rag 侧无任何消费者），按工单许可删除，构造点与三个测试类同步改。
+- `saveMessage(AI)` 与 `saveConclusion` 的顺序**没有调整**——上面那条卡位规则不依赖它（右边界取的是"下一条患者消息"，不是"本轮的 AI 回复"）。
+- 前端 `toReplayEntries` 按锚点分组、**倒序 splice**（正序插会让后面的锚点因数组变长而错位）；`afterMessageIndex` 在进 props 前被剥掉（它是回放位置，不是卡的内容）。
+- 单测：ChatService 4 条、GuideService 1 条、RecordService 3 条、Dashboard 1 条。其中 `ChatServiceTest` 原第三条被**改写**而非保留——它钉的前提（"出结论后开新会话"）正是本票废止的东西，新断言改钉 closed 边界并加 `never().insert()`，**没有放宽任何断言**。后端全量 `mvn test` BUILD SUCCESS，`npm run check` 153+8、build 通过。
+- 代码评审（规范 + 规格两轴）报了 4 条，已修：三份基线文档摘掉指向 `.scratch/` 的链接、补回 `进度.md` 三节与施工日志、`idAfter()` 删掉字符串兜底、`onDone` 删死参数。

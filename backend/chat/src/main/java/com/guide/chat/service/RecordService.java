@@ -195,18 +195,18 @@ public class RecordService {
     }
 
     /**
-     * 雪花 id 的大小比较（MyBatis-Plus {@code ASSIGN_ID}，同长度字符串按字典序即插入序）。
-     * 兜底走字符串比较：万一有非数字 id（如历史导入数据），也不至于抛异常把整个回放打挂。
+     * 消息 id 是否晚于记录 id（MyBatis-Plus {@code ASSIGN_ID}：雪花，按插入顺序单调递增）。
+     *
+     * <p>不写"非数字 id 就退回字符串比较"那类兜底：库里的 id 全是本应用自己生成的数字雪花，
+     * 真出现非数字只会是数据被外部改坏——那时**该响亮地炸**，而不是悄悄换一套比较规则，
+     * 把回放的卡位默默放错（回放是取证的地方，错位比报错更糟）。
+     *
+     * <p>{@code null} 一律当"不晚于"：只会出现在没落过库的实体上（测试夹具），
+     * 此时没有"下一条患者消息"可依，卡落在会话末尾，与旧行为一致。
      */
     private boolean idAfter(String messageId, String recordId) {
-        if (messageId == null || recordId == null) {
-            return false;
-        }
-        try {
-            return Long.compare(Long.parseLong(messageId), Long.parseLong(recordId)) > 0;
-        } catch (NumberFormatException e) {
-            return messageId.compareTo(recordId) > 0;
-        }
+        return messageId != null && recordId != null
+                && Long.compare(Long.parseLong(messageId), Long.parseLong(recordId)) > 0;
     }
 
     /**

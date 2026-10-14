@@ -48,10 +48,20 @@
 
 **Blocked by:** 无（与工单 05 有同一片区的状态，但可独立落地；05 若先落，本票的门禁分支要跟着调）
 
-**Status:** open（设计已定案，未实现）
+**Status:** resolved（2026-10-14 实现并合并进 `feat/session-fact-and-paging`；真机探针待用户跑）
 
 ## Comments
 
 **与工单 01 / 05 的关系**：01 让前端不再**猜**会话状态；05 把"什么时候结束"的口径改成"挂号才结束"；04 把"结束"这件事在 UI 上**做出来**（收尾转只读）。三者合起来，"一次会话 = 一次就诊"在 UI 与后端才是一致的。
 
 **顺带确认、不必再讨论的两件事**：① 只读态里**复制结论**本来就可用（结论卡复制按钮常显）；② 只读态里「去挂号」不是禁用而是**不渲染**，所以"已挂过号还想再挂"这条路不存在——重复挂号后端本来也会拒。
+
+## Comments
+
+**2026-10-14 · 实现记录**（commit `455604f`，合并进 `feat/session-fact-and-paging`）：
+
+- 落点全部按「要落的点」走，另补三处工单没点名但必需的：`stores/chat.js` 加 `pendingReplay` / `requestReplay` / `consumeReplay`（内存态）；`Chat.vue` 的 `replay` 加 `justBooked` 标记，只读条文案由它派生；挂号页 `onMounted` 改为「先查状态、已挂过就直接成功态并 `return`，否则才 `loadDepts()`」。
+- **一个顺序坑**：`chat.reset()` 会清掉 `sessionId`，所以成功回调里必须**先取走** `chat.sessionId` 再 reset（工单原文「记住 sessionId」说的就是这件事，实现时容易写成先 reset 后取，取到空串）。
+- 查询失败不拦路：`getRegisterStatus` 抛错时照常走选科室流程，真去点确认由后端拒（`RECORD_ALREADY_REGISTERED`）——失败提示一样说得出原因，不给患者添一个"状态查不到就用不了"的新死路。
+- 侧栏**不需要**额外 reload：从挂号页返回会卸载/重挂 Chat.vue 与 SideRail，`SideRail` 自己的 `onMounted` 会重新拉列表，刚结束那条自然带上"已挂号"。
+- 单测 3 条落在 `RecordServiceTest`（已挂号 / 未挂号 / 别人的记录按不存在处理）。后端全量 `mvn test` BUILD SUCCESS，`npm run check` 153+8、build 通过。

@@ -774,7 +774,7 @@ async function runTurn(content) {
         // 出结论**不再**把门禁摆回等待态（工单 05）：会话边界从"出结论"改成"挂号"（status=closed），
         // 患者出结论后接着问「那我该注意什么」仍是同一次就诊的续聊，不该被要求重新声明部位。
         // 归零门禁的唯一时机是挂号成功那一刻（见 SimRegister.vue 的成功回调 → chat.reset()）。
-        onDone: ({ hasResult } = {}) => {
+        onDone: () => {
           endTurn(bubble.content ? `助手已回复：${bubble.content.slice(0, 40)}` : '')
         },
 

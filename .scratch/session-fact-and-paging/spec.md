@@ -1,6 +1,6 @@
 # 会话首轮事实（服务端） + 查看切片分页（spec）
 
-Status: 01 / 02 / 03 已落地（2026-10-14，真机探针 11 条全过）；**04 / 05 已定案、未实现**——见 `issues/04-register-closes-conversation.md`、`issues/05-register-is-the-only-end.md`
+Status: 01 / 02 / 03 / 04 / 05 **全部已落地**（2026-10-14）。01/02/03 有真机探针 11 条全过；04/05 代码与单测完成、后端全量测试绿 + 前端 check/build 通过，**缝二（真机探针）待用户跑**——逐条见 `issues/04`、`issues/05` 的验收清单。
 Branch: `feat/session-fact-and-paging`
 
 ---
