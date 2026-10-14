@@ -1,6 +1,6 @@
 # 会话首轮事实（服务端） + 查看切片分页（spec）
 
-Status: resolved（工单 01 / 02 均已落地，2026-10-14）
+Status: resolved（工单 01 / 02 / 03 均已落地，2026-10-14；真机探针 11 条全过）
 Branch: `feat/session-fact-and-paging`
 
 ---
