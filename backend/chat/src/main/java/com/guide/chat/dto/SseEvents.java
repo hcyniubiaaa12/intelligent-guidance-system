@@ -3,7 +3,7 @@ package com.guide.chat.dto;
 /**
  * SSE 事件协议载荷（链路 A）：session → delta → (question | info | result) → done，异常走 error。
  * notice（处置提示）可出现在任意位置，不改变主流程形态。
- * 形态见《总体架构与链路设计.md》链路 A 对齐点；前端按事件名分发渲染。
+ * 形态见 `docs/architecture/链路A-导诊对话.md` 对齐点；前端按事件名分发渲染。
  */
 public final class SseEvents {
 

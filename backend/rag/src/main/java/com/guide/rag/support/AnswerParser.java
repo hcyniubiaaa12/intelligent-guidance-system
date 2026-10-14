@@ -214,7 +214,7 @@ public class AnswerParser {
     }
 
     /**
-     * 置信度校验（见链路 A 对齐点）：0–1 区间、Top3 单调递减（允许相等）。
+     * 置信度校验（见 `docs/architecture/链路A-导诊对话.md` 对齐点）：0–1 区间、Top3 单调递减（允许相等）。
      * 不合法时整体置为不可信，由 chat 层置 null 并按低置信度分流（进盲区榜）。
      */
     private boolean confidenceValid(List<RagAnswer.DeptCandidate> top3) {

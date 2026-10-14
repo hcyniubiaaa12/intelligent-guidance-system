@@ -32,7 +32,7 @@ public enum RootCauseKey {
     STRUCTURE_FAIL("结构化失败"),
     /**
      * 非系统责任。唯一带后端语义的一项：看板准确率口径要排除标了它的记录
-     * （见《总体架构与链路设计.md》§7.2 与 stats 的 DashboardService）。
+     * （见 `docs/architecture/管理端控制台.md` §7.2 与 stats 的 DashboardService）。
      */
     PATIENT_WRONG("患者挂错");
 

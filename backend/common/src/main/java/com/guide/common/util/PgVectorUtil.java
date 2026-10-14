@@ -109,7 +109,7 @@ public class PgVectorUtil {
 
     /**
      * 向量召回：余弦相似度 Top-K。停用科室不做过滤——chunk 留库可召回，
-     * 但绝不入推荐（科室校验在 chat 层按 enabled 拦截，见链路 A 对齐点）。
+     * 但绝不入推荐（科室校验在 chat 层按 enabled 拦截，见 `docs/architecture/链路A-导诊对话.md` 对齐点）。
      *
      * <p><b>标题片不进召回</b>（{@link ChunkRetrievalFilter}，2026-10-03 实测）：
      * 标题片的正文等于标题本身、语义已被正文片的 title 列携带，还会挤占 Top-K。

@@ -227,7 +227,7 @@ String url = st.getBody().getData().getOutputFormatResult().get(0).getOutputFile
 
 ## 四、本项目里的集成约定
 
-调 SDK 本身不难，难在**放对位置**。这几条是架构基线（见《总体架构与链路设计.md》链路 B），改代码前先对齐：
+调 SDK 本身不难，难在**放对位置**。这几条是架构基线（见 `docs/architecture/链路B-知识库入库.md`），改代码前先对齐：
 
 | 约定 | 为什么 |
 |---|---|

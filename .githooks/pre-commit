@@ -34,7 +34,7 @@ root=$(git rev-parse --show-toplevel)
 scratch_hits=""
 for f in $staged; do
   case "$f" in
-    CLAUDE.md | 总体架构与链路设计.md | .claude/rules/*)
+    CLAUDE.md | 总体架构与链路设计.md | docs/architecture/* | .claude/rules/*)
       # spec 是时点产物、基线不是；口径要写成本文，不留路径
       if git show :"$f" 2>/dev/null | grep -qE '\.scratch/[A-Za-z0-9]'; then
         scratch_hits="$scratch_hits $f"

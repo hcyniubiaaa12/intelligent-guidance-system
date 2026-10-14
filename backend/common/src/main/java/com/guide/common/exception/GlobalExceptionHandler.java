@@ -27,7 +27,7 @@ public class GlobalExceptionHandler {
 
     /**
      * 上传超限：multipart 的拒绝发生在 **controller 之前**，不接这一手的话
-     * 管理员看到的是一个跟本系统毫无关系的错误页（见链路 B「上传的校验边界」）。
+     * 管理员看到的是一个跟本系统毫无关系的错误页（见 `docs/architecture/链路B-知识库入库.md`「上传的校验边界」）。
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Result<Void> handleMaxUpload(MaxUploadSizeExceededException e) {

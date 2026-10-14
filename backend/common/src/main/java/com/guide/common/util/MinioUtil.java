@@ -95,7 +95,7 @@ public class MinioUtil {
      * 下载文件（返回流，**调用方负责关闭**）。
      *
      * <p>入库流水线靠它取原文：解析重试与重新入库读的都是 MinIO 里的原文件
-     * （系统没有「替换文件」这个操作，见链路 B）。
+     * （系统没有「替换文件」这个操作，见 `docs/architecture/链路B-知识库入库.md`）。
      */
     public InputStream download(String bucket, String objectKey) {
         try {

@@ -21,7 +21,7 @@ import java.util.List;
  * <p>写入边界：MySQL 事实 + pgvector 向量（含正文副本）+ ES 全文，**同一方法内顺序写入，
  * 不是同一事务**——MySQL 在事务里，pgvector 走独立连接、ES 走 HTTP，两者都吃不到事务。
  * 因此失败分两条路收敛：MySQL 由 {@code @Transactional} 自己回滚，已写入的向量由
- * {@link #compensateWrittenVectors} 主动回删（见链路 B 对齐点·写时补偿）；
+ * {@link #compensateWrittenVectors} 主动回删（见 `docs/architecture/链路B-知识库入库.md` 对齐点·写时补偿）；
  * 删文档时的补偿顺序则是 先删 ES → 再删向量 → 再删元数据（见 {@link #deleteChunk}）。
  *
  * <p>写进 pgvector 的 title / content 是 MySQL 切片的**副本，只作人工排查用**——检索不读它们。

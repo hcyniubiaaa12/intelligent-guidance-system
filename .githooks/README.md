@@ -28,7 +28,7 @@ git config core.hooksPath   # 应输出 .githooks
 
 | 闸 | 触发条件 | 跑什么 | 失败时 |
 |---|---|---|---|
-| ① 基线文档不许链进 `.scratch/` | 暂存区含 `CLAUDE.md` / `总体架构与链路设计.md` / `.claude/rules/*` | grep 暂存内容里有没有指向具体 spec 的 `.scratch/<slug>/` | 拒绝提交 |
+| ① 基线文档不许链进 `.scratch/` | 暂存区含 `CLAUDE.md` / `总体架构与链路设计.md` / `docs/architecture/*` / `.claude/rules/*` | grep 暂存内容里有没有指向具体 spec 的 `.scratch/<slug>/` | 拒绝提交 |
 | ② 前端纯规则自检 | 暂存区含 `frontend/` | `frontend/scripts/` 下**所有** `check-*.mjs`（等价 `npm run check`） | 拒绝提交 |
 | ③ 后端编译 | 暂存区含 `backend/` | `mvn -q -B -pl <从暂存路径推出的模块> -am test-compile` | 拒绝提交 |
 

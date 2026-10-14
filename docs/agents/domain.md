@@ -14,7 +14,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 Beyond `CONTEXT.md`, these are load-bearing — read them before touching the area they cover:
 
-- **`总体架构与链路设计.md`** (repo root) — 架构基线与四条链路的「对齐点」。它在本仓库扮演 `docs/adr/` 的角色。改动涉及链路 A/B/C/D 对齐点、参数或模块边界时，必须同步更新它。
+- **`总体架构与链路设计.md`** (repo root) — 架构**总册**：分层视图与设计原则、模块职责边界与依赖方向、部署形态、已定参数汇总，外加四条链路的分册清单。四条链路各成一册在 `docs/architecture/`（`链路A/ B/ C/ D-*.md`、`管理端控制台.md`），与总册合起来扮演 `docs/adr/` 的角色。改动涉及链路 A/B/C/D 对齐点、参数或模块边界时，必须同步更新**总册与被改的那一册**。
 - **`CLAUDE.md`** — 模块依赖方向（单向、禁循环）、中间件白名单、提交与完工校验清单。
 - **`.claude/rules/数据库设计.md`** — 表结构、枚举字段规范、逻辑删除与唯一键的坑。
 - **`.claude/rules/前端设计方案-患者端.md`** / **`-管理端.md`** — 两端视觉方案各成一份（均已定稿，新页面不得偏离）。**两端各有 §1/§2/§3，引用必须带文件名**。
@@ -29,7 +29,8 @@ Single-context repo (this one):
 ```
 /
 ├── CONTEXT.md                          ← 领域词汇表
-├── 总体架构与链路设计.md                  ← 架构基线（本仓库的 docs/adr/ 等价物）
+├── 总体架构与链路设计.md                  ← 架构总册（本仓库的 docs/adr/ 等价物）
+├── docs/architecture/                     ← 分册：链路A/B/C/D-*.md、管理端控制台.md
 ├── .claude/rules/                      ← 数据库设计.md / 前端设计方案-患者端.md / -管理端.md
 ├── backend/                            ← Maven 多模块
 └── frontend/                           ← Vite 单工程
