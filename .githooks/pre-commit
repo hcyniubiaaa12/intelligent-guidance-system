@@ -1,55 +1,119 @@
 #!/bin/sh
 #
-# 提交前的前端硬闸：跑前端纯规则自检（frontend/scripts/check-*.mjs）。
+# 提交前的三道闸：① 基线文档不许链进 .scratch/ ② 前端纯规则自检 ③ 后端编译。
 #
-# 为什么要有这道闸：断言脚本本身是常驻的（`npm run check`），但没有任何东西会自动触发它——
+# 为什么要有这道闸：断言脚本与编译本身都是常驻的，但没有任何东西会自动触发它们——
 # 一个"记得跑才跑"的守卫，在没人记得跑的那天就等于不存在。本仓库没有 CI，所以闸只能落在本地 hook。
 #
 # 为什么 hook 放在 .githooks/ 而不是 .git/hooks/：.git/hooks 只存在于本机，别人克隆下来就没有这道闸；
 # 这个仓库是要展示的，闸得跟着仓库走。启用方式见 .githooks/README.md（一次性 `git config core.hooksPath .githooks`）。
 #
-# 为什么只在暂存区含 frontend/ 时才跑：只改后端却要等前端检查，很快就会有人 `--no-verify` 绕过，闸就废了。
+# 为什么每道闸都只看"自己那一片"的暂存文件：只改前端却要等后端编译，很快就会有人 `--no-verify` 绕过，
+# 闸就废了。三道闸各判各的触发条件，互不拖累。
 #
-# 只做一件事：把 scripts/ 下那几条自检脚本逐个叫起来跑，不在这里另写第二份断言逻辑。
+# 只做触发与转发，不在 hook 里另写第二份断言 / 校验逻辑。
 
 # 只看会被提交的改动（新增/改动/改名/复制；删除不触发）
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
-if ! printf '%s\n' "$staged" | grep -q '^frontend/'; then
-  exit 0
-fi
+[ -z "$staged" ] && exit 0
 
 root=$(git rev-parse --show-toplevel)
 
-# 通配出前端自检脚本逐个跑——**不许写死名单**：写死过一次，新脚本就静默绕过了闸。
-present=0
-for script in "$root/frontend/scripts/"check-*.mjs; do
-  [ -f "$script" ] && present=1
+# ---------------------------------------------------------------- ① 基线文档不许链进 .scratch/
+#
+# 这条规则写在 docs/agents/issue-tracker.md 里（"Production code and the baseline docs ... must not
+# link into .scratch/"），但它是**机械规则**——固定文件名里出现固定模式，grep 就能判，不该靠人眼。
+# 曾经真的违反过：三份基线文档都留着指向 .scratch/ 里工单的链接，最后是评审子代理读出来的。
+#
+# 判的是**暂存内容**（git show :path）而不是工作区文件：提交的是哪一版就查哪一版，
+# 不会因为工作区另有改动而误报，也不会因为文件已被删而漏报。
+#
+# 模式要求 `.scratch/` 后面紧跟一个**字母或数字**（真 slug 的起手），因此
+# `CLAUDE.md` §Agent skills 里那句 `.scratch/<feature-slug>/` **不会命中**——那是登记
+# "spec 放在哪"的模板，不是指向某个 spec 的引用；要拦的正是后者（`.scratch/session-fact-and-paging/…`）。
+scratch_hits=""
+for f in $staged; do
+  case "$f" in
+    CLAUDE.md | 总体架构与链路设计.md | .claude/rules/*)
+      # spec 是时点产物、基线不是；口径要写成本文，不留路径
+      if git show :"$f" 2>/dev/null | grep -qE '\.scratch/[A-Za-z0-9]'; then
+        scratch_hits="$scratch_hits $f"
+      fi
+      ;;
+  esac
 done
-if [ "$present" -eq 0 ]; then
-  # 这些脚本还没落到这棵树上（例如从更早的分支提交），不拦。
-  exit 0
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "✗ 找不到 node，无法跑前端自检（npm run check）。" >&2
-  echo "  装好 Node 后重试；确需绕过：git commit --no-verify" >&2
-  exit 1
-fi
-
-failed=""
-for script in "$root/frontend/scripts/"check-*.mjs; do
-  [ -f "$script" ] || continue
-  if ! (cd "$root/frontend" && node "scripts/$(basename "$script")"); then
-    failed="$failed $(basename "$script")"
-  fi
-done
-
-if [ -n "$failed" ]; then
+if [ -n "$scratch_hits" ]; then
   echo "" >&2
-  echo "✗ 前端自检未通过，提交已拒绝（失败条目见上）：$failed" >&2
-  echo "  自检命令：cd frontend && npm run check" >&2
+  echo "✗ 基线文档不许链进 .scratch/（规则见 docs/agents/issue-tracker.md）：$scratch_hits" >&2
+  echo "  spec 是时点产物、基线文档不是。把结论写成本文，别留指向 .scratch/ 的路径。" >&2
   echo "  确认是误报才绕过：git commit --no-verify" >&2
   exit 1
+fi
+
+# ---------------------------------------------------------------- ② 前端纯规则自检
+
+if printf '%s\n' "$staged" | grep -q '^frontend/'; then
+  # 通配出前端自检脚本逐个跑——**不许写死名单**：写死过一次，新脚本就静默绕过了闸。
+  present=0
+  for script in "$root/frontend/scripts/"check-*.mjs; do
+    [ -f "$script" ] && present=1
+  done
+  if [ "$present" -eq 0 ]; then
+    # 这些脚本还没落到这棵树上（例如从更早的分支提交），不拦。
+    :
+  else
+    if ! command -v node >/dev/null 2>&1; then
+      echo "✗ 找不到 node，无法跑前端自检（npm run check）。" >&2
+      echo "  装好 Node 后重试；确需绕过：git commit --no-verify" >&2
+      exit 1
+    fi
+
+    failed=""
+    for script in "$root/frontend/scripts/"check-*.mjs; do
+      [ -f "$script" ] || continue
+      if ! (cd "$root/frontend" && node "scripts/$(basename "$script")"); then
+        failed="$failed $(basename "$script")"
+      fi
+    done
+    if [ -n "$failed" ]; then
+      echo "" >&2
+      echo "✗ 前端自检未通过，提交已拒绝（失败条目见上）：$failed" >&2
+      echo "  自检命令：cd frontend && npm run check" >&2
+      echo "  确认是误报才绕过：git commit --no-verify" >&2
+      exit 1
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------- ③ 后端编译
+#
+# 为什么是编译而不是 `mvn test`：CLAUDE.md §6 把"后端编译通过"列为提交线、把全量测试列为
+# "功能完成后"的动作，两者不该混在一起——每次后端提交都跑 40–60s 全量测试，很快就没人肯提交。
+# 而编译正是本次真漏过两次的那类失败（少传一个参数、少写一个右括号），`test-compile` 一秒就能抓住。
+#
+# 模块是**从暂存路径推出来**的（backend/<模块>/...），不是写死的清单：新增模块自动受保护。
+if printf '%s\n' "$staged" | grep -q '^backend/'; then
+  if ! command -v mvn >/dev/null 2>&1; then
+    echo "✗ 找不到 mvn，无法编译后端。" >&2
+    echo "  装好 Maven 后重试；确需绕过：git commit --no-verify" >&2
+    exit 1
+  fi
+
+  # backend/<模块>/... → 去重后用逗号连接喂给 -pl；-am 带上被依赖的模块（改了 common 就得重编下游）
+  mods=$(printf '%s\n' "$staged" | sed -n 's|^backend/\([^/]*\)/.*|\1|p' | sort -u | paste -sd, -)
+  if [ -n "$mods" ]; then
+    # stdout 指定 UTF-8：这台机器上 Maven 控制台默认 GBK，javac 的中文错误会变成乱码，
+    # 而乱码会让人下意识跳过错误段——闸拦住了却看不懂为什么，等于没拦。
+    if ! (cd "$root/backend" && MAVEN_OPTS="-Dstdout.encoding=UTF-8" \
+         mvn -q -B -pl "$mods" -am test-compile); then
+      echo "" >&2
+      echo "✗ 后端编译未通过，提交已拒绝（受检模块：$mods）。" >&2
+      echo "  本地复现：cd backend && mvn -q -B -pl $mods -am test-compile" >&2
+      echo "  全量测试仍是功能完成后的动作：cd backend && mvn -B test" >&2
+      echo "  确认是误报才绕过：git commit --no-verify" >&2
+      exit 1
+    fi
+  fi
 fi
 
 exit 0
