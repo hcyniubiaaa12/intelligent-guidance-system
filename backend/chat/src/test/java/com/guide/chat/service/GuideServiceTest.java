@@ -43,6 +43,7 @@ import static org.mockito.Mockito.when;
 class GuideServiceTest {
 
     private GuideRecordMapper guideRecordMapper;
+    private ChatSessionMapper sessionMapper;
     private DeptService deptService;
     private RecommendableDepts recommendableDepts;
     private GuideService service;
@@ -50,7 +51,7 @@ class GuideServiceTest {
     @BeforeEach
     void setUp() {
         guideRecordMapper = mock(GuideRecordMapper.class);
-        ChatSessionMapper sessionMapper = mock(ChatSessionMapper.class);
+        sessionMapper = mock(ChatSessionMapper.class);
         deptService = mock(DeptService.class);
         recommendableDepts = mock(RecommendableDepts.class);
         SysConfigService sysConfigService = mock(SysConfigService.class);
@@ -153,6 +154,23 @@ class GuideServiceTest {
         assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
         assertThat(record.getConfidence()).isNull();        // 兜底科室无置信度
         assertThat(record.getLowConfidence()).isEqualTo(1); // 分流进盲区榜
+    }
+
+    @Test
+    @DisplayName("出卡即归零追问预算：ask_round 语义重定义为「距最近一张结论卡已追问几轮」（工单 05 ②）")
+    void conclusionResetsAskRound() {
+        ChatSession asked = session("s1");
+        asked.setAskRound(3); // 常见路径：预算用满才拿到结论
+
+        service.saveConclusion(asked, answer(), context(), "raw-output",
+                new GuideService.ProfileSnapshot(null, null, null));
+
+        // 同一个 updateById 里两个事实一起落：has_result=1 与 ask_round=0
+        ArgumentCaptor<ChatSession> captor = ArgumentCaptor.forClass(ChatSession.class);
+        verify(sessionMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getHasResult()).isEqualTo(1);
+        assertThat(captor.getValue().getAskRound()).isZero();
+        assertThat(asked.getAskRound()).isZero();
     }
 
     // ---------------------------------------------------------------- 夹具

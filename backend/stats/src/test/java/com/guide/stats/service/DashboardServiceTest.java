@@ -1,5 +1,6 @@
 package com.guide.stats.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.chat.entity.ChatMessage;
@@ -16,6 +17,7 @@ import com.guide.stats.dto.DashboardDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -26,6 +28,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -99,6 +102,28 @@ class DashboardServiceTest {
         DashboardDTO.KpiVO top3 = overview.getKpis().get(1);
         assertThat(top3.getValue()).isEqualTo("90.0%");
         assertThat(top3.getTone()).isEqualTo("up");
+    }
+
+    @Test
+    @DisplayName("准确率分母**按张计**：同一会话多条记录时，未挂号的那几张不进分母（工单 05 ③ 钉口径）")
+    void unbookedCardsAreNotInAccuracyDenominator() {
+        when(rootCauseMapper.selectList(any())).thenReturn(List.of());
+        when(guideRecordMapper.selectMaps(any()))
+                .thenReturn(List.of(hitsRow(1, 1, 1)))
+                .thenReturn(List.of())
+                .thenReturn(List.of());
+        when(reviewTaskMapper.selectCount(any())).thenReturn(0L);
+        when(guideRecordMapper.selectCount(any())).thenReturn(0L);
+
+        service.overview(7);
+
+        // 分母的 SQL 必须逐条过滤 actual_dept_id 与 low_confidence：一条会话可以出多张卡，
+        // 患者只给其中一张挂号 ⇒ 只有那张进分母，未挂号的几张既不进分母、也不会被算成"流失"
+        // （看板没有"流失/未确认"这类指标）。口径按张计，不需要"按会话去重"之类的第二套逻辑。
+        ArgumentCaptor<QueryWrapper<GuideRecord>> captor = ArgumentCaptor.forClass(QueryWrapper.class);
+        verify(guideRecordMapper, atLeastOnce()).selectMaps(captor.capture());
+        String sql = captor.getAllValues().get(0).getSqlSegment();
+        assertThat(sql).contains("actual_dept_id").contains("low_confidence");
     }
 
     @Test

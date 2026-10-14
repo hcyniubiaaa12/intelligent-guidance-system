@@ -7,9 +7,11 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 会话（链路 A）：一条主诉一个会话；挂号成功（register_success）即置 closed；
+ * 会话（链路 A）：一条主诉一个会话；**挂号成功（register_success）即置 closed，这是唯一的结束信号**；
  * 患者此后在同聊天页的新输入 = 开新会话（判定信号是会话状态，非模型语义判断）；
  * 一个聊天页可先后承载多个会话。
+ *
+ * <p>出结论（has_result=1）**不结束**会话：患者可在同一会话里继续补充症状（2026-10-14 定案，见工单 05）。
  */
 @Getter
 @Setter
@@ -20,10 +22,10 @@ public class ChatSession extends BaseEntity {
 
     private SessionStatus status;
 
-    /** 追问轮次 0–3 */
+    /** 距最近一张结论卡：已追问几轮（出卡时归零，语义见 GuideService.saveConclusion） */
     private Integer askRound;
 
-    /** 0/1 已出导诊结论（新主诉判定双信号之一：has_result=1 或 status=closed） */
+    /** 0/1 已出过导诊结论的事实标记——**不再是会话边界判据**（边界只看 status=closed） */
     private Integer hasResult;
 
     /**
@@ -35,8 +37,13 @@ public class ChatSession extends BaseEntity {
      */
     private Integer archived;
 
-    /** 是否可续聊（未出结论且未关闭）；否则下一条输入开新会话 */
+    /**
+     * 是否可续聊：**只看 status==ONGOING**（挂号置 CLOSED 是唯一的结束信号）。
+     *
+     * <p>出结论（has_result=1）不再是边界——患者可以紧接着补一句「那我该注意什么」，
+     * 这仍是同一次就诊的续聊，不该被当成新的一次就诊（要求重新声明部位、另开会话）。
+     */
     public boolean continuable() {
-        return status == SessionStatus.ONGOING && (hasResult == null || hasResult == 0);
+        return status == SessionStatus.ONGOING;
     }
 }

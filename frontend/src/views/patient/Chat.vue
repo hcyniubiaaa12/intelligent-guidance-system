@@ -300,8 +300,10 @@ const profileOpen = ref(false)
  *
  * 什么时候回到 awaiting（与后端「新主诉判定」同口径，**以后端状态为准**）：
  *   - startNew()：患者主动开新咨询；
- *   - done 事件带回 hasResult=1：已出结论，下一句输入就是新会话（追问轮、归档续聊不在此列——
- *     它们期间 partStage 一直是 locked，不会被拦）。
+ *   - 挂号成功那一刻（SimRegister.vue 的成功回调 → chat.reset()）：会话被置 closed，
+ *     这是会话**唯一**的结束信号（工单 05）。
+ *   出结论**不再**回 waiting：患者出结论后接着问仍是同一次就诊的续聊，
+ *   期间 partStage 一直是 locked、partsSubmitted 已为 true ⇒ 不重复带声明，两端一致。
  * 回放是只读的，根本没有输入框，天然不涉及门禁。
  */
 const parts = ref(emptyParts())
@@ -402,7 +404,13 @@ const marks = computed(() => replay.value?.questions || [])
 /** 正在看的是哪一条：看历史就是历史的，实时对话就是本轮的（侧栏据此高亮） */
 const activeSessionId = computed(() => replay.value?.session?.id || chat.sessionId || null)
 
-/** 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致 */
+/**
+ * 把 RecordService 的详情转成对话区能渲染的条目——与实时 SSE 出来的形状保持一致。
+ *
+ * 一条会话可以出**多张**结论卡（出结论后患者继续补充、模型再出结论，工单 05 定案）：
+ * 卡插回消息流的哪个位置由后端算好（CardVO.afterMessageIndex，规则只有一处 Java 实现），
+ * 前端只负责"插到这条消息之后"，**不再自己推位置**——同一份事实不许两处各算一次。
+ */
 function toReplayEntries(d) {
   // 会话前缀防止切换两份回放时复用另一会话的组件状态。
   const prefix = `r-${d.session?.id || activeSessionId.value || 'replay'}`
@@ -413,7 +421,24 @@ function toReplayEntries(d) {
     content: m.content,
     qNo: m.role === 'user' ? m.questionNo : undefined
   }))
-  if (d.card) out.push({ id: `${prefix}-card`, type: 'card', recordId: null, card: { ...d.card } })
+  // 卡按锚点分组，再**从后往前**插：往后插会让后面那些下标因为数组变长而错位
+  const lastIndex = Math.max(0, out.length - 1)
+  const byAnchor = new Map()
+  for (const c of d.cards || []) {
+    const at = Math.min(Math.max(Number(c.afterMessageIndex) || 0, 0), lastIndex)
+    byAnchor.set(at, [...(byAnchor.get(at) || []), c])
+  }
+  for (const at of [...byAnchor.keys()].sort((a, b) => b - a)) {
+    out.splice(
+      at + 1,
+      0,
+      ...byAnchor.get(at).map((c) => {
+        // afterMessageIndex 是回放位置，不是卡的内容，别混进 props
+        const { afterMessageIndex, ...card } = c
+        return { id: `${prefix}-card-${c.recordId}`, type: 'card', recordId: c.recordId, card }
+      })
+    )
+  }
   return out
 }
 
@@ -727,14 +752,10 @@ async function runTurn(content) {
         },
 
         // error 之后后端还会补一个 done：此时流式态已结束，重复收尾无害。
-        // hasResult=1 ⇒ 本会话已出结论，下一句输入就是**新会话**（后端「新主诉判定」）——
-        // 门禁据此回到等待态。这是"以后端状态为准"的落点：前端不自判是不是新主诉。
+        // 出结论**不再**把门禁摆回等待态（工单 05）：会话边界从"出结论"改成"挂号"（status=closed），
+        // 患者出结论后接着问「那我该注意什么」仍是同一次就诊的续聊，不该被要求重新声明部位。
+        // 归零门禁的唯一时机是挂号成功那一刻（见 SimRegister.vue 的成功回调 → chat.reset()）。
         onDone: ({ hasResult } = {}) => {
-          if (hasResult) {
-            parts.value = emptyParts()
-            partStage.value = 'awaiting'
-            partsSubmitted.value = false // 下一次就诊要重新声明，声明状态跟着门禁一起归零
-          }
           endTurn(bubble.content ? `助手已回复：${bubble.content.slice(0, 40)}` : '')
         },
 

@@ -252,7 +252,12 @@ public class ChatService {
             }
 
             // ③ 检索（查询改写 → 双路召回 → RRF → 精排）
-            boolean forceConclusion = askRound >= askMaxRounds;
+            // forceConclusion 的两半都必要：askRound 达到上限只是"该收口了"，而 !hasResult 才是
+            // "这条会话还没出过卡、收口有意义"。出卡后不再强制收口的原因（工单 05 ②）：
+            // 强制收口会兜底弹第二张卡，而一张补充后兜底出的低置信度卡会把患者原本要挂的那张
+            // （高置信度）卡的入口挡掉——前端只有最后一张卡能挂号（Chat.vue 的 can-register）。
+            boolean hasResult = session.getHasResult() != null && session.getHasResult() == 1;
+            boolean forceConclusion = !hasResult && askRound >= askMaxRounds;
             // 健康档案由 chat 读档组装成两段文本再传进 rag（rag 不感知业务状态，不查档案）：
             //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
@@ -269,7 +274,7 @@ public class ChatService {
                     profileQuery == null ? "无" : profileQuery.length() + " 字",
                     parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
-                    askRound, forceConclusion,
+                    forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
                     profileText, profileQuery, parts);
@@ -416,8 +421,11 @@ public class ChatService {
     }
 
     /**
-     * 会话状态机（新主诉判定双信号）：请求带的会话可续聊（ongoing 且未出结论）则续聊，
+     * 会话状态机（新主诉判定**单信号**：只认挂号）：请求带的会话未关闭（ongoing）则续聊，
      * 否则开新会话——判定是状态机字段，不做模型语义判断。
+     *
+     * <p>出结论不再是边界（2026-10-14 定案，工单 05）：出卡之后患者再说话仍是同一次就诊的续聊，
+     * 不新建会话、不要求重新声明部位。
      */
     private SessionResolution resolveSession(String userId, String sessionId) {
         if (StringUtils.hasText(sessionId)) {
@@ -466,8 +474,15 @@ public class ChatService {
     }
 
     /**
-     * 是否仍是本会话的首条主诉：用状态机信号判定（尚未追问、尚未出结论），
-     * 不用消息条数——被敏感词拦截的消息也会落库，按条数判定会让规则门槛在拦截后失效。
+     * 是否仍是本会话的首条主诉：**首轮只算会话的第一条**（askRound==0 且 has_result!=1）。
+     *
+     * <p>为什么用状态机信号而不是消息条数——被敏感词拦截的消息也会落库，按条数判定会让规则门槛在拦截后失效。
+     *
+     * <p><b>为什么 {@code has_result != 1} 这一半必须保留（工单 05 ② 的咬合点）</b>：
+     * {@code saveConclusion} 出卡时会把 {@code ask_round} 归零，于是"出卡后的下一轮"必然满足
+     * {@code askRound==0}——若这里只看 {@code askRound==0}，那一轮就会被判成**首轮** ⇒ 声明被重新采纳、
+     * 模板追问回来（位置信息其实早已在上下文里，见 {@link #resolveParts} 的注释）。
+     * 保留之后它的语义自洽：**首轮 = 会话的第一条**（会话首条也可能直接出结论，此时 askRound==0 而 has_result==1）。
      */
     private boolean isFirstTurn(ChatSession session) {
         int askRound = session.getAskRound() == null ? 0 : session.getAskRound();

@@ -9,8 +9,7 @@ import java.util.List;
  * @param query           本轮患者输入（原始主诉 / 补充信息）
  * @param history         本会话历史消息（不含本轮），多轮时用于查询改写
  * @param deptOptions     候选科室（enabled=1），Prompt 中限定推荐范围
- * @param askRound        已追问轮次（达到上限时不允许再追问）
- * @param forceConclusion 是否强制出结论（追问超限）
+ * @param forceConclusion 是否强制出结论（追问超限且**本会话尚未出过结论**，由 chat 判定后传入）
  * @param topK            单路召回条数（向量 / ES 各取 topK）
  * @param topN            精排后进入 Prompt 的片段数
  * @param profileText     患者健康档案的**待注入文本**（可选背景，非检索语料）；为空即无档案。
@@ -23,12 +22,14 @@ import java.util.List;
  *                        只服务<b>新会话的首条输入</b>，进模型上下文让模型知道位置已确认、不必再追问部位；
  *                        <b>不参与检索</b>——检索只用 query，患者那句话里已经含部位词。
  *                        它<b>不产生结论权</b>：患者标的位置只是范围信息，推荐哪个科室仍由知识片段与候选清单决定
+ *
+ * <p>注意：追问轮次（{@code ask_round}）**不再是入参**——rag 从无任何消费者读它，曾经传进来是死字段
+ * （2026-10-14 工单 05 核实后删除）。rag 侧"该不该追问"只由 {@code forceConclusion} 一个开关决定。
  */
 public record RagRequest(
         String query,
         List<RagTurn> history,
         List<DeptOption> deptOptions,
-        int askRound,
         boolean forceConclusion,
         int topK,
         int topN,

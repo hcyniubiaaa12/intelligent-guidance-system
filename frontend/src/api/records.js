@@ -18,9 +18,10 @@ export function listSessions() {
 /**
  * 一条会话的完整回放。
  * resolve = { session, messages: [{ role, content, at, questionNo }],
- *             questions: [{ no, content, at }], card }
+ *             questions: [{ no, content, at }], cards: [CardVO] }
  * questions 是「用户问题」书签的锚点（role=user 的消息，按时间从 1 编号），
- * card 为 null 表示这条会话没出结论。
+ * cards 是这条会话出过的**每一张**结论卡（可能多张，按 afterMessageIndex 插回消息流对应位置）；
+ * 为空数组表示这条会话没出结论。
  */
 export function sessionDetail(id) {
   return http.get(`/records/sessions/${id}`)
