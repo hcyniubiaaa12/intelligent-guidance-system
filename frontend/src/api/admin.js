@@ -156,6 +156,11 @@ export function updateKbTerm(termId, data) {
   return http.put(`/admin/kb/terms/${termId}`, data)
 }
 
+// 删除术语：逻辑删除（不是停用），同词重新新增即恢复；历史导诊记录读证据快照、不受影响
+export function deleteKbTerm(termId) {
+  return http.delete(`/admin/kb/terms/${termId}`)
+}
+
 // —— 审核队列（链路 C）——
 // 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数。
 // 这里单独放宽超时：聚合是同步跑批（每条记录还可能调一次 embedding），比普通 CRUD 慢得多，
