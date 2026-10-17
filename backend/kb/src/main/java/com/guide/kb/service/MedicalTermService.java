@@ -160,6 +160,50 @@ public class MedicalTermService {
     }
 
     /**
+     * 编辑术语（管理端「编辑」）：只改**词面 + 类型**，{@code source} 与 {@code enabled} 一律保持原值。
+     *
+     * <p><b>为什么不接收启用状态</b>：启停已有独立的 toggle 入口，同一件事给两个入口，管理员就再也
+     * 说不清"我刚改的到底生效没有"。
+     *
+     * <p><b>为什么 source 不动</b>：来源是**审计标签**（这个词最初是模型抽取的还是人加的）。
+     * 模型抽取的词被人工改一次词面就洗成「人工维护」，以后就答不上"这条到底是模型提的还是人加的"。
+     *
+     * <p><b>判重必须是「另一行」</b>：{@code (term, type)} 是物理唯一键，但它允许目标行自己保持原键。
+     * 所以不能直接 {@code countIncludingDeleted}（会把目标行算进去），要走
+     * {@link MedicalTermMapper#otherRowDeleted}。撞活跃行与撞已删除行的文案必须分开——
+     * 后者管理员在列表里根本看不见，只说"已存在"等于让他无从下手。
+     */
+    public MedicalTerm update(String id, String term, TermType type) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语类型仅支持 part/symptom");
+        }
+        // selectById 受 @TableLogic 约束：已删除行查不到，这里要的正是"不存在（含已删除）"
+        MedicalTerm target = medicalTermMapper.selectById(id);
+        if (target == null) {
+            throw new BizException(ErrorCode.TERM_NOT_FOUND);
+        }
+        String text = validateTerm(term);
+        String typeCode = type.getCode();
+        Integer otherDeleted = medicalTermMapper.otherRowDeleted(text, typeCode, id);
+        if (otherDeleted != null) {
+            throw new BizException(ErrorCode.TERM_EXISTS.getCode(), Integer.valueOf(1).equals(otherDeleted)
+                    ? "该术语曾被删除，请直接在新增里填写以恢复"
+                    : "该术语已存在");
+        }
+        target.setTerm(text);
+        target.setType(type);
+        try {
+            medicalTermMapper.updateById(target);
+        } catch (DataIntegrityViolationException e) {
+            // 并发：另一个请求在判重之后、写库之前占了同一个键
+            throw new BizException(ErrorCode.TERM_EXISTS.getCode(), "该术语已存在");
+        }
+        refresh();
+        log.info("术语 {} 已编辑为「{}」（{}），来源与启停状态保持不变", id, text, typeCode);
+        return target;
+    }
+
+    /**
      * 词面校验：trim 后 2–20 字，拒绝内部空白与换行。
      * 内部空白/换行会让一个词在页面上看着是两个词，子串匹配也永远命不中它。
      */

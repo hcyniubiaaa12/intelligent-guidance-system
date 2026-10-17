@@ -37,4 +37,21 @@ public interface MedicalTermMapper extends BaseMapper<MedicalTerm> {
     @Update("UPDATE medical_term SET deleted = 0, enabled = 1, updated_at = NOW() "
             + "WHERE term = #{term} AND type = #{type} AND deleted = 1")
     int revive(@Param("term") String term, @Param("type") String type);
+
+    /**
+     * 编辑时的「另一行」判重：取**除目标行以外**、物理存在的同键行的 {@code deleted} 标志。
+     *
+     * <p>三个返回值各有含义：{@code null} = 没有另一行（不冲突）；{@code 0} = 另一行是活跃行；
+     * {@code 1} = 另一行是**已被逻辑删除**的行——管理员在列表里看不到它，报"已存在"会让他无从下手，
+     * 文案要指向"用新增恢复"。用一条 SQL 同时回答"有没有"和"是哪种"，避免两次查询之间状态漂移。
+     *
+     * <p>**不能用 {@code countIncludingDeleted} 判**：它会把**目标行自己**算进去，编辑时永远是
+     * "已存在"。也不能用 {@code selectOne} 之类框架语句——{@code @TableLogic} 会加上
+     * {@code deleted = 0}，看不见已删除的另一行。
+     *
+     * <p>值域上文已保证 {@code (term, type)} 在物理行里最多一条，故取 {@code MAX} 只是为了拿单值。
+     */
+    @Select("SELECT MAX(deleted) FROM medical_term WHERE term = #{term} AND type = #{type} AND id <> #{excludeId}")
+    Integer otherRowDeleted(@Param("term") String term, @Param("type") String type,
+                            @Param("excludeId") String excludeId);
 }
