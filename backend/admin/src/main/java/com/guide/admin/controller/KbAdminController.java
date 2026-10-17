@@ -121,6 +121,12 @@ public class KbAdminController {
         return Result.ok(kbAdminService.terms(keyword, enabled, page, size));
     }
 
+    /** 新增术语：默认人工维护、立即生效（领域规则在 kb，含物理判重与复活） */
+    @PostMapping("/terms")
+    public Result<KbAdminDTO.TermVO> createTerm(@Valid @RequestBody KbAdminDTO.TermReq request) {
+        return Result.ok(kbAdminService.createTerm(request));
+    }
+
     /** 启用/停用术语：立即刷新内存白名单（chat 入口的防误杀闸门） */
     @PostMapping("/terms/{termId}/toggle")
     public Result<KbAdminDTO.TermVO> toggleTerm(@PathVariable String termId) {
