@@ -168,6 +168,19 @@ public final class KbAdminDTO {
         private String type;
     }
 
+    /**
+     * 批量启用待确认术语（管理端「待确认 N · 全部启用」）：前端把这 N 条的 id 交上来。
+     *
+     * <p><b>为什么是 id 清单而不是"全部"</b>：「全部启用」是不可撤销的大动作，而 id 清单让
+     * "这次会动哪些词"在请求里就是确定的——前端照着待确认计数取的那一页传，数量不会因并发而漂移。
+     * 上限 500 由编排层拦（防一次误点全库）。
+     */
+    @Getter
+    @Setter
+    public static class TermBatchEnableReq {
+        private List<String> ids;
+    }
+
     /** 分页结果（与其他管理端接口同一形状） */
     @Getter
     @Setter

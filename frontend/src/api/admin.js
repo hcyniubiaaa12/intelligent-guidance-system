@@ -137,10 +137,19 @@ export function pageKbMappings(params) {
   return http.get('/admin/kb/mappings', { params })
 }
 
-// 术语白名单（含停用）
+// 术语白名单（含停用）：source = llm_extract / manual，与 keyword、enabled 组合。
+// 「待确认」= source=llm_extract + enabled=false，两个条件都要带——只用 enabled=false
+// 会把管理员故意停用的人工词也算进去，那个数字会骗人
 export function pageKbTerms(params) {
   return http.get('/admin/kb/terms', { params })
 }
+
+// 批量启用待确认术语：ids 是当前待确认清单的 id，上限 500（后端拦）。
+// 只对「模型抽取且未生效」的行生效，人工词与人工停用的词会被跳过——返回值是**实际**启用条数
+export function batchEnableKbTerms(ids) {
+  return http.post('/admin/kb/terms/batch-enable', { ids })
+}
+
 
 export function toggleKbTerm(termId) {
   return http.post(`/admin/kb/terms/${termId}/toggle`)
@@ -159,6 +168,16 @@ export function updateKbTerm(termId, data) {
 // 删除术语：逻辑删除（不是停用），同词重新新增即恢复；历史导诊记录读证据快照、不受影响
 export function deleteKbTerm(termId) {
   return http.delete(`/admin/kb/terms/${termId}`)
+}
+
+// —— 知识库页参数（sys_config 的 KB 组：切分三档 + 术语人工审核开关）——
+// 审核开关与术语列表同页：抽出了什么 / 要不要我确认，是一件事的两半
+export function getKbParams() {
+  return http.get('/admin/kb/params')
+}
+
+export function saveKbParams(items) {
+  return http.put('/admin/kb/params', { items })
 }
 
 // —— 审核队列（链路 C）——

@@ -44,12 +44,18 @@ public class SysConfigAdminService {
      * 分组只是呈现归属，写入校验一律走同一份白名单——分组不是权限边界。
      */
     public enum ParamGroup {
-        /** 链路参数：检索/追问/聚合/术语审核（LLM 配置页「检索与聚合参数」） */
+        /** 链路参数：检索/追问/聚合/档案上限（LLM 配置页「检索与聚合参数」） */
         LINK,
         /** 敏感词处置：统计窗口与警告/禁言阈值（用户管理页「敏感词库 → 处置规则」） */
         SENSITIVE,
-        /** 文档切分：目标长度/上限/模型切触发（知识库管理页，`chunk_broken` 的修复动作靠它） */
-        CHUNK
+        /**
+         * 知识库页参数：文档切分三档（`chunk_broken` 的修复动作靠它）+ **术语人工审核开关**
+         * （与「哪些词被抽出来」同页——"抽出了什么"和"要不要我确认"是一件事的两半）。
+         *
+         * <p><b>为什么叫 KB 而不是 CHUNK</b>：这一组现在装着切分参数与术语开关两类东西，
+         * 叫 CHUNK 会名不副实（一个叫切分却装术语开关的分组，下一个人一定会建第二个分组）。
+         */
+        KB
     }
 
     /**
@@ -76,7 +82,7 @@ public class SysConfigAdminService {
             new ParamSpec(SysConfigService.KEY_LOW_CONFIDENCE, "低置信度分流阈值", ParamType.DECIMAL, 0, 1, "0.5",
                     "0–1", "低于此值不进聚合，进盲区榜", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_TERM_MANUAL_REVIEW, "术语人工审核开关", ParamType.BOOL, 0, 0, "true",
-                    "", "开启后术语白名单变更需人工确认", ParamGroup.LINK),
+                    "", "开启后模型抽取的术语默认待确认，需在本页「全部启用」；关闭则抽取即生效", ParamGroup.KB),
             new ParamSpec(SysConfigService.KEY_PROFILE_TAG_MAX, "档案标签条数上限", ParamType.INT, 1, 50,
                     String.valueOf(SysConfigService.DEFAULT_PROFILE_TAG_MAX),
                     "1–50", "健康档案每类标签（既往病史/长期用药/过敏史）最多可选条数", ParamGroup.LINK),
@@ -98,13 +104,13 @@ public class SysConfigAdminService {
                     "1–1440", "到期自动解除，无需人工操作", ParamGroup.SENSITIVE),
             new ParamSpec(SysConfigService.KEY_CHUNK_TARGET_LENGTH, "目标切片长度（字）", ParamType.INT, 50, 4000,
                     String.valueOf(SysConfigService.DEFAULT_CHUNK_TARGET_LENGTH),
-                    "50–4000", "递归切尽量往它靠；也是产出校验的基准（下限为其 1/4）", ParamGroup.CHUNK),
+                    "50–4000", "递归切尽量往它靠；也是产出校验的基准（下限为其 1/4）", ParamGroup.KB),
             new ParamSpec(SysConfigService.KEY_CHUNK_MAX_LENGTH, "单切片上限（字）", ParamType.INT, 100, 8000,
                     String.valueOf(SysConfigService.DEFAULT_CHUNK_MAX_LENGTH),
-                    "100–8000", "超过它必走递归切；须不小于目标长度", ParamGroup.CHUNK),
+                    "100–8000", "超过它必走递归切；须不小于目标长度", ParamGroup.KB),
             new ParamSpec(SysConfigService.KEY_CHUNK_MODEL_MIN_LENGTH, "模型切触发长度（字）", ParamType.INT, 200, 20000,
                     String.valueOf(SysConfigService.DEFAULT_CHUNK_MODEL_MIN_LENGTH),
-                    "200–20000", "无标题的连续文本达到它才调模型切；须不小于上限", ParamGroup.CHUNK));
+                    "200–20000", "无标题的连续文本达到它才调模型切；须不小于上限", ParamGroup.KB));
 
     /** 校验通过、待写入的一项（校验阶段产出，写入阶段消费） */
     private record Resolved(ParamSpec spec, String value) {
@@ -203,7 +209,12 @@ public class SysConfigAdminService {
      * <p>同样只在本次提交涉及这三个键时才校验。
      */
     private void checkChunkLengths(List<Resolved> resolved) {
-        boolean touched = resolved.stream().anyMatch(item -> item.spec().group() == ParamGroup.CHUNK);
+        // 只认切分那三个键，**不能按分组判**：分组里还装着术语审核开关，
+        // 按分组判会让"只改审核开关"也去读三个切分值做校验（无害但语义是错的，日后加键时会出事）
+        boolean touched = resolved.stream().anyMatch(item ->
+                SysConfigService.KEY_CHUNK_TARGET_LENGTH.equals(item.spec().key())
+                        || SysConfigService.KEY_CHUNK_MAX_LENGTH.equals(item.spec().key())
+                        || SysConfigService.KEY_CHUNK_MODEL_MIN_LENGTH.equals(item.spec().key()));
         if (!touched) {
             return;
         }
