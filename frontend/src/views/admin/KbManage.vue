@@ -224,6 +224,7 @@
           白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，ES 聚合只是候选池
         </span>
         <span class="a-panel__hint" style="margin-left: auto">共 {{ termPage.total }} 条</span>
+        <button class="a-btn" @click="openTermCreate">新 增 术 语</button>
       </div>
       <el-table v-loading="termLoading" :data="terms" empty-text="白名单为空">
         <el-table-column prop="term" label="术语" min-width="160" />
@@ -377,6 +378,29 @@
       </template>
     </el-dialog>
 
+    <!-- 新增术语弹窗（沿用科室弹窗范式：字段只有词面与类型，启停不在这里） -->
+    <el-dialog v-model="termEditVisible" title="新增术语" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="术语">
+          <el-input v-model="termForm.term" placeholder="2–20 个字，不含空格或换行" @keyup.enter="submitTerm" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="termForm.type" style="width: 100%">
+            <el-option label="部位" value="part" />
+            <el-option label="症状" value="symptom" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <div class="a-field__hint">
+        新增即启用，chat 入口判定立即生效。单字会被拒绝——白名单用子串匹配，单字会让几乎所有主诉都被判「含医学术语」。
+        同一个词可以同时作为「部位」与「症状」各占一行。
+      </div>
+      <template #footer>
+        <el-button @click="termEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="termSaving" @click="submitTerm">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 切片抽屉 -->
     <el-drawer v-model="chunksVisible" :title="chunksTitle" size="620px">
       <div v-if="chunksLoading" class="a-empty">加载中…</div>
@@ -427,7 +451,7 @@ import { Close, Document, UploadFilled } from '@element-plus/icons-vue'
 import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
-  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
+  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm
 } from '../../api/admin'
 
 const tabs = [
@@ -938,6 +962,36 @@ async function onToggleTerm(row) {
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
   } catch (e) {
     ElMessage.error(errText(e))
+  }
+}
+
+const termEditVisible = ref(false)
+const termSaving = ref(false)
+const termForm = reactive({ term: '', type: 'symptom' })
+
+/** 新增：空表单。类型默认「症状」——真实主诉里补得最多的是口语症状词 */
+function openTermCreate() {
+  Object.assign(termForm, { term: '', type: 'symptom' })
+  termEditVisible.value = true
+}
+
+async function submitTerm() {
+  termSaving.value = true
+  try {
+    const created = await createKbTerm({ term: termForm.term, type: termForm.type })
+    termEditVisible.value = false
+    // 清空筛选并回到第 1 页：否则新词可能落在筛选条件外，管理员看不到自己刚加的东西、以为没成功
+    termQuery.keyword = ''
+    termQuery.enabled = ''
+    termPage.current = 1
+    await loadTerms()
+    const typeLabel = created.type === 'part' ? '部位' : '症状'
+    ElMessage.success(`术语「${created.term}」（${typeLabel}）已新增，入口校验即时生效`)
+  } catch (e) {
+    // 校验/判重的规则在 kb：直接用后端文案，前端不另拼一套判断
+    ElMessage.error(errText(e))
+  } finally {
+    termSaving.value = false
   }
 }
 
