@@ -75,13 +75,23 @@ public class MedicalTermService {
         log.info("医学术语白名单已刷新，启用术语 {} 条", enabledTerms().size());
     }
 
-    /** 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用） */
+    /**
+     * 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用）。
+     *
+     * <p><b>排序 = 最新在前</b>：管理员加完一个词，它应当出现在第一页第一条——
+     * 否则他得先想"这个词该排在哪"才能确认自己加成功了。
+     *
+     * <p><b>为什么必须有 id 兜底</b>：`created_at` 是秒级 `DATETIME`，同一秒插入的行时间戳完全相同
+     * （种子那批 72 条就是同一个时间戳）。只按时间排，同秒行之间的顺序由数据库决定，
+     * 翻页时可能同一条出现两次或一条都看不到。雪花 id 单调递增，`id DESC` 能把同秒行也定死。
+     */
     public IPage<MedicalTerm> page(String keyword, Boolean enabled, long pageNum, long pageSize) {
         return medicalTermMapper.selectPage(new Page<>(pageNum, pageSize),
                 Wrappers.<MedicalTerm>lambdaQuery()
                         .like(keyword != null && !keyword.isBlank(), MedicalTerm::getTerm, keyword)
                         .eq(enabled != null, MedicalTerm::getEnabled, Boolean.TRUE.equals(enabled) ? 1 : 0)
-                        .orderByAsc(MedicalTerm::getTerm));
+                        .orderByDesc(MedicalTerm::getCreatedAt)
+                        .orderByDesc(MedicalTerm::getId));
     }
 
     /**

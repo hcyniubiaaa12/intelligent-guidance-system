@@ -326,6 +326,40 @@ class MedicalTermServiceTest {
         verify(medicalTermMapper, never()).deleteById(any(String.class));
     }
 
+    // ---------- 列表排序 ----------
+
+    @Test
+    @DisplayName("列表按时间倒序、id 兜底：新加的词出现在第一页，同秒插入的行也不会翻页错乱")
+    void pageOrdersByCreatedAtThenIdDesc() {
+        // lambda 版 Wrapper 解析列名要查 MyBatis-Plus 的实体元数据；纯单测没有 Spring 上下文，
+        // 得手工注册一次（否则 getSqlSegment() 抛 "can not find lambda cache"）
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new org.apache.ibatis.session.Configuration(), ""),
+                MedicalTerm.class);
+
+        service.page(null, null, 1, 10);
+
+        String sql = captureWrapper().getSqlSegment().toLowerCase();
+        // 顺序有讲究：时间优先、id 只负责把同一秒内的顺序定死（种子那 72 条共用一个时间戳）。
+        // 反成「先按 id 排」虽然同秒也稳定，但语义就变成"谁先入库谁在下"，与"最新在前"相反。
+        // 这里只断言排序键与方向，不断言列名写法——单测没有 MyBatis 的列名映射，
+        // 属性名会被原样带出（createdat）；运行期由 MyBatis-Plus 映射成 created_at。
+        assertThat(sql).contains("order by").contains("createdat desc").contains("id desc");
+        assertThat(sql.indexOf("createdat")).isLessThan(sql.indexOf("id desc"));
+        // 词面排序已废弃：按词面排，新加的词会落到中间，管理员看不见自己刚加的东西
+        assertThat(sql).doesNotContain("term asc");
+    }
+
+    /** 抓取 selectPage 收到的 wrapper（只关心它带的排序条件） */
+    @SuppressWarnings("unchecked")
+    private com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm> captureWrapper() {
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(medicalTermMapper).selectPage(any(), captor.capture());
+        return captor.getValue();
+    }
+
     private MedicalTerm term(String id, String text, int enabled) {
         return term(id, text, TermType.SYMPTOM, enabled);
     }
