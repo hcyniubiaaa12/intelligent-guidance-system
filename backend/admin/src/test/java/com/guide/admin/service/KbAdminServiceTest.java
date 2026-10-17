@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.async.service.IngestPipeline;
 import com.guide.async.service.IngestTaskService;
+import com.guide.common.api.ErrorCode;
+import com.guide.common.exception.BizException;
 import com.guide.common.model.LayoutBlock;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.entity.DeptMapping;
@@ -24,10 +26,12 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -125,6 +129,60 @@ class KbAdminServiceTest {
         assertThat(vo.getEnabled()).isEqualTo(1);
         assertThat(vo.getType()).isEqualTo("symptom");
         assertThat(vo.getSource()).isEqualTo("manual");
+    }
+
+    @Test
+    @DisplayName("新增术语：type 按 code 解析后交给 kb，返回 code 形状（前端不认大写常量名）")
+    void createTermMapsCodeAndReturnsCodeShape() {
+        when(medicalTermService.add("肚子疼", TermType.SYMPTOM))
+                .thenReturn(term("t9", "肚子疼", TermType.SYMPTOM, TermSource.MANUAL, 1));
+
+        KbAdminDTO.TermVO vo = service.createTerm(req("肚子疼", "symptom"));
+
+        verify(medicalTermService).add("肚子疼", TermType.SYMPTOM);
+        assertThat(vo.getId()).isEqualTo("t9");
+        assertThat(vo.getType()).isEqualTo("symptom");
+        assertThat(vo.getSource()).isEqualTo("manual");
+        assertThat(vo.getEnabled()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("新增术语：部位类型同样按 code 进出")
+    void createTermMapsPartType() {
+        when(medicalTermService.add("左腹部", TermType.PART))
+                .thenReturn(term("t8", "左腹部", TermType.PART, TermSource.MANUAL, 1));
+
+        assertThat(service.createTerm(req("左腹部", "part")).getType()).isEqualTo("part");
+    }
+
+    @Test
+    @DisplayName("新增术语：未知/缺失类型给可读的参数错误（不猜、不默认）")
+    void createTermRejectsUnknownType() {
+        for (String bad : new String[]{null, "", "unknown", "PARTT"}) {
+            assertThatThrownBy(() -> service.createTerm(req("肚子疼", bad)))
+                    .as("非法类型：[%s]", bad)
+                    .isInstanceOf(BizException.class)
+                    .extracting(e -> ((BizException) e).getCode())
+                    .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        }
+        verify(medicalTermService, never()).add(any(), any());
+    }
+
+    @Test
+    @DisplayName("新增术语：术语为空交给 kb 校验（编排层不重复一套规则）")
+    void createTermDelegatesBlankValidation() {
+        when(medicalTermService.add("  ", TermType.SYMPTOM))
+                .thenThrow(new BizException(ErrorCode.PARAM_INVALID));
+
+        assertThatThrownBy(() -> service.createTerm(req("  ", "symptom")))
+                .isInstanceOf(BizException.class);
+    }
+
+    private KbAdminDTO.TermReq req(String term, String type) {
+        KbAdminDTO.TermReq req = new KbAdminDTO.TermReq();
+        req.setTerm(term);
+        req.setType(type);
+        return req;
     }
 
     @Test

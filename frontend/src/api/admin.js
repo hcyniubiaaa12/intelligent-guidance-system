@@ -146,6 +146,11 @@ export function toggleKbTerm(termId) {
   return http.post(`/admin/kb/terms/${termId}/toggle`)
 }
 
+// 新增术语：默认人工维护、启用并立即进入入口判定（校验与判重在 kb，前端只透传后端文案）
+export function createKbTerm(data) {
+  return http.post('/admin/kb/terms', data)
+}
+
 // —— 审核队列（链路 C）——
 // 立即聚合：归桶是整点定时任务，演示与排查等不了那一小时。返回本次成功归桶的记录数。
 // 这里单独放宽超时：聚合是同步跑批（每条记录还可能调一次 embedding），比普通 CRUD 慢得多，
