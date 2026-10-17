@@ -245,8 +245,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="150">
           <template #default="{ row }">
+            <el-button link size="small" @click="openTermEdit(row)">编辑</el-button>
             <el-button link size="small" @click="onToggleTerm(row)">
               {{ row.enabled ? '停用' : '确认启用' }}
             </el-button>
@@ -378,8 +379,8 @@
       </template>
     </el-dialog>
 
-    <!-- 新增术语弹窗（沿用科室弹窗范式：字段只有词面与类型，启停不在这里） -->
-    <el-dialog v-model="termEditVisible" title="新增术语" width="420px">
+    <!-- 术语弹窗（新增与编辑共用一份表单状态：标题按是否带 id 切换） -->
+    <el-dialog v-model="termEditVisible" :title="termForm.id ? '编辑术语' : '新增术语'" width="420px">
       <el-form label-width="80px">
         <el-form-item label="术语">
           <el-input v-model="termForm.term" placeholder="2–20 个字，不含空格或换行" @keyup.enter="submitTerm" />
@@ -392,8 +393,13 @@
         </el-form-item>
       </el-form>
       <div class="a-field__hint">
-        新增即启用，chat 入口判定立即生效。单字会被拒绝——白名单用子串匹配，单字会让几乎所有主诉都被判「含医学术语」。
-        同一个词可以同时作为「部位」与「症状」各占一行。
+        <template v-if="termForm.id">
+          保存后判定立即生效；来源与启停状态保持不变——启停请用列表里的按钮，编辑这里不接管。
+        </template>
+        <template v-else>
+          新增即启用，chat 入口判定立即生效。单字会被拒绝——白名单用子串匹配，单字会让几乎所有主诉都被判「含医学术语」。
+          同一个词可以同时作为「部位」与「症状」各占一行。
+        </template>
       </div>
       <template #footer>
         <el-button @click="termEditVisible = false">取消</el-button>
@@ -451,7 +457,8 @@ import { Close, Document, UploadFilled } from '@element-plus/icons-vue'
 import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
-  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm
+  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm,
+  updateKbTerm
 } from '../../api/admin'
 
 const tabs = [
@@ -967,26 +974,42 @@ async function onToggleTerm(row) {
 
 const termEditVisible = ref(false)
 const termSaving = ref(false)
-const termForm = reactive({ term: '', type: 'symptom' })
+/** 新增与编辑共用：带 id 即编辑（预填当前行），不带即新增 */
+const termForm = reactive({ id: '', term: '', type: 'symptom' })
 
 /** 新增：空表单。类型默认「症状」——真实主诉里补得最多的是口语症状词 */
 function openTermCreate() {
-  Object.assign(termForm, { term: '', type: 'symptom' })
+  Object.assign(termForm, { id: '', term: '', type: 'symptom' })
+  termEditVisible.value = true
+}
+
+/** 编辑：预填当前行的词面与类型（启停不在这个表单里） */
+function openTermEdit(row) {
+  Object.assign(termForm, { id: row.id, term: row.term, type: row.type })
   termEditVisible.value = true
 }
 
 async function submitTerm() {
   termSaving.value = true
   try {
-    const created = await createKbTerm({ term: termForm.term, type: termForm.type })
-    termEditVisible.value = false
-    // 清空筛选并回到第 1 页：否则新词可能落在筛选条件外，管理员看不到自己刚加的东西、以为没成功
-    termQuery.keyword = ''
-    termQuery.enabled = ''
-    termPage.current = 1
-    await loadTerms()
-    const typeLabel = created.type === 'part' ? '部位' : '症状'
-    ElMessage.success(`术语「${created.term}」（${typeLabel}）已新增，入口校验即时生效`)
+    if (termForm.id) {
+      const updated = await updateKbTerm(termForm.id, { term: termForm.term, type: termForm.type })
+      termEditVisible.value = false
+      // 编辑是就地修正：**不动筛选、不回第 1 页**——管理员看着的那一行还在原处
+      await loadTerms()
+      const typeLabel = updated.type === 'part' ? '部位' : '症状'
+      ElMessage.success(`术语已改为「${updated.term}」（${typeLabel}），入口校验即时生效`)
+    } else {
+      const created = await createKbTerm({ term: termForm.term, type: termForm.type })
+      termEditVisible.value = false
+      // 清空筛选并回到第 1 页：否则新词可能落在筛选条件外，管理员看不到自己刚加的东西、以为没成功
+      termQuery.keyword = ''
+      termQuery.enabled = ''
+      termPage.current = 1
+      await loadTerms()
+      const typeLabel = created.type === 'part' ? '部位' : '症状'
+      ElMessage.success(`术语「${created.term}」（${typeLabel}）已新增，入口校验即时生效`)
+    }
   } catch (e) {
     // 校验/判重的规则在 kb：直接用后端文案，前端不另拼一套判断
     ElMessage.error(errText(e))
