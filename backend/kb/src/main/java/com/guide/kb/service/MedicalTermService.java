@@ -6,9 +6,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.MedicalTerm;
+import com.guide.kb.enums.TermSource;
+import com.guide.kb.enums.TermType;
 import com.guide.kb.mapper.MedicalTermMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -100,6 +103,80 @@ public class MedicalTermService {
     }
 
     private record CacheEntry(Set<String> terms, long loadedAt) {
+    }
+
+    /** 术语最短长度：单字一律拒绝，理由见 {@link #add} */
+    private static final int MIN_TERM_LENGTH = 2;
+
+    /** 术语最长长度（与 medical_term.term 的可用宽度对齐；超长必然是误粘贴，不是真实术语） */
+    private static final int MAX_TERM_LENGTH = 20;
+
+    /**
+     * 新增术语（管理端「新增术语」）：默认 {@code source = manual}、{@code enabled = 1}，
+     * **不受 {@code term.manual.review} 约束**——那个开关管的是"模型抽取的词要不要人工确认"，
+     * 人工亲手加的词已经过一次确认。
+     *
+     * <p><b>单字为什么拒绝</b>：信息充足性门槛（{@code SufficiencyRule.tooVague}）用**子串**匹配
+     * （{@link #matches}）。塞一个「痛」进白名单，几乎任何主诉都"命中术语"，门槛当场失真、
+     * 短主诉再也不被追问。现有种子里有「头 / 腹 / 心 / 肺」等单字，那是历史集合，
+     * **不构成新增时放行的先例**——本条注释就是防止后来者"顺手放开"的护栏。
+     *
+     * <p><b>判存在按物理行判</b>：`uk_mt_term_type` 是物理唯一键，逻辑删除的行仍占着它。
+     * 活跃行 → 报「已存在」；**仅有已删除行 → 复活**（`deleted=0`、`enabled=1`，`source` 保持原值）。
+     * 并发撞键兜底成同一个可展示错误，不冒 500。
+     */
+    public MedicalTerm add(String term, TermType type) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语类型仅支持 part/symptom");
+        }
+        String text = validateTerm(term);
+        String typeCode = type.getCode();
+        if (medicalTermMapper.countIncludingDeleted(text, typeCode) > 0) {
+            // 有物理行：要么是活跃行（报错），要么是已删除行（复活）。revive 的返回行数直接区分两者
+            if (medicalTermMapper.revive(text, typeCode) == 0) {
+                throw new BizException(ErrorCode.TERM_EXISTS);
+            }
+            refresh();
+            log.info("术语「{}」（{}）曾被删除，已复活并启用（来源保持原值）", text, typeCode);
+            return medicalTermMapper.selectOne(Wrappers.<MedicalTerm>lambdaQuery()
+                    .eq(MedicalTerm::getTerm, text)
+                    .eq(MedicalTerm::getType, type));
+        }
+
+        MedicalTerm entity = new MedicalTerm();
+        entity.setTerm(text);
+        entity.setType(type);
+        entity.setSource(TermSource.MANUAL);
+        entity.setEnabled(1);
+        try {
+            medicalTermMapper.insert(entity);
+        } catch (DataIntegrityViolationException e) {
+            // 并发：两个请求同时过了判存在，后到的那个撞唯一键
+            throw new BizException(ErrorCode.TERM_EXISTS);
+        }
+        refresh();
+        log.info("术语「{}」（{}）已新增并启用", text, typeCode);
+        return entity;
+    }
+
+    /**
+     * 词面校验：trim 后 2–20 字，拒绝内部空白与换行。
+     * 内部空白/换行会让一个词在页面上看着是两个词，子串匹配也永远命不中它。
+     */
+    private String validateTerm(String term) {
+        String text = term == null ? "" : term.strip();
+        if (text.length() < MIN_TERM_LENGTH) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "术语至少 2 个字（单字会让所有主诉都被判为含医学术语，信息充足性门槛失真）");
+        }
+        if (text.length() > MAX_TERM_LENGTH) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "术语最多 " + MAX_TERM_LENGTH + " 个字");
+        }
+        if (text.chars().anyMatch(Character::isWhitespace)) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语不能包含空格或换行");
+        }
+        return text;
     }
 
     private Set<String> load() {
