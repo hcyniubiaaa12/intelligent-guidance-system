@@ -286,6 +286,14 @@ public class KbAdminService {
         return toTermVO(medicalTermService.toggle(termId));
     }
 
+    /**
+     * 删除术语：**逻辑删除**（kb 侧走 {@code @TableLogic} 并立即刷新白名单）。
+     * 同词重新新增即复活，故不需要回收站；历史导诊记录读证据快照，不受影响。
+     */
+    public void deleteTerm(String termId) {
+        medicalTermService.remove(termId);
+    }
+
     /** 术语实体 → 前端形状（枚举一律出 code；新增/启停/分页共用这一处映射） */
     private KbAdminDTO.TermVO toTermVO(MedicalTerm term) {
         KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();

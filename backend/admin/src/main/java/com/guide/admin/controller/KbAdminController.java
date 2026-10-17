@@ -139,4 +139,11 @@ public class KbAdminController {
     public Result<KbAdminDTO.TermVO> toggleTerm(@PathVariable String termId) {
         return Result.ok(kbAdminService.toggleTerm(termId));
     }
+
+    /** 删除术语：逻辑删除，同词新增即恢复（领域规则在 kb） */
+    @DeleteMapping("/terms/{termId}")
+    public Result<Void> deleteTerm(@PathVariable String termId) {
+        kbAdminService.deleteTerm(termId);
+        return Result.ok();
+    }
 }

@@ -271,6 +271,39 @@ class MedicalTermServiceTest {
                 .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
     }
 
+    // ---------- 删除 ----------
+
+    @Test
+    @DisplayName("删除：走 deleteById（@TableLogic → UPDATE deleted=1，不物理删、不改 enabled），且当场从内存白名单里消失")
+    void removeDeletesLogicallyAndTakesEffectImmediately() {
+        MedicalTerm term = term("t1", "胸痛", 1);
+        when(medicalTermMapper.selectById("t1")).thenReturn(term);
+        // 删除前 load 命中；删除后 selectList（带 deleted=0）不再返回它
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term), List.of());
+
+        assertThat(service.enabledTerms()).contains("胸痛");
+
+        service.remove("t1");
+
+        // deleteById 是 MyBatis-Plus 的逻辑删除入口：实体带 @TableLogic，它发的是 UPDATE deleted=1。
+        // 若有人改成 updateById(enabled=0) 或自写物理 DELETE，这两条断言至少有一条会红
+        verify(medicalTermMapper).deleteById("t1");
+        verify(medicalTermMapper, never()).updateById(any());
+        assertThat(service.enabledTerms()).doesNotContain("胸痛");
+    }
+
+    @Test
+    @DisplayName("删除：目标行不存在（含已逻辑删除）→ 「术语不存在」，不写库")
+    void removeRejectsMissingTerm() {
+        when(medicalTermMapper.selectById("gone")).thenReturn(null);
+
+        assertThatThrownBy(() -> service.remove("gone"))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_NOT_FOUND.getCode());
+        verify(medicalTermMapper, never()).deleteById(any(String.class));
+    }
+
     private MedicalTerm term(String id, String text, int enabled) {
         return term(id, text, TermType.SYMPTOM, enabled);
     }
