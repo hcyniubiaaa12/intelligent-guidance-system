@@ -272,6 +272,15 @@ public class KbAdminService {
         return toTermVO(medicalTermService.add(req.getTerm(), type));
     }
 
+    /**
+     * 编辑术语：与新增同一条路径——**领域规则全在 kb**（校验、另一行判重、刷新白名单），
+     * 这里只做类型解析与 VO 映射。可改的只有词面与类型：启用状态走 toggle，来源保持原值。
+     */
+    public KbAdminDTO.TermVO updateTerm(String termId, KbAdminDTO.TermReq req) {
+        TermType type = parseTermType(req.getType());
+        return toTermVO(medicalTermService.update(termId, req.getTerm(), type));
+    }
+
     /** 启用/停用术语（kb 侧翻转并刷新内存白名单，chat 入口最长 60s 内也一定生效） */
     public KbAdminDTO.TermVO toggleTerm(String termId) {
         return toTermVO(medicalTermService.toggle(termId));

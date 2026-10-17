@@ -173,6 +173,104 @@ class MedicalTermServiceTest {
                 .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
     }
 
+    // ---------- 编辑 ----------
+
+    @Test
+    @DisplayName("编辑：新词面与新类型都落库，source / enabled 保持原值，白名单当场换成新词面")
+    void updateChangesTermAndTypeKeepingSourceAndEnabled() {
+        MedicalTerm original = term("t1", "反酸", TermType.PART, TermSource.LLM_EXTRACT, 1);
+        MedicalTerm afterUpdate = term("t1", "胃食管反流", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 1);
+        when(medicalTermMapper.selectById("t1")).thenReturn(original);
+        // 「另一行」= id 不等于目标 id 的物理行；这里没有冲突
+        when(medicalTermMapper.otherRowDeleted("胃食管反流", "symptom", "t1")).thenReturn(null);
+        when(medicalTermMapper.updateById(any(MedicalTerm.class))).thenReturn(1);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(original), List.of(afterUpdate));
+
+        assertThat(service.enabledTerms()).contains("反酸");
+
+        MedicalTerm updated = service.update("t1", "  胃食管反流  ", TermType.SYMPTOM);
+
+        ArgumentCaptor<MedicalTerm> saved = ArgumentCaptor.forClass(MedicalTerm.class);
+        verify(medicalTermMapper).updateById(saved.capture());
+        assertThat(saved.getValue().getTerm()).isEqualTo("胃食管反流");
+        assertThat(saved.getValue().getType()).isEqualTo(TermType.SYMPTOM);
+        // 来源是审计标签、启停有独立入口：编辑一次都不许把它们洗掉
+        assertThat(saved.getValue().getSource()).isEqualTo(TermSource.LLM_EXTRACT);
+        assertThat(saved.getValue().getEnabled()).isEqualTo(1);
+        assertThat(updated.getTerm()).isEqualTo("胃食管反流");
+        // 判定用的启用词集合当场换面（不等 60s TTL）
+        assertThat(service.enabledTerms()).contains("胃食管反流").doesNotContain("反酸");
+    }
+
+    @Test
+    @DisplayName("编辑：撞另一条活跃行 → 「该术语已存在」，不写库")
+    void updateRejectsActiveConflict() {
+        when(medicalTermMapper.selectById("t1")).thenReturn(term("t1", "反酸", TermType.SYMPTOM, 1));
+        when(medicalTermMapper.otherRowDeleted("胃痛", "symptom", "t1")).thenReturn(0);
+
+        assertThatThrownBy(() -> service.update("t1", "胃痛", TermType.SYMPTOM))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("该术语已存在")
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
+        verify(medicalTermMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("编辑：撞另一条已删除行 → 文案指向「用新增恢复」（列表里看不到那一行）")
+    void updateRejectsDeletedConflictPointingToCreate() {
+        when(medicalTermMapper.selectById("t1")).thenReturn(term("t1", "反酸", TermType.SYMPTOM, 1));
+        when(medicalTermMapper.otherRowDeleted("胃痛", "symptom", "t1")).thenReturn(1);
+
+        assertThatThrownBy(() -> service.update("t1", "胃痛", TermType.SYMPTOM))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("曾被删除")
+                .hasMessageContaining("新增")
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
+        verify(medicalTermMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("编辑：目标行不存在（含已逻辑删除）→ 「术语不存在」，不写库")
+    void updateRejectsMissingTerm() {
+        when(medicalTermMapper.selectById("gone")).thenReturn(null);
+
+        assertThatThrownBy(() -> service.update("gone", "胃痛", TermType.SYMPTOM))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_NOT_FOUND.getCode());
+        verify(medicalTermMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("编辑：词面校验与新增同一套（单字 / 内部空白一律参数错误），不写库")
+    void updateRejectsMalformedTerm() {
+        when(medicalTermMapper.selectById("t1")).thenReturn(term("t1", "反酸", TermType.SYMPTOM, 1));
+        for (String bad : new String[]{"   ", "痛", "腹 痛", "腹\n痛"}) {
+            assertThatThrownBy(() -> service.update("t1", bad, TermType.SYMPTOM))
+                    .as("非法输入：[%s]", bad)
+                    .isInstanceOf(BizException.class)
+                    .extracting(e -> ((BizException) e).getCode())
+                    .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        }
+        verify(medicalTermMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("编辑：并发撞唯一键兜底成「已存在」，不冒 500")
+    void updateConvertsConcurrentKeyClash() {
+        when(medicalTermMapper.selectById("t1")).thenReturn(term("t1", "反酸", TermType.SYMPTOM, 1));
+        when(medicalTermMapper.otherRowDeleted("胃痛", "symptom", "t1")).thenReturn(null);
+        when(medicalTermMapper.updateById(any(MedicalTerm.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("uk_mt_term_type"));
+
+        assertThatThrownBy(() -> service.update("t1", "胃痛", TermType.SYMPTOM))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
+    }
+
     private MedicalTerm term(String id, String text, int enabled) {
         return term(id, text, TermType.SYMPTOM, enabled);
     }
