@@ -127,6 +127,13 @@ public class KbAdminController {
         return Result.ok(kbAdminService.createTerm(request));
     }
 
+    /** 编辑术语：只改词面与类型；来源与启停状态保持原值（领域规则在 kb） */
+    @PutMapping("/terms/{termId}")
+    public Result<KbAdminDTO.TermVO> updateTerm(@PathVariable String termId,
+                                                @Valid @RequestBody KbAdminDTO.TermReq request) {
+        return Result.ok(kbAdminService.updateTerm(termId, request));
+    }
+
     /** 启用/停用术语：立即刷新内存白名单（chat 入口的防误杀闸门） */
     @PostMapping("/terms/{termId}/toggle")
     public Result<KbAdminDTO.TermVO> toggleTerm(@PathVariable String termId) {

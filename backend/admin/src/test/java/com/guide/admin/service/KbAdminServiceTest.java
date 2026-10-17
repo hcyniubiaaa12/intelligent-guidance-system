@@ -178,6 +178,31 @@ class KbAdminServiceTest {
                 .isInstanceOf(BizException.class);
     }
 
+    @Test
+    @DisplayName("编辑术语：type 按 code 解析后交给 kb，id 透传，返回 code 形状")
+    void updateTermMapsCodeAndReturnsCodeShape() {
+        when(medicalTermService.update("t1", "胃食管反流", TermType.SYMPTOM))
+                .thenReturn(term("t1", "胃食管反流", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 1));
+
+        KbAdminDTO.TermVO vo = service.updateTerm("t1", req("胃食管反流", "symptom"));
+
+        verify(medicalTermService).update("t1", "胃食管反流", TermType.SYMPTOM);
+        assertThat(vo.getId()).isEqualTo("t1");
+        assertThat(vo.getType()).isEqualTo("symptom");
+        // 来源仍显示模型抽取：编辑不洗审计标签
+        assertThat(vo.getSource()).isEqualTo("llm_extract");
+    }
+
+    @Test
+    @DisplayName("编辑术语：未知类型给可读的参数错误，不调 kb（不猜、不默认）")
+    void updateTermRejectsUnknownType() {
+        assertThatThrownBy(() -> service.updateTerm("t1", req("胃痛", "PARTT")))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        verify(medicalTermService, never()).update(any(), any(), any());
+    }
+
     private KbAdminDTO.TermReq req(String term, String type) {
         KbAdminDTO.TermReq req = new KbAdminDTO.TermReq();
         req.setTerm(term);
