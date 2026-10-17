@@ -350,7 +350,6 @@ ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;
 
 INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c01', 'cluster.bucket.threshold', '0.85', '聚合归桶阈值'),
-('c02', 'guide.upgrade.rounds',      '3',    '追问升级阈值（轮次）'),
 ('c03', 'guide.low.confidence',      '0.5',  '低置信度阈值'),
 ('c04', 'term.manual.review',        'true', '术语人工审核开关'),
 ('c05', 'retrieve.top.k',            '10',   '单路召回 Top-K（向量 / ES 各取）'),
