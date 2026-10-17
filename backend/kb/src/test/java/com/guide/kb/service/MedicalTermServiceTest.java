@@ -293,6 +293,28 @@ class MedicalTermServiceTest {
     }
 
     @Test
+    @DisplayName("删除 → 同词新增：走复活分支而不是 INSERT（逻辑删除留下物理行，正是恢复路径的前半段）")
+    void removeThenAddRevivesSameRow() {
+        MedicalTerm term = term("t1", "胸痛", 1);
+        when(medicalTermMapper.selectById("t1")).thenReturn(term);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term), List.of());
+
+        service.remove("t1");
+
+        // 删除后物理行仍在，占着 uk_mt_term_type —— 新增必须命中判存在 + 复活
+        when(medicalTermMapper.countIncludingDeleted("胸痛", "symptom")).thenReturn(1);
+        when(medicalTermMapper.revive("胸痛", "symptom")).thenReturn(1);
+        when(medicalTermMapper.selectOne(any())).thenReturn(term);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term));
+
+        service.add("胸痛", TermType.SYMPTOM);
+
+        verify(medicalTermMapper).revive("胸痛", "symptom");
+        verify(medicalTermMapper, never()).insert(any(MedicalTerm.class));
+        assertThat(service.enabledTerms()).contains("胸痛");
+    }
+
+    @Test
     @DisplayName("删除：目标行不存在（含已逻辑删除）→ 「术语不存在」，不写库")
     void removeRejectsMissingTerm() {
         when(medicalTermMapper.selectById("gone")).thenReturn(null);
