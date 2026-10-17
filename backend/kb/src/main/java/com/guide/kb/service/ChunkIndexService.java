@@ -42,6 +42,10 @@ public class ChunkIndexService {
      * <p>文本是管理员预览定稿的，再切一次只会把一条完整的鉴别关系拦腰切断
      * （那正是根因表里的 {@code chunk_broken}）。序号接在容器现有切片之后，
      * 修正重审替换时先删旧片，新片仍接在末尾。
+     *
+     * <p><b>刻意不抽术语</b>：只有一片、文本由管理员定稿，术语在预览时由人决定
+     * （不进自动抽取，也不进白名单候选）。这不是漏接——回流的知识形态是"人写的鉴别语料"，
+     * 与上传文档"模型从原文抽词"是两条不同的来源，混在一起会让候选池混入人工稿的用词。
      */
     @Transactional(rollbackFor = Exception.class)
     public KbChunk indexSyntheticChunk(String docId, String deptId, String title, String content) {
@@ -91,7 +95,7 @@ public class ChunkIndexService {
                 writtenVectorIds.add(chunk.getId());
 
                 docs.add(new EsChunkUtil.ChunkDoc(chunk.getId(), deptId, input.title(), input.content(),
-                        input.type().getCode(), input.terms()));
+                        input.type().getCode(), termsForEs(input.terms())));
                 saved.add(chunk);
             }
             esChunkUtil.indexChunks(docs);
@@ -129,6 +133,29 @@ public class ChunkIndexService {
         esChunkUtil.deleteChunk(chunkId);
         pgVectorUtil.deleteChunkVector(chunkId);
         chunkMapper.deleteById(chunkId);
+    }
+
+    /**
+     * ES 写入前的单字过滤：**只此一处实现**，种子语料与上传文档自动一致。
+     *
+     * <p>为什么不改 {@code SeedCorpus}：语料里的词是给 ES 用的（它们是切片正文里真实出现的词），
+     * 过滤是写入侧的职责——把规则放在写入侧，任何来源都走同一条路，不会有人漏改。
+     *
+     * <p>单字为什么必须挡：{@code medical_terms} 参与关键词打分后，一个「胸」会命中半库切片，
+     * 把真正相关的正文片挤出 Top-K。这与白名单入口的 2 字下限是同一个数
+     * （{@link MedicalTermService#MIN_TERM_LENGTH}）——那里管入口判定，这里管检索打分。
+     */
+    private List<String> termsForEs(List<String> terms) {
+        if (terms == null || terms.isEmpty()) {
+            return List.of();
+        }
+        return terms.stream()
+                .filter(term -> term != null && !term.isBlank()
+                        && term.strip().codePointCount(0, term.strip().length())
+                        >= MedicalTermService.MIN_TERM_LENGTH)
+                .map(String::strip)
+                .distinct()
+                .toList();
     }
 
     /**

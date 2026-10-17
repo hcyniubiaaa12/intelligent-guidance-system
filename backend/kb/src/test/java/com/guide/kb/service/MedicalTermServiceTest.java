@@ -2,6 +2,7 @@ package com.guide.kb.service;
 
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
+import com.guide.kb.dto.ExtractedTerm;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
@@ -15,8 +16,12 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +39,9 @@ import static org.mockito.Mockito.when;
 class MedicalTermServiceTest {
 
     private final MedicalTermMapper medicalTermMapper = mock(MedicalTermMapper.class);
-    private final MedicalTermService service = new MedicalTermService(medicalTermMapper);
+    private final com.guide.auth.service.SysConfigService sysConfigService =
+            mock(com.guide.auth.service.SysConfigService.class);
+    private final MedicalTermService service = new MedicalTermService(medicalTermMapper, sysConfigService);
 
     @Test
     @DisplayName("停用：写库 enabled=0，且当场从内存白名单里消失（不等 TTL）")
@@ -326,7 +333,105 @@ class MedicalTermServiceTest {
         verify(medicalTermMapper, never()).deleteById(any(String.class));
     }
 
-    // ---------- 列表排序 ----------
+    // ---------- 模型抽取合并 ----------
+
+    @Test
+    @DisplayName("合并抽取：不存在的词插入，source=llm_extract，enabled 由人工审核开关决定")
+    void mergeExtractedInsertsNewTermsHonouringReviewSwitch() {
+        when(sysConfigService.getBoolean(eq(com.guide.auth.service.SysConfigService.KEY_TERM_MANUAL_REVIEW), anyBoolean()))
+                .thenReturn(true);
+        when(medicalTermMapper.countIncludingDeleted("胸闷", "symptom")).thenReturn(0);
+        when(medicalTermMapper.countIncludingDeleted("左腹部", "part")).thenReturn(0);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+                new ExtractedTerm("胸闷", TermType.SYMPTOM),
+                new ExtractedTerm("左腹部", TermType.PART)));
+
+        ArgumentCaptor<MedicalTerm> saved = ArgumentCaptor.forClass(MedicalTerm.class);
+        verify(medicalTermMapper, times(2)).insert(saved.capture());
+        assertThat(saved.getAllValues()).extracting(MedicalTerm::getSource)
+                .containsOnly(TermSource.LLM_EXTRACT);
+        // 审核开关开着 = 待确认，抽出来先不生效
+        assertThat(saved.getAllValues()).extracting(MedicalTerm::getEnabled).containsOnly(0);
+        assertThat(result.inserted()).isEqualTo(2);
+        assertThat(result.skippedActive()).isZero();
+        assertThat(result.skippedDeleted()).isZero();
+        // 写库后立即 refresh（不等 60s TTL）
+        verify(medicalTermMapper, atLeastOnce()).selectList(any());
+    }
+
+    @Test
+    @DisplayName("合并抽取：关掉审核开关则直接启用")
+    void mergeExtractedEnablesDirectlyWhenReviewOff() {
+        when(sysConfigService.getBoolean(eq(com.guide.auth.service.SysConfigService.KEY_TERM_MANUAL_REVIEW), anyBoolean()))
+                .thenReturn(false);
+        when(medicalTermMapper.countIncludingDeleted("胸闷", "symptom")).thenReturn(0);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        service.mergeExtracted(extracted(new ExtractedTerm("胸闷", TermType.SYMPTOM)));
+
+        ArgumentCaptor<MedicalTerm> saved = ArgumentCaptor.forClass(MedicalTerm.class);
+        verify(medicalTermMapper).insert(saved.capture());
+        assertThat(saved.getValue().getEnabled()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("合并抽取：撞活跃行（含 enabled=0 的人工停用词）→ 跳过、不翻启停、不写库")
+    void mergeExtractedSkipsActiveRowsWithoutTouchingEnabled() {
+        when(medicalTermMapper.countIncludingDeleted("胸闷", "symptom")).thenReturn(1);
+        // 逻辑删除视角下查得到 = 那是一行活跃行（可能是人工停用的 enabled=0 行）
+        when(medicalTermMapper.selectCount(any())).thenReturn(1L);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+                new ExtractedTerm("胸闷", TermType.SYMPTOM)));
+
+        assertThat(result.inserted()).isZero();
+        assertThat(result.skippedActive()).isEqualTo(1);
+        verify(medicalTermMapper, never()).insert(any(MedicalTerm.class));
+        verify(medicalTermMapper, never()).revive(any(), any());
+        verify(medicalTermMapper, never()).updateById(any());
+    }
+
+    @Test
+    @DisplayName("合并抽取：撞已删除行 → 跳过、不复活（删除是人的决定）")
+    void mergeExtractedSkipsDeletedRows() {
+        // 物理行存在，但没有活跃行 ⇒ 那一行是 deleted=1（物理唯一键仍被占着）
+        when(medicalTermMapper.countIncludingDeleted("反酸", "symptom")).thenReturn(1);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+                new ExtractedTerm("反酸", TermType.SYMPTOM)));
+
+        assertThat(result.inserted()).isZero();
+        assertThat(result.skippedDeleted()).isEqualTo(1);
+        verify(medicalTermMapper, never()).insert(any(MedicalTerm.class));
+        verify(medicalTermMapper, never()).revive(any(), any());
+    }
+
+    @Test
+    @DisplayName("合并抽取：词面校验与新增同源——非法词在这里就被挡掉，连判存在都不必问")
+    void mergeExtractedDropsInvalidTermsBeforeTouchingTheTable() {
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+                new ExtractedTerm("痛", TermType.SYMPTOM),
+                new ExtractedTerm("胸 闷", TermType.SYMPTOM)));
+
+        assertThat(result.inserted()).isZero();
+        verify(medicalTermMapper, never()).countIncludingDeleted(any(), any());
+    }
+
+    @Test
+    @DisplayName("词面校验可被抽取器复用：strip 后返回，非法词返回 null 而不是抛")
+    void normalizeTermIsSharedWithTheExtractor() {
+        assertThat(service.normalizeTerm("  胸闷 ")).isEqualTo("胸闷");
+        assertThat(service.normalizeTerm("痛")).isNull();
+        assertThat(service.normalizeTerm("腹 痛")).isNull();
+        assertThat(service.normalizeTerm(null)).isNull();
+    }
+
 
     @Test
     @DisplayName("列表按时间倒序、id 兜底：新加的词出现在第一页，同秒插入的行也不会翻页错乱")
@@ -362,6 +467,10 @@ class MedicalTermServiceTest {
 
     private MedicalTerm term(String id, String text, int enabled) {
         return term(id, text, TermType.SYMPTOM, enabled);
+    }
+
+    private List<ExtractedTerm> extracted(ExtractedTerm... terms) {
+        return List.of(terms);
     }
 
     private MedicalTerm term(String id, String text, TermType type, int enabled) {

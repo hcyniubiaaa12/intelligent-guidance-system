@@ -3,8 +3,10 @@ package com.guide.kb.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.guide.auth.service.SysConfigService;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
+import com.guide.kb.dto.ExtractedTerm;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
@@ -14,7 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -29,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MedicalTermService {
 
     private final MedicalTermMapper medicalTermMapper;
+    private final SysConfigService sysConfigService;
 
     /** 进程内缓存存活时长：管理端增删/停用术语后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;
@@ -143,8 +148,11 @@ public class MedicalTermService {
     private record CacheEntry(Set<String> terms, long loadedAt) {
     }
 
-    /** 术语最短长度：单字一律拒绝，理由见 {@link #add} */
-    private static final int MIN_TERM_LENGTH = 2;
+    /**
+     * 术语最短长度：单字一律拒绝，理由见 {@link #add}。
+     * 公开是为了让 ES 写入侧（{@code ChunkIndexService}）引用同一个数——两处口径必须一致。
+     */
+    public static final int MIN_TERM_LENGTH = 2;
 
     /**
      * 术语最长长度（**业务口径，不是列宽**）：真实术语是「心慌 / 上腹痛 / 劳力性胸闷」这种长度，
@@ -270,6 +278,105 @@ public class MedicalTermService {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语不能包含空格或换行");
         }
         return text;
+    }
+
+    /**
+     * 词面校验的**不抛版本**：合法则返回 trim 后的词，不合法返回 {@code null}。
+     *
+     * <p>给抽取器用——模型给的词不合规是常态，不是参数错误，不该让整批抽取失败；
+     * 但"什么叫合法"只能有这一份判断。判据与 {@link #validateTerm} 完全同源
+     * （后者只是把同一条规则翻译成给人看的错误，供管理端表单用）。
+     *
+     * <p><b>单字为什么必须在这里挡掉</b>：信息充足性门槛（{@code SufficiencyRule}）用**子串**匹配，
+     * 一个「头」进白名单会让几乎全部主诉都被判"含医学术语"、门槛当场失真。
+     * 管理端、抽取器、导入路径都汇聚到这一处，就不存在"某个入口忘了挡"的情况。
+     */
+    public String normalizeTerm(String term) {
+        String text = term == null ? "" : term.strip();
+        int length = text.codePointCount(0, text.length());
+        if (length < MIN_TERM_LENGTH || length > MAX_TERM_LENGTH) {
+            return null;
+        }
+        if (text.chars().anyMatch(Character::isWhitespace)) {
+            return null;
+        }
+        return text;
+    }
+
+    /**
+     * 合并模型抽取的术语（链路 B 入库即抽取的落库口）。
+     *
+     * <p><b>与 {@link #add} 刻意不同、不复用它</b>：{@code add} 的复活语义是人工路径的契约
+     * （人删了又加 = 想恢复）。自动流程借用它是错的，见下表：
+     *
+     * <table>
+     *   <tr><th>表内状态</th><th>处理</th></tr>
+     *   <tr><td>活跃行（deleted=0）</td><td><b>跳过，不动 enabled</b>——人手动停用的词不能因又被抽到就复活</td></tr>
+     *   <tr><td>已删除行（deleted=1）</td><td><b>跳过，不复活</b>——"删除"是人的决定</td></tr>
+     *   <tr><td>不存在</td><td>插入，source=llm_extract，enabled 由 term.manual.review 决定</td></tr>
+     * </table>
+     *
+     * <p><b>判存在按物理行判</b>：{@code uk_mt_term_type} 是物理唯一键，逻辑删除的行仍占着它
+     * （《数据库设计.md》§0.1）。因词面校验已在入口完成，这里的词都已 trim 过、可直接查。
+     *
+     * <p>整份文档的词一次写、写后 {@code refresh()} 一次——不是逐词 refresh，也不是每批一次。
+     *
+     * @return 三个计数（插入 / 跳过活跃 / 跳过已删除），供调用方记日志
+     */
+    public MergeResult mergeExtracted(Collection<ExtractedTerm> terms) {
+        if (terms == null || terms.isEmpty()) {
+            return new MergeResult(0, 0, 0);
+        }
+        // 审核开关 = 抽出的词要不要人工确认；关掉时抽取即生效
+        boolean review = sysConfigService.getBoolean(SysConfigService.KEY_TERM_MANUAL_REVIEW, true);
+        int enabled = review ? 0 : 1;
+        int inserted = 0;
+        int skippedActive = 0;
+        int skippedDeleted = 0;
+        Set<String> seen = new HashSet<>();
+        for (ExtractedTerm term : terms) {
+            String text = normalizeTerm(term.term());
+            if (text == null || term.type() == null || !seen.add(text + '\u0000' + term.type().getCode())) {
+                continue;
+            }
+            String typeCode = term.type().getCode();
+            if (medicalTermMapper.countIncludingDeleted(text, typeCode) > 0) {
+                // 物理行存在：要么活跃、要么已删除。活跃行里可能有 deleted=0 的也有 enabled=0 的，
+                // 用 @TableLogic 下的 selectCount 区分——能看到行 = 活跃行；看不到 = 只剩已删除行
+                boolean active = medicalTermMapper.selectCount(Wrappers.<MedicalTerm>lambdaQuery()
+                        .eq(MedicalTerm::getTerm, text)
+                        .eq(MedicalTerm::getType, term.type())) > 0;
+                if (active) {
+                    skippedActive++;
+                } else {
+                    skippedDeleted++;
+                }
+                continue;
+            }
+            try {
+                MedicalTerm entity = new MedicalTerm();
+                entity.setTerm(text);
+                entity.setType(term.type());
+                entity.setSource(TermSource.LLM_EXTRACT);
+                entity.setEnabled(enabled);
+                medicalTermMapper.insert(entity);
+                inserted++;
+            } catch (DataIntegrityViolationException e) {
+                // 并发：别的入库流程刚插了同一个词。跳过即可，不进白名单两次，也不冒 500
+                log.warn("抽取术语「{}」（{}）并发撞唯一键，已跳过", text, typeCode);
+                skippedActive++;
+            }
+        }
+        if (inserted > 0) {
+            refresh();
+        }
+        log.info("抽取术语合并：插入 {} / 跳过活跃 {} / 跳过已删除 {}（人工审核={}）",
+                inserted, skippedActive, skippedDeleted, review);
+        return new MergeResult(inserted, skippedActive, skippedDeleted);
+    }
+
+    /** 抽取合并的计数（三个数字各对应一条处理分支，日志与测试都读它） */
+    public record MergeResult(int inserted, int skippedActive, int skippedDeleted) {
     }
 
     private Set<String> load() {

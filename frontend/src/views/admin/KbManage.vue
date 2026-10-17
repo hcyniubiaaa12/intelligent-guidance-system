@@ -703,7 +703,9 @@ function progressOf(row) {
     return { text: `解析中 ${pct}%`, ratio: pct, tone: '' }
   }
   if (task.stage === 'split') {
-    return { text: '正在切分', ratio: null }
+    // 切分之后还有一步术语抽取（入库即抽取），两者都计入 split 阶段；
+    // 仍无百分比——切出多少片是切分的结果，抽取也不是可线性推进的量
+    return { text: '正在切分与提取术语', ratio: null }
   }
   if (task.stage === 'embed') {
     const total = task.total || 0
