@@ -136,7 +136,10 @@ public class MedicalTermService {
     /** 术语最短长度：单字一律拒绝，理由见 {@link #add} */
     private static final int MIN_TERM_LENGTH = 2;
 
-    /** 术语最长长度（与 medical_term.term 的可用宽度对齐；超长必然是误粘贴，不是真实术语） */
+    /**
+     * 术语最长长度（**业务口径，不是列宽**）：真实术语是「心慌 / 上腹痛 / 劳力性胸闷」这种长度，
+     * 超过 20 字基本是误粘贴了一整段话。列宽 `VARCHAR(128)` 只是物理上限，不构成这个数的依据。
+     */
     private static final int MAX_TERM_LENGTH = 20;
 
     /**
@@ -159,32 +162,35 @@ public class MedicalTermService {
         }
         String text = validateTerm(term);
         String typeCode = type.getCode();
-        if (medicalTermMapper.countIncludingDeleted(text, typeCode) > 0) {
-            // 有物理行：要么是活跃行（报错），要么是已删除行（复活）。revive 的返回行数直接区分两者
-            if (medicalTermMapper.revive(text, typeCode) == 0) {
-                throw new BizException(ErrorCode.TERM_EXISTS);
-            }
-            refresh();
-            log.info("术语「{}」（{}）曾被删除，已复活并启用（来源保持原值）", text, typeCode);
-            return medicalTermMapper.selectOne(Wrappers.<MedicalTerm>lambdaQuery()
-                    .eq(MedicalTerm::getTerm, text)
-                    .eq(MedicalTerm::getType, type));
-        }
-
-        MedicalTerm entity = new MedicalTerm();
-        entity.setTerm(text);
-        entity.setType(type);
-        entity.setSource(TermSource.MANUAL);
-        entity.setEnabled(1);
         try {
+            if (medicalTermMapper.countIncludingDeleted(text, typeCode) > 0) {
+                // 有物理行：要么是活跃行（报错），要么是已删除行（复活）。revive 的返回行数直接区分两者。
+                // 并发下两个请求可能同时判到"已删除行"：后到的那个 revive 返回 0 ⇒ 那一行已经被
+                // 对方复活成活跃行，此时报「已存在」是对的（管理员看到的是"它已经在表里了"），
+                // 与 insert 撞唯一键后的兜底给出同一个可展示错误，都不会冒 500。
+                if (medicalTermMapper.revive(text, typeCode) == 0) {
+                    throw new BizException(ErrorCode.TERM_EXISTS);
+                }
+                refresh();
+                log.info("术语「{}」（{}）曾被删除，已复活并启用（来源保持原值）", text, typeCode);
+                return medicalTermMapper.selectOne(Wrappers.<MedicalTerm>lambdaQuery()
+                        .eq(MedicalTerm::getTerm, text)
+                        .eq(MedicalTerm::getType, type));
+            }
+
+            MedicalTerm entity = new MedicalTerm();
+            entity.setTerm(text);
+            entity.setType(type);
+            entity.setSource(TermSource.MANUAL);
+            entity.setEnabled(1);
             medicalTermMapper.insert(entity);
+            refresh();
+            log.info("术语「{}」（{}）已新增并启用", text, typeCode);
+            return entity;
         } catch (DataIntegrityViolationException e) {
-            // 并发：两个请求同时过了判存在，后到的那个撞唯一键
+            // 并发撞唯一键：判存在与写库之间被别的请求插了队。转成可展示错误，不冒 500
             throw new BizException(ErrorCode.TERM_EXISTS);
         }
-        refresh();
-        log.info("术语「{}」（{}）已新增并启用", text, typeCode);
-        return entity;
     }
 
     /**
@@ -212,15 +218,15 @@ public class MedicalTermService {
         }
         String text = validateTerm(term);
         String typeCode = type.getCode();
-        Integer otherDeleted = medicalTermMapper.otherRowDeleted(text, typeCode, id);
-        if (otherDeleted != null) {
-            throw new BizException(ErrorCode.TERM_EXISTS.getCode(), Integer.valueOf(1).equals(otherDeleted)
-                    ? "该术语曾被删除，请直接在新增里填写以恢复"
-                    : "该术语已存在");
-        }
-        target.setTerm(text);
-        target.setType(type);
         try {
+            Integer otherDeleted = medicalTermMapper.otherRowDeleted(text, typeCode, id);
+            if (otherDeleted != null) {
+                throw new BizException(ErrorCode.TERM_EXISTS.getCode(), Integer.valueOf(1).equals(otherDeleted)
+                        ? "该术语曾被删除，请直接在新增里填写以恢复"
+                        : "该术语已存在");
+            }
+            target.setTerm(text);
+            target.setType(type);
             medicalTermMapper.updateById(target);
         } catch (DataIntegrityViolationException e) {
             // 并发：另一个请求在判重之后、写库之前占了同一个键
@@ -234,14 +240,19 @@ public class MedicalTermService {
     /**
      * 词面校验：trim 后 2–20 字，拒绝内部空白与换行。
      * 内部空白/换行会让一个词在页面上看着是两个词，子串匹配也永远命不中它。
+     *
+     * <p><b>数的是「字」不是 char</b>：用 {@link String#codePointCount} 而不是 {@code length()}——
+     * 后者按 UTF-16 code unit 数，而一个汉字在一个代理对里会被算成 2。虽然术语都是汉字、
+     * 两种数法结果一致，但用 code point 才与提示文案「N 个字」对得上。
      */
     private String validateTerm(String term) {
         String text = term == null ? "" : term.strip();
-        if (text.length() < MIN_TERM_LENGTH) {
+        int length = text.codePointCount(0, text.length());
+        if (length < MIN_TERM_LENGTH) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
                     "术语至少 2 个字（单字会让所有主诉都被判为含医学术语，信息充足性门槛失真）");
         }
-        if (text.length() > MAX_TERM_LENGTH) {
+        if (length > MAX_TERM_LENGTH) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
                     "术语最多 " + MAX_TERM_LENGTH + " 个字");
         }

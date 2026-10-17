@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Update;
 /**
  * 医疗术语白名单。
  *
- * <p>下面两个方法是**本模块仅有的自定义 SQL**，它们绕开 MyBatis-Plus 的逻辑删除——这是刻意的：
+ * <p>下面三个方法是**本模块仅有的自定义 SQL**，它们绕开 MyBatis-Plus 的逻辑删除——这是刻意的：
  * `deleted` 是逻辑标志，而 **`uk_mt_term_type(term, type)` 是物理唯一键，它不认这个标志**。
  * 只按"逻辑存在"判重，删过的词仍占着唯一键，下次 INSERT 就会撞键（`@TableLogic` 只作用于
  * 框架生成的语句，`selectCount` / `selectList` 都被自动加上 `deleted = 0`，指望它们看见被删行

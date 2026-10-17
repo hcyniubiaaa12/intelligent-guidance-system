@@ -27,4 +27,4 @@
 
 **Blocked by:** 01（共用列表、领域方法骨架与前端 api 风格）
 
-**Status:** ready-for-agent
+**Status:** resolved

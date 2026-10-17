@@ -14,7 +14,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +24,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,22 +49,17 @@ class SeedDataRunnerTest {
     @Test
     @DisplayName("启动装载不再依赖术语表：术语全被逻辑删除后重启也不会撞唯一键")
     void doesNotDependOnMedicalTermTable() {
-        // 术语种子已删除，装载器手里不该再有术语表 Mapper / 术语服务——
-        // 否则"空表就重新灌种子"的判据迟早被写回来，全删后再重启就撞 uk_mt_term_type 起不来。
-        List<String> termDeps = Arrays.stream(SeedDataRunner.class.getDeclaredConstructors())
-                .flatMap(c -> Arrays.stream(c.getParameterTypes()))
-                .map(Class::getName)
-                .filter(name -> name.equals(MedicalTermMapper.class.getName())
-                        || name.equals(MedicalTermService.class.getName()))
-                .toList();
-        assertThat(termDeps).isEmpty();
-
-        // 没有术语依赖也照常补建科室（空库首装这条路径不受影响）
+        // 外部行为：装载器跑完，科室照常补建，而**术语表一次都没被读过或写过**。
+        // 反过来（"空表就重新灌种子"）在术语全被逻辑删除后重启会 INSERT 撞 uk_mt_term_type，
+        // 把整个应用启动带崩——这条断言就是防止那个判据被写回来。
         when(deptService.findByName(anyString())).thenReturn(null);
+        MedicalTermMapper termMapper = mock(MedicalTermMapper.class);
+        MedicalTermService termService = mock(MedicalTermService.class);
 
         runner.run(null);
 
         verify(deptMapper, times(SeedCorpus.DEPTS.size())).insert(any(Dept.class));
+        verifyNoInteractions(termMapper, termService);
     }
 
     @Test

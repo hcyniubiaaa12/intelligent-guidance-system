@@ -28,4 +28,4 @@
 
 **Blocked by:** 01（共用弹窗、表单状态、请求体与领域方法骨架）
 
-**Status:** ready-for-agent
+**Status:** resolved

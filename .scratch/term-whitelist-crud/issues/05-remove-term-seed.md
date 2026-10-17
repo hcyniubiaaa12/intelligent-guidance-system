@@ -25,4 +25,4 @@
 
 **Blocked by:** 01（人工新增是种子的替代通道，必须先存在）
 
-**Status:** ready-for-agent
+**Status:** resolved

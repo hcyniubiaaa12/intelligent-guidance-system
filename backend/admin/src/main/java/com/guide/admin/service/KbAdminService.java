@@ -268,7 +268,7 @@ public class KbAdminService {
      * {@code valueOf} 匹配的是大写常量名。
      */
     public KbAdminDTO.TermVO createTerm(KbAdminDTO.TermReq req) {
-        TermType type = parseTermType(req.getType());
+        TermType type = TermType.fromCode(req.getType());
         return toTermVO(medicalTermService.add(req.getTerm(), type));
     }
 
@@ -277,7 +277,7 @@ public class KbAdminService {
      * 这里只做类型解析与 VO 映射。可改的只有词面与类型：启用状态走 toggle，来源保持原值。
      */
     public KbAdminDTO.TermVO updateTerm(String termId, KbAdminDTO.TermReq req) {
-        TermType type = parseTermType(req.getType());
+        TermType type = TermType.fromCode(req.getType());
         return toTermVO(medicalTermService.update(termId, req.getTerm(), type));
     }
 
@@ -294,7 +294,7 @@ public class KbAdminService {
         medicalTermService.remove(termId);
     }
 
-    /** 术语实体 → 前端形状（枚举一律出 code；新增/启停/分页共用这一处映射） */
+    /** 术语实体 → 前端形状（枚举一律出 code；新增/编辑/启停/分页共用这一处映射） */
     private KbAdminDTO.TermVO toTermVO(MedicalTerm term) {
         KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
         vo.setId(term.getId());
@@ -303,18 +303,6 @@ public class KbAdminService {
         vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
         vo.setEnabled(term.getEnabled());
         return vo;
-    }
-
-    /** 术语类型按 code 解析（part / symptom）；不认的值给可读错误，不默认成任何一类 */
-    private TermType parseTermType(String type) {
-        if (type != null && !type.isBlank()) {
-            for (TermType value : TermType.values()) {
-                if (value.getCode().equalsIgnoreCase(type.trim())) {
-                    return value;
-                }
-            }
-        }
-        throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语类型仅支持 part/symptom");
     }
 
     // ---------- 内部 ----------

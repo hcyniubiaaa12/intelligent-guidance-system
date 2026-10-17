@@ -230,7 +230,7 @@
         <el-table-column prop="term" label="术语" min-width="160" />
         <el-table-column label="类型" width="100">
           <template #default="{ row }">
-            <el-tag effect="plain" size="small">{{ row.type === 'part' ? '部位' : '症状' }}</el-tag>
+            <el-tag effect="plain" size="small">{{ termTypeLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="来源" width="120">
@@ -930,6 +930,11 @@ function sourceLabel(source) {
   return '初始化'
 }
 
+/** 术语类型编码 → 中文（表格、新增 toast、编辑 toast 共用这一处，避免三份拷贝迟早对不上） */
+function termTypeLabel(type) {
+  return type === 'part' ? '部位' : '症状'
+}
+
 // —— 术语白名单 ——
 const terms = ref([])
 const termLoading = ref(false)
@@ -1024,7 +1029,7 @@ async function submitTerm() {
       termEditVisible.value = false
       // 编辑是就地修正：**不动筛选、不回第 1 页**——管理员看着的那一行还在原处
       await loadTerms()
-      const typeLabel = updated.type === 'part' ? '部位' : '症状'
+      const typeLabel = termTypeLabel(updated.type)
       ElMessage.success(`术语已改为「${updated.term}」（${typeLabel}），入口校验即时生效`)
     } else {
       const created = await createKbTerm({ term: termForm.term, type: termForm.type })
@@ -1034,7 +1039,7 @@ async function submitTerm() {
       termQuery.enabled = ''
       termPage.current = 1
       await loadTerms()
-      const typeLabel = created.type === 'part' ? '部位' : '症状'
+      const typeLabel = termTypeLabel(created.type)
       ElMessage.success(`术语「${created.term}」（${typeLabel}）已新增，入口校验即时生效`)
     }
   } catch (e) {
