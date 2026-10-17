@@ -31,7 +31,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **验收**
 
@@ -42,3 +42,28 @@
 - [ ] ES 文档里 `medical_terms` 不含单字；种子语料的多字词仍在
 - [ ] 抽取撞上活跃词（含 `enabled=0` 的）→ `enabled` 保持原值；撞上已删除词 → `deleted` 仍为 1
 - [ ] 单测：抽取器（正常 / 非法类型 / 单字 / 非 JSON / 调用异常）、`mergeExtracted` 三态、`splitAndIndex` 在抽取抛异常时正常返回、连续 3 批失败后不再调用、`IngestPipeline` 抽取失败仍 `success`、`SeedDataRunner` 不触发抽取
+
+## Comments
+
+**做了什么**
+
+- `prompts.yml` 新增 `prompts.term-extract.*`；`PromptProperties` 新增 `TermExtract` 配置段，启动期校验 `{text}` 占位符。
+- 新增 `kb/dto/ExtractedTerm`、`kb/service/TermExtractor`：20 片一批，跨批去重，单批失败 WARN 后继续，连续 3 批失败熔断；非法 `type` 降级 `symptom`；词面校验走 `MedicalTermService.normalizeTerm`；`extract()` 返回「抽到的词 + 带 terms 的切片」。
+- `MedicalTermService`：把原私有 `validateTerm` 的规则抽成公开 `normalizeTerm`（不抛版本，唯一判据，`validateTerm` 复用同一规则只是换成给人看的错误）；新增 `mergeExtracted`（活跃行 / 已删除行跳过且不动启停，不存在则插入 `source=llm_extract`、`enabled` 读 `term.manual.review`，整次写库后 `refresh()` 一次，返回三计数）。
+- `DocIngestService.splitAndIndex`：在切分后、第一批 `indexChunks` 前执行抽取 + 合并；两层兜底保证抽取或合并失败都不上抛。
+- `ChunkIndexService`：ES 写入侧统一过滤单字术语（引用 `MedicalTermService.MIN_TERM_LENGTH`）；`indexSyntheticChunk` 注释写明刻意不抽取。
+- `KbManage.vue`：`split` 阶段文案改为「正在切分与提取术语」。
+
+**与工单的偏差**
+
+- 抽取词额外做了一次「原文出现校验」（按文档标题 + 正文判）：这是 spec 的 User Story「抽取到的词仅在文档里出现过至少一次才写入」的落点，工单正文没重复写。
+- `mergeExtracted` 区分活跃行 / 已删除行：`countIncludingDeleted` 只回答"物理行有没有"，再用框架 `selectCount`（带 `@TableLogic`）回答"活跃行有没有"，没有新增自定义 SQL。
+- `normalizeTerm` 作为校验的唯一公开入口，而不是把 `validateTerm` 改公开——后者契约是"抛 BizException 给人看"，抽取路径要的是"不合格就丢"，两者共用判据、两种出口。
+- 未改 `SeedCorpus`、未新增 `ingest_task` 阶段/字段/线程池。
+
+**留给验收的真机步骤**
+
+- 上传新文档看进度文案是否出现「正在切分与提取术语」，离开页面再回来进度是否保留。
+- 日志是否有「术语抽取完成：docId=… 批次数=… 失败批次=… 抽到词条 …」与「抽取术语合并：插入/跳过活跃/跳过已删除」。
+- 把模型 Key 改错上传：文档仍 `done`、切片可检索、只有 WARN（连续 3 批熔断后剩余批次不抽取）。
+- 真实 ES / 管理端：`medical_terms` 不含单字、种子语料多字词仍在；术语列表出现「来源=模型抽取、状态=未生效」（展示需工单 02 配合）；抽出的词撞活跃/已删除行时原值不变。
