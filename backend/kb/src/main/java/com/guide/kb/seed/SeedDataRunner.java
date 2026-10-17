@@ -4,16 +4,11 @@ import com.guide.common.util.EsChunkUtil;
 import com.guide.kb.dto.ChunkInput;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.entity.KbDoc;
-import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.DocStatus;
-import com.guide.kb.enums.TermSource;
-import com.guide.kb.enums.TermType;
 import com.guide.kb.mapper.DeptMapper;
 import com.guide.kb.mapper.KbDocMapper;
-import com.guide.kb.mapper.MedicalTermMapper;
 import com.guide.kb.service.ChunkIndexService;
 import com.guide.kb.service.DeptService;
-import com.guide.kb.service.MedicalTermService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -33,6 +28,12 @@ import java.util.List;
  * 缺失的科室**补建**，于是无论库处在什么状态，重启后都能收敛到目标科室集合。
  * 走 kb 唯一写入口，直写 MySQL 事实 + pgvector 向量 + ES 全文，
  * 与链路 B 上传流水线共用同一套写入代码（差的是解析/切分与异步编排）。
+ *
+ * <p>种子**只装科室语料**。术语白名单不在此灌入——它由管理端人工维护（{@code medical_term} 是唯一生效源），
+ * 空表是合法状态：新库从初始化脚本建起来后术语表就是空的，由管理员逐个新增。
+ * 这也关闭了《数据库设计.md》§0.1 那条坑——曾经"表空就灌种子"的判据用 {@code selectCount}（带
+ * {@code deleted=0}），术语全被逻辑删除后重启会重新 INSERT 并撞物理唯一键 {@code uk_mt_term_type}，
+ * 导致 Spring Boot 启动失败。启动路径从此不读术语表。
  */
 @Slf4j
 @Component
@@ -42,9 +43,7 @@ public class SeedDataRunner implements ApplicationRunner {
 
     private final DeptMapper deptMapper;
     private final KbDocMapper kbDocMapper;
-    private final MedicalTermMapper medicalTermMapper;
     private final ChunkIndexService chunkIndexService;
-    private final MedicalTermService medicalTermService;
     private final EsChunkUtil esChunkUtil;
     private final DeptService deptService;
 
@@ -68,8 +67,6 @@ public class SeedDataRunner implements ApplicationRunner {
             created.add(seedDept.name());
         }
 
-        seedMedicalTerms();
-        medicalTermService.refresh();
         if (created.isEmpty()) {
             log.info("科室蓝本已齐备，无需补建");
         } else {
@@ -102,27 +99,5 @@ public class SeedDataRunner implements ApplicationRunner {
         }
         chunkIndexService.indexChunks(doc.getId(), dept.getId(), inputs);
         log.info("科室语料入库：{}（{} 条切片）", dept.getName(), inputs.size());
-    }
-
-    /** 术语白名单种子（管理端人工维护语义：source=manual，直接 enabled=1） */
-    private void seedMedicalTerms() {
-        if (medicalTermMapper.selectCount(null) > 0) {
-            return;
-        }
-        for (String term : SeedCorpus.PART_TERMS) {
-            insertTerm(term, TermType.PART);
-        }
-        for (String term : SeedCorpus.SYMPTOM_TERMS) {
-            insertTerm(term, TermType.SYMPTOM);
-        }
-    }
-
-    private void insertTerm(String term, TermType type) {
-        MedicalTerm entity = new MedicalTerm();
-        entity.setTerm(term);
-        entity.setType(type);
-        entity.setSource(TermSource.MANUAL);
-        entity.setEnabled(1);
-        medicalTermMapper.insert(entity);
     }
 }
