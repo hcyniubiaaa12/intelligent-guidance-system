@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,14 +39,33 @@ class SeedDataRunnerTest {
 
     private final DeptMapper deptMapper = mock(DeptMapper.class);
     private final KbDocMapper kbDocMapper = mock(KbDocMapper.class);
-    private final MedicalTermMapper medicalTermMapper = mock(MedicalTermMapper.class);
     private final ChunkIndexService chunkIndexService = mock(ChunkIndexService.class);
-    private final MedicalTermService medicalTermService = mock(MedicalTermService.class);
     private final EsChunkUtil esChunkUtil = mock(EsChunkUtil.class);
     private final DeptService deptService = mock(DeptService.class);
 
     private final SeedDataRunner runner = new SeedDataRunner(deptMapper, kbDocMapper,
-            medicalTermMapper, chunkIndexService, medicalTermService, esChunkUtil, deptService);
+            chunkIndexService, esChunkUtil, deptService);
+
+    @Test
+    @DisplayName("启动装载不再依赖术语表：术语全被逻辑删除后重启也不会撞唯一键")
+    void doesNotDependOnMedicalTermTable() {
+        // 术语种子已删除，装载器手里不该再有术语表 Mapper / 术语服务——
+        // 否则"空表就重新灌种子"的判据迟早被写回来，全删后再重启就撞 uk_mt_term_type 起不来。
+        List<String> termDeps = Arrays.stream(SeedDataRunner.class.getDeclaredConstructors())
+                .flatMap(c -> Arrays.stream(c.getParameterTypes()))
+                .map(Class::getName)
+                .filter(name -> name.equals(MedicalTermMapper.class.getName())
+                        || name.equals(MedicalTermService.class.getName()))
+                .toList();
+        assertThat(termDeps).isEmpty();
+
+        // 没有术语依赖也照常补建科室（空库首装这条路径不受影响）
+        when(deptService.findByName(anyString())).thenReturn(null);
+
+        runner.run(null);
+
+        verify(deptMapper, times(SeedCorpus.DEPTS.size())).insert(any(Dept.class));
+    }
 
     @Test
     @DisplayName("科室表非空但缺新科室：只有缺失的那个被补建并建文档（整表判存在会把它漏掉）")
@@ -56,7 +76,6 @@ class SeedDataRunnerTest {
             String name = inv.getArgument(0);
             return name.equals(missing) ? null : dept(name);
         });
-        when(medicalTermMapper.selectCount(null)).thenReturn(72L);
 
         runner.run(null);
 
@@ -76,7 +95,6 @@ class SeedDataRunnerTest {
     @DisplayName("已存在的科室：不重复插入、不改位置/简介/启停，也不重建文档")
     void skipsExistingDeptsWithoutTouchingThem() {
         when(deptService.findByName(anyString())).thenAnswer(inv -> dept(inv.getArgument(0)));
-        when(medicalTermMapper.selectCount(null)).thenReturn(72L);
 
         runner.run(null);
 
@@ -92,7 +110,6 @@ class SeedDataRunnerTest {
     @DisplayName("带语料的既有科室形态（空库首装）：切片照常入库")
     void seedsDeptWithChunksOnEmptyDatabase() {
         when(deptService.findByName(anyString())).thenReturn(null);
-        when(medicalTermMapper.selectCount(null)).thenReturn(0L);
 
         runner.run(null);
 
