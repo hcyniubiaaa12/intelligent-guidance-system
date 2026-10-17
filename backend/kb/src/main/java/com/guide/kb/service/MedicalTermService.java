@@ -102,6 +102,34 @@ public class MedicalTermService {
         return term;
     }
 
+    /**
+     * 删除术语（管理端「删除」）：**逻辑删除，不是停用、也不是物理删**。
+     *
+     * <p><b>与「停用」的区别</b>：停用是 {@code enabled=0}——行还在管理端列表里、能再启用回来，
+     * 语义是"这个词暂时不算数"。删除是 {@code deleted=1}——行从列表与判定里一起消失，
+     * 语义是"这个词不该在白名单里"。两者都让词立刻退出入口判定，但只有删除会让它从视野里消失。
+     *
+     * <p><b>为什么走 {@code deleteById}</b>：{@code @TableLogic} 挂在这个入口上（{@code BaseEntity}），
+     * 它发的是 {@code UPDATE medical_term SET deleted=1}。因此唯一键 {@code uk_mt_term_type} 仍被占着，
+     * 管理员用同一个词重新新增时会命中 {@link #add} 的复活分支——这就是本工单的恢复路径，
+     * 也是为什么不必做回收站 UI（见《数据库设计.md》§0.1）。
+     *
+     * <p><b>为什么不校验历史记录引用</b>：术语表是**当前生效源**，不是历史快照。
+     * 历史导诊记录读的是自己的证据快照，删掉一个词不会让任何一条旧记录变样。
+     *
+     * <p><b>为什么当场 refresh</b>：与启停同理——白名单是 chat 入口的防误杀闸门，
+     * 管理端点一下就该生效，不能等 60s TTL。
+     */
+    public void remove(String id) {
+        // selectById 受 @TableLogic 约束：已删除行查不到，这里要的正是"不存在（含已删除）"
+        if (medicalTermMapper.selectById(id) == null) {
+            throw new BizException(ErrorCode.TERM_NOT_FOUND);
+        }
+        medicalTermMapper.deleteById(id);
+        refresh();
+        log.info("术语 {} 已删除（逻辑删除，同词新增可恢复）", id);
+    }
+
     private record CacheEntry(Set<String> terms, long loadedAt) {
     }
 

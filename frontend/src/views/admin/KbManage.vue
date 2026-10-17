@@ -245,12 +245,13 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button link size="small" @click="openTermEdit(row)">编辑</el-button>
             <el-button link size="small" @click="onToggleTerm(row)">
               {{ row.enabled ? '停用' : '确认启用' }}
             </el-button>
+            <el-button type="danger" link size="small" @click="onDeleteTerm(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -458,7 +459,7 @@ import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
   listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm,
-  updateKbTerm
+  updateKbTerm, deleteKbTerm
 } from '../../api/admin'
 
 const tabs = [
@@ -967,6 +968,32 @@ async function onToggleTerm(row) {
     const updated = await toggleKbTerm(row.id)
     row.enabled = updated.enabled
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
+  } catch (e) {
+    ElMessage.error(errText(e))
+  }
+}
+
+async function onDeleteTerm(row) {
+  try {
+    // 三件事缺一不可：说清"不再是入口判定的词"、说清"旧记录不受影响"、给出恢复路径。
+    // 不能写成"永久删除"——它是逻辑删除，同词新增就能复活（见数据库设计.md §0.1）
+    await ElMessageBox.confirm(
+      `删除「${row.term}」后它不再参与入口判定，管理端列表里也不再显示。` +
+        '历史导诊记录不受影响；日后需要它时，用同一个词重新新增即可恢复。',
+      '删除术语',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await deleteKbTerm(row.id)
+    // 删掉的是本页最后一条且不在第 1 页 → 先回退一页，否则会停在一页空白上
+    if (terms.value.length === 1 && termPage.current > 1) {
+      termPage.current -= 1
+    }
+    await loadTerms()
+    ElMessage.success(`术语「${row.term}」已删除，入口校验即时生效`)
   } catch (e) {
     ElMessage.error(errText(e))
   }

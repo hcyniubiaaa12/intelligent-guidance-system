@@ -271,6 +271,61 @@ class MedicalTermServiceTest {
                 .isEqualTo(ErrorCode.TERM_EXISTS.getCode());
     }
 
+    // ---------- 删除 ----------
+
+    @Test
+    @DisplayName("删除：走 deleteById（@TableLogic → UPDATE deleted=1，不物理删、不改 enabled），且当场从内存白名单里消失")
+    void removeDeletesLogicallyAndTakesEffectImmediately() {
+        MedicalTerm term = term("t1", "胸痛", 1);
+        when(medicalTermMapper.selectById("t1")).thenReturn(term);
+        // 删除前 load 命中；删除后 selectList（带 deleted=0）不再返回它
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term), List.of());
+
+        assertThat(service.enabledTerms()).contains("胸痛");
+
+        service.remove("t1");
+
+        // deleteById 是 MyBatis-Plus 的逻辑删除入口：实体带 @TableLogic，它发的是 UPDATE deleted=1。
+        // 若有人改成 updateById(enabled=0) 或自写物理 DELETE，这两条断言至少有一条会红
+        verify(medicalTermMapper).deleteById("t1");
+        verify(medicalTermMapper, never()).updateById(any());
+        assertThat(service.enabledTerms()).doesNotContain("胸痛");
+    }
+
+    @Test
+    @DisplayName("删除 → 同词新增：走复活分支而不是 INSERT（逻辑删除留下物理行，正是恢复路径的前半段）")
+    void removeThenAddRevivesSameRow() {
+        MedicalTerm term = term("t1", "胸痛", 1);
+        when(medicalTermMapper.selectById("t1")).thenReturn(term);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term), List.of());
+
+        service.remove("t1");
+
+        // 删除后物理行仍在，占着 uk_mt_term_type —— 新增必须命中判存在 + 复活
+        when(medicalTermMapper.countIncludingDeleted("胸痛", "symptom")).thenReturn(1);
+        when(medicalTermMapper.revive("胸痛", "symptom")).thenReturn(1);
+        when(medicalTermMapper.selectOne(any())).thenReturn(term);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of(term));
+
+        service.add("胸痛", TermType.SYMPTOM);
+
+        verify(medicalTermMapper).revive("胸痛", "symptom");
+        verify(medicalTermMapper, never()).insert(any(MedicalTerm.class));
+        assertThat(service.enabledTerms()).contains("胸痛");
+    }
+
+    @Test
+    @DisplayName("删除：目标行不存在（含已逻辑删除）→ 「术语不存在」，不写库")
+    void removeRejectsMissingTerm() {
+        when(medicalTermMapper.selectById("gone")).thenReturn(null);
+
+        assertThatThrownBy(() -> service.remove("gone"))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.TERM_NOT_FOUND.getCode());
+        verify(medicalTermMapper, never()).deleteById(any(String.class));
+    }
+
     private MedicalTerm term(String id, String text, int enabled) {
         return term(id, text, TermType.SYMPTOM, enabled);
     }

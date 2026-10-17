@@ -203,6 +203,14 @@ class KbAdminServiceTest {
         verify(medicalTermService, never()).update(any(), any(), any());
     }
 
+    @Test
+    @DisplayName("删除术语：id 透传给 kb（领域规则在那边），编排层不自己判存在")
+    void deleteTermDelegatesToKb() {
+        service.deleteTerm("t1");
+
+        verify(medicalTermService).remove("t1");
+    }
+
     private KbAdminDTO.TermReq req(String term, String type) {
         KbAdminDTO.TermReq req = new KbAdminDTO.TermReq();
         req.setTerm(term);
