@@ -6,9 +6,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.MedicalTerm;
+import com.guide.kb.enums.TermSource;
+import com.guide.kb.enums.TermType;
 import com.guide.kb.mapper.MedicalTermMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -72,13 +75,23 @@ public class MedicalTermService {
         log.info("医学术语白名单已刷新，启用术语 {} 条", enabledTerms().size());
     }
 
-    /** 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用） */
+    /**
+     * 管理端分页：**含停用**（停用只是不生效，行还留着，页面要能看到并重新启用）。
+     *
+     * <p><b>排序 = 最新在前</b>：管理员加完一个词，它应当出现在第一页第一条——
+     * 否则他得先想"这个词该排在哪"才能确认自己加成功了。
+     *
+     * <p><b>为什么必须有 id 兜底</b>：`created_at` 是秒级 `DATETIME`，同一秒插入的行时间戳完全相同
+     * （种子那批 72 条就是同一个时间戳）。只按时间排，同秒行之间的顺序由数据库决定，
+     * 翻页时可能同一条出现两次或一条都看不到。雪花 id 单调递增，`id DESC` 能把同秒行也定死。
+     */
     public IPage<MedicalTerm> page(String keyword, Boolean enabled, long pageNum, long pageSize) {
         return medicalTermMapper.selectPage(new Page<>(pageNum, pageSize),
                 Wrappers.<MedicalTerm>lambdaQuery()
                         .like(keyword != null && !keyword.isBlank(), MedicalTerm::getTerm, keyword)
                         .eq(enabled != null, MedicalTerm::getEnabled, Boolean.TRUE.equals(enabled) ? 1 : 0)
-                        .orderByAsc(MedicalTerm::getTerm));
+                        .orderByDesc(MedicalTerm::getCreatedAt)
+                        .orderByDesc(MedicalTerm::getId));
     }
 
     /**
@@ -99,7 +112,164 @@ public class MedicalTermService {
         return term;
     }
 
+    /**
+     * 删除术语（管理端「删除」）：**逻辑删除，不是停用、也不是物理删**。
+     *
+     * <p><b>与「停用」的区别</b>：停用是 {@code enabled=0}——行还在管理端列表里、能再启用回来，
+     * 语义是"这个词暂时不算数"。删除是 {@code deleted=1}——行从列表与判定里一起消失，
+     * 语义是"这个词不该在白名单里"。两者都让词立刻退出入口判定，但只有删除会让它从视野里消失。
+     *
+     * <p><b>为什么走 {@code deleteById}</b>：{@code @TableLogic} 挂在这个入口上（{@code BaseEntity}），
+     * 它发的是 {@code UPDATE medical_term SET deleted=1}。因此唯一键 {@code uk_mt_term_type} 仍被占着，
+     * 管理员用同一个词重新新增时会命中 {@link #add} 的复活分支——这就是本工单的恢复路径，
+     * 也是为什么不必做回收站 UI（见《数据库设计.md》§0.1）。
+     *
+     * <p><b>为什么不校验历史记录引用</b>：术语表是**当前生效源**，不是历史快照。
+     * 历史导诊记录读的是自己的证据快照，删掉一个词不会让任何一条旧记录变样。
+     *
+     * <p><b>为什么当场 refresh</b>：与启停同理——白名单是 chat 入口的防误杀闸门，
+     * 管理端点一下就该生效，不能等 60s TTL。
+     */
+    public void remove(String id) {
+        // selectById 受 @TableLogic 约束：已删除行查不到，这里要的正是"不存在（含已删除）"
+        if (medicalTermMapper.selectById(id) == null) {
+            throw new BizException(ErrorCode.TERM_NOT_FOUND);
+        }
+        medicalTermMapper.deleteById(id);
+        refresh();
+        log.info("术语 {} 已删除（逻辑删除，同词新增可恢复）", id);
+    }
+
     private record CacheEntry(Set<String> terms, long loadedAt) {
+    }
+
+    /** 术语最短长度：单字一律拒绝，理由见 {@link #add} */
+    private static final int MIN_TERM_LENGTH = 2;
+
+    /**
+     * 术语最长长度（**业务口径，不是列宽**）：真实术语是「心慌 / 上腹痛 / 劳力性胸闷」这种长度，
+     * 超过 20 字基本是误粘贴了一整段话。列宽 `VARCHAR(128)` 只是物理上限，不构成这个数的依据。
+     */
+    private static final int MAX_TERM_LENGTH = 20;
+
+    /**
+     * 新增术语（管理端「新增术语」）：默认 {@code source = manual}、{@code enabled = 1}，
+     * **不受 {@code term.manual.review} 约束**——那个开关管的是"模型抽取的词要不要人工确认"，
+     * 人工亲手加的词已经过一次确认。
+     *
+     * <p><b>单字为什么拒绝</b>：信息充足性门槛（{@code SufficiencyRule.tooVague}）用**子串**匹配
+     * （{@link #matches}）。塞一个「痛」进白名单，几乎任何主诉都"命中术语"，门槛当场失真、
+     * 短主诉再也不被追问。现有种子里有「头 / 腹 / 心 / 肺」等单字，那是历史集合，
+     * **不构成新增时放行的先例**——本条注释就是防止后来者"顺手放开"的护栏。
+     *
+     * <p><b>判存在按物理行判</b>：`uk_mt_term_type` 是物理唯一键，逻辑删除的行仍占着它。
+     * 活跃行 → 报「已存在」；**仅有已删除行 → 复活**（`deleted=0`、`enabled=1`，`source` 保持原值）。
+     * 并发撞键兜底成同一个可展示错误，不冒 500。
+     */
+    public MedicalTerm add(String term, TermType type) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语类型仅支持 part/symptom");
+        }
+        String text = validateTerm(term);
+        String typeCode = type.getCode();
+        try {
+            if (medicalTermMapper.countIncludingDeleted(text, typeCode) > 0) {
+                // 有物理行：要么是活跃行（报错），要么是已删除行（复活）。revive 的返回行数直接区分两者。
+                // 并发下两个请求可能同时判到"已删除行"：后到的那个 revive 返回 0 ⇒ 那一行已经被
+                // 对方复活成活跃行，此时报「已存在」是对的（管理员看到的是"它已经在表里了"），
+                // 与 insert 撞唯一键后的兜底给出同一个可展示错误，都不会冒 500。
+                if (medicalTermMapper.revive(text, typeCode) == 0) {
+                    throw new BizException(ErrorCode.TERM_EXISTS);
+                }
+                refresh();
+                log.info("术语「{}」（{}）曾被删除，已复活并启用（来源保持原值）", text, typeCode);
+                return medicalTermMapper.selectOne(Wrappers.<MedicalTerm>lambdaQuery()
+                        .eq(MedicalTerm::getTerm, text)
+                        .eq(MedicalTerm::getType, type));
+            }
+
+            MedicalTerm entity = new MedicalTerm();
+            entity.setTerm(text);
+            entity.setType(type);
+            entity.setSource(TermSource.MANUAL);
+            entity.setEnabled(1);
+            medicalTermMapper.insert(entity);
+            refresh();
+            log.info("术语「{}」（{}）已新增并启用", text, typeCode);
+            return entity;
+        } catch (DataIntegrityViolationException e) {
+            // 并发撞唯一键：判存在与写库之间被别的请求插了队。转成可展示错误，不冒 500
+            throw new BizException(ErrorCode.TERM_EXISTS);
+        }
+    }
+
+    /**
+     * 编辑术语（管理端「编辑」）：只改**词面 + 类型**，{@code source} 与 {@code enabled} 一律保持原值。
+     *
+     * <p><b>为什么不接收启用状态</b>：启停已有独立的 toggle 入口，同一件事给两个入口，管理员就再也
+     * 说不清"我刚改的到底生效没有"。
+     *
+     * <p><b>为什么 source 不动</b>：来源是**审计标签**（这个词最初是模型抽取的还是人加的）。
+     * 模型抽取的词被人工改一次词面就洗成「人工维护」，以后就答不上"这条到底是模型提的还是人加的"。
+     *
+     * <p><b>判重必须是「另一行」</b>：{@code (term, type)} 是物理唯一键，但它允许目标行自己保持原键。
+     * 所以不能直接 {@code countIncludingDeleted}（会把目标行算进去），要走
+     * {@link MedicalTermMapper#otherRowDeleted}。撞活跃行与撞已删除行的文案必须分开——
+     * 后者管理员在列表里根本看不见，只说"已存在"等于让他无从下手。
+     */
+    public MedicalTerm update(String id, String term, TermType type) {
+        if (type == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语类型仅支持 part/symptom");
+        }
+        // selectById 受 @TableLogic 约束：已删除行查不到，这里要的正是"不存在（含已删除）"
+        MedicalTerm target = medicalTermMapper.selectById(id);
+        if (target == null) {
+            throw new BizException(ErrorCode.TERM_NOT_FOUND);
+        }
+        String text = validateTerm(term);
+        String typeCode = type.getCode();
+        try {
+            Integer otherDeleted = medicalTermMapper.otherRowDeleted(text, typeCode, id);
+            if (otherDeleted != null) {
+                throw new BizException(ErrorCode.TERM_EXISTS.getCode(), Integer.valueOf(1).equals(otherDeleted)
+                        ? "该术语曾被删除，请直接在新增里填写以恢复"
+                        : "该术语已存在");
+            }
+            target.setTerm(text);
+            target.setType(type);
+            medicalTermMapper.updateById(target);
+        } catch (DataIntegrityViolationException e) {
+            // 并发：另一个请求在判重之后、写库之前占了同一个键
+            throw new BizException(ErrorCode.TERM_EXISTS.getCode(), "该术语已存在");
+        }
+        refresh();
+        log.info("术语 {} 已编辑为「{}」（{}），来源与启停状态保持不变", id, text, typeCode);
+        return target;
+    }
+
+    /**
+     * 词面校验：trim 后 2–20 字，拒绝内部空白与换行。
+     * 内部空白/换行会让一个词在页面上看着是两个词，子串匹配也永远命不中它。
+     *
+     * <p><b>数的是「字」不是 char</b>：用 {@link String#codePointCount} 而不是 {@code length()}——
+     * 后者按 UTF-16 code unit 数，而一个汉字在一个代理对里会被算成 2。虽然术语都是汉字、
+     * 两种数法结果一致，但用 code point 才与提示文案「N 个字」对得上。
+     */
+    private String validateTerm(String term) {
+        String text = term == null ? "" : term.strip();
+        int length = text.codePointCount(0, text.length());
+        if (length < MIN_TERM_LENGTH) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "术语至少 2 个字（单字会让所有主诉都被判为含医学术语，信息充足性门槛失真）");
+        }
+        if (length > MAX_TERM_LENGTH) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "术语最多 " + MAX_TERM_LENGTH + " 个字");
+        }
+        if (text.chars().anyMatch(Character::isWhitespace)) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语不能包含空格或换行");
+        }
+        return text;
     }
 
     private Set<String> load() {

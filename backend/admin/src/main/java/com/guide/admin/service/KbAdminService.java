@@ -16,6 +16,7 @@ import com.guide.kb.entity.KbChunk;
 import com.guide.kb.entity.KbDoc;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.DocStatus;
+import com.guide.kb.enums.TermType;
 import com.guide.kb.service.DeptMappingService;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.KbDocService;
@@ -255,20 +256,46 @@ public class KbAdminService {
         IPage<MedicalTerm> page = medicalTermService.page(keyword, enabled, Math.max(1, pageNum), clamp(pageSize));
         List<KbAdminDTO.TermVO> records = new ArrayList<>(page.getRecords().size());
         for (MedicalTerm term : page.getRecords()) {
-            KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
-            vo.setId(term.getId());
-            vo.setTerm(term.getTerm());
-            vo.setType(term.getType() == null ? null : term.getType().getCode());
-            vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
-            vo.setEnabled(term.getEnabled());
-            records.add(vo);
+            records.add(toTermVO(term));
         }
         return pageVO(page.getTotal(), records);
     }
 
+    /**
+     * 新增术语：**领域规则全在 kb**（校验、物理判重、复活、刷新白名单），这里只做类型解析与 VO 映射。
+     *
+     * <p>解析按 code 遍历匹配，**不能用 {@code valueOf}**——前端传的是小写编码值，
+     * {@code valueOf} 匹配的是大写常量名。
+     */
+    public KbAdminDTO.TermVO createTerm(KbAdminDTO.TermReq req) {
+        TermType type = TermType.fromCode(req.getType());
+        return toTermVO(medicalTermService.add(req.getTerm(), type));
+    }
+
+    /**
+     * 编辑术语：与新增同一条路径——**领域规则全在 kb**（校验、另一行判重、刷新白名单），
+     * 这里只做类型解析与 VO 映射。可改的只有词面与类型：启用状态走 toggle，来源保持原值。
+     */
+    public KbAdminDTO.TermVO updateTerm(String termId, KbAdminDTO.TermReq req) {
+        TermType type = TermType.fromCode(req.getType());
+        return toTermVO(medicalTermService.update(termId, req.getTerm(), type));
+    }
+
     /** 启用/停用术语（kb 侧翻转并刷新内存白名单，chat 入口最长 60s 内也一定生效） */
     public KbAdminDTO.TermVO toggleTerm(String termId) {
-        MedicalTerm term = medicalTermService.toggle(termId);
+        return toTermVO(medicalTermService.toggle(termId));
+    }
+
+    /**
+     * 删除术语：**逻辑删除**（kb 侧走 {@code @TableLogic} 并立即刷新白名单）。
+     * 同词重新新增即复活，故不需要回收站；历史导诊记录读证据快照，不受影响。
+     */
+    public void deleteTerm(String termId) {
+        medicalTermService.remove(termId);
+    }
+
+    /** 术语实体 → 前端形状（枚举一律出 code；新增/编辑/启停/分页共用这一处映射） */
+    private KbAdminDTO.TermVO toTermVO(MedicalTerm term) {
         KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
         vo.setId(term.getId());
         vo.setTerm(term.getTerm());

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.async.service.IngestPipeline;
 import com.guide.async.service.IngestTaskService;
+import com.guide.common.api.ErrorCode;
+import com.guide.common.exception.BizException;
 import com.guide.common.model.LayoutBlock;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.entity.DeptMapping;
@@ -24,10 +26,12 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -125,6 +129,93 @@ class KbAdminServiceTest {
         assertThat(vo.getEnabled()).isEqualTo(1);
         assertThat(vo.getType()).isEqualTo("symptom");
         assertThat(vo.getSource()).isEqualTo("manual");
+    }
+
+    @Test
+    @DisplayName("新增术语：type 按 code 解析后交给 kb，返回 code 形状（前端不认大写常量名）")
+    void createTermMapsCodeAndReturnsCodeShape() {
+        when(medicalTermService.add("肚子疼", TermType.SYMPTOM))
+                .thenReturn(term("t9", "肚子疼", TermType.SYMPTOM, TermSource.MANUAL, 1));
+
+        KbAdminDTO.TermVO vo = service.createTerm(req("肚子疼", "symptom"));
+
+        verify(medicalTermService).add("肚子疼", TermType.SYMPTOM);
+        assertThat(vo.getId()).isEqualTo("t9");
+        assertThat(vo.getType()).isEqualTo("symptom");
+        assertThat(vo.getSource()).isEqualTo("manual");
+        assertThat(vo.getEnabled()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("新增术语：部位类型同样按 code 进出")
+    void createTermMapsPartType() {
+        when(medicalTermService.add("左腹部", TermType.PART))
+                .thenReturn(term("t8", "左腹部", TermType.PART, TermSource.MANUAL, 1));
+
+        assertThat(service.createTerm(req("左腹部", "part")).getType()).isEqualTo("part");
+    }
+
+    @Test
+    @DisplayName("新增术语：未知/缺失类型给可读的参数错误（不猜、不默认）")
+    void createTermRejectsUnknownType() {
+        for (String bad : new String[]{null, "", "unknown", "PARTT"}) {
+            assertThatThrownBy(() -> service.createTerm(req("肚子疼", bad)))
+                    .as("非法类型：[%s]", bad)
+                    .isInstanceOf(BizException.class)
+                    .extracting(e -> ((BizException) e).getCode())
+                    .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        }
+        verify(medicalTermService, never()).add(any(), any());
+    }
+
+    @Test
+    @DisplayName("新增术语：术语为空交给 kb 校验（编排层不重复一套规则）")
+    void createTermDelegatesBlankValidation() {
+        when(medicalTermService.add("  ", TermType.SYMPTOM))
+                .thenThrow(new BizException(ErrorCode.PARAM_INVALID));
+
+        assertThatThrownBy(() -> service.createTerm(req("  ", "symptom")))
+                .isInstanceOf(BizException.class);
+    }
+
+    @Test
+    @DisplayName("编辑术语：type 按 code 解析后交给 kb，id 透传，返回 code 形状")
+    void updateTermMapsCodeAndReturnsCodeShape() {
+        when(medicalTermService.update("t1", "胃食管反流", TermType.SYMPTOM))
+                .thenReturn(term("t1", "胃食管反流", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 1));
+
+        KbAdminDTO.TermVO vo = service.updateTerm("t1", req("胃食管反流", "symptom"));
+
+        verify(medicalTermService).update("t1", "胃食管反流", TermType.SYMPTOM);
+        assertThat(vo.getId()).isEqualTo("t1");
+        assertThat(vo.getType()).isEqualTo("symptom");
+        // 来源仍显示模型抽取：编辑不洗审计标签
+        assertThat(vo.getSource()).isEqualTo("llm_extract");
+    }
+
+    @Test
+    @DisplayName("编辑术语：未知类型给可读的参数错误，不调 kb（不猜、不默认）")
+    void updateTermRejectsUnknownType() {
+        assertThatThrownBy(() -> service.updateTerm("t1", req("胃痛", "PARTT")))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        verify(medicalTermService, never()).update(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("删除术语：id 透传给 kb（领域规则在那边），编排层不自己判存在")
+    void deleteTermDelegatesToKb() {
+        service.deleteTerm("t1");
+
+        verify(medicalTermService).remove("t1");
+    }
+
+    private KbAdminDTO.TermReq req(String term, String type) {
+        KbAdminDTO.TermReq req = new KbAdminDTO.TermReq();
+        req.setTerm(term);
+        req.setType(type);
+        return req;
     }
 
     @Test

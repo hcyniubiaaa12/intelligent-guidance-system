@@ -24,6 +24,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -38,14 +39,28 @@ class SeedDataRunnerTest {
 
     private final DeptMapper deptMapper = mock(DeptMapper.class);
     private final KbDocMapper kbDocMapper = mock(KbDocMapper.class);
-    private final MedicalTermMapper medicalTermMapper = mock(MedicalTermMapper.class);
     private final ChunkIndexService chunkIndexService = mock(ChunkIndexService.class);
-    private final MedicalTermService medicalTermService = mock(MedicalTermService.class);
     private final EsChunkUtil esChunkUtil = mock(EsChunkUtil.class);
     private final DeptService deptService = mock(DeptService.class);
 
     private final SeedDataRunner runner = new SeedDataRunner(deptMapper, kbDocMapper,
-            medicalTermMapper, chunkIndexService, medicalTermService, esChunkUtil, deptService);
+            chunkIndexService, esChunkUtil, deptService);
+
+    @Test
+    @DisplayName("启动装载不再依赖术语表：术语全被逻辑删除后重启也不会撞唯一键")
+    void doesNotDependOnMedicalTermTable() {
+        // 外部行为：装载器跑完，科室照常补建，而**术语表一次都没被读过或写过**。
+        // 反过来（"空表就重新灌种子"）在术语全被逻辑删除后重启会 INSERT 撞 uk_mt_term_type，
+        // 把整个应用启动带崩——这条断言就是防止那个判据被写回来。
+        when(deptService.findByName(anyString())).thenReturn(null);
+        MedicalTermMapper termMapper = mock(MedicalTermMapper.class);
+        MedicalTermService termService = mock(MedicalTermService.class);
+
+        runner.run(null);
+
+        verify(deptMapper, times(SeedCorpus.DEPTS.size())).insert(any(Dept.class));
+        verifyNoInteractions(termMapper, termService);
+    }
 
     @Test
     @DisplayName("科室表非空但缺新科室：只有缺失的那个被补建并建文档（整表判存在会把它漏掉）")
@@ -56,7 +71,6 @@ class SeedDataRunnerTest {
             String name = inv.getArgument(0);
             return name.equals(missing) ? null : dept(name);
         });
-        when(medicalTermMapper.selectCount(null)).thenReturn(72L);
 
         runner.run(null);
 
@@ -76,7 +90,6 @@ class SeedDataRunnerTest {
     @DisplayName("已存在的科室：不重复插入、不改位置/简介/启停，也不重建文档")
     void skipsExistingDeptsWithoutTouchingThem() {
         when(deptService.findByName(anyString())).thenAnswer(inv -> dept(inv.getArgument(0)));
-        when(medicalTermMapper.selectCount(null)).thenReturn(72L);
 
         runner.run(null);
 
@@ -92,7 +105,6 @@ class SeedDataRunnerTest {
     @DisplayName("带语料的既有科室形态（空库首装）：切片照常入库")
     void seedsDeptWithChunksOnEmptyDatabase() {
         when(deptService.findByName(anyString())).thenReturn(null);
-        when(medicalTermMapper.selectCount(null)).thenReturn(0L);
 
         runner.run(null);
 

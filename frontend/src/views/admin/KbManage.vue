@@ -224,12 +224,13 @@
           白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，ES 聚合只是候选池
         </span>
         <span class="a-panel__hint" style="margin-left: auto">共 {{ termPage.total }} 条</span>
+        <button class="a-btn" @click="openTermCreate">新 增 术 语</button>
       </div>
       <el-table v-loading="termLoading" :data="terms" empty-text="白名单为空">
         <el-table-column prop="term" label="术语" min-width="160" />
         <el-table-column label="类型" width="100">
           <template #default="{ row }">
-            <el-tag effect="plain" size="small">{{ row.type === 'part' ? '部位' : '症状' }}</el-tag>
+            <el-tag effect="plain" size="small">{{ termTypeLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="来源" width="120">
@@ -244,11 +245,13 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
+            <el-button link size="small" @click="openTermEdit(row)">编辑</el-button>
             <el-button link size="small" @click="onToggleTerm(row)">
               {{ row.enabled ? '停用' : '确认启用' }}
             </el-button>
+            <el-button type="danger" link size="small" @click="onDeleteTerm(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -377,6 +380,34 @@
       </template>
     </el-dialog>
 
+    <!-- 术语弹窗（新增与编辑共用一份表单状态：标题按是否带 id 切换） -->
+    <el-dialog v-model="termEditVisible" :title="termForm.id ? '编辑术语' : '新增术语'" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="术语">
+          <el-input v-model="termForm.term" placeholder="2–20 个字，不含空格或换行" @keyup.enter="submitTerm" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="termForm.type" style="width: 100%">
+            <el-option label="部位" value="part" />
+            <el-option label="症状" value="symptom" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <div class="a-field__hint">
+        <template v-if="termForm.id">
+          保存后判定立即生效；来源与启停状态保持不变——启停请用列表里的按钮，编辑这里不接管。
+        </template>
+        <template v-else>
+          新增即启用，chat 入口判定立即生效。单字会被拒绝——白名单用子串匹配，单字会让几乎所有主诉都被判「含医学术语」。
+          同一个词可以同时作为「部位」与「症状」各占一行。
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="termEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="termSaving" @click="submitTerm">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 切片抽屉 -->
     <el-drawer v-model="chunksVisible" :title="chunksTitle" size="620px">
       <div v-if="chunksLoading" class="a-empty">加载中…</div>
@@ -427,7 +458,8 @@ import { Close, Document, UploadFilled } from '@element-plus/icons-vue'
 import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
-  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm
+  listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm,
+  updateKbTerm, deleteKbTerm
 } from '../../api/admin'
 
 const tabs = [
@@ -898,6 +930,11 @@ function sourceLabel(source) {
   return '初始化'
 }
 
+/** 术语类型编码 → 中文（表格、新增 toast、编辑 toast 共用这一处，避免三份拷贝迟早对不上） */
+function termTypeLabel(type) {
+  return type === 'part' ? '部位' : '症状'
+}
+
 // —— 术语白名单 ——
 const terms = ref([])
 const termLoading = ref(false)
@@ -938,6 +975,78 @@ async function onToggleTerm(row) {
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
   } catch (e) {
     ElMessage.error(errText(e))
+  }
+}
+
+async function onDeleteTerm(row) {
+  try {
+    // 三件事缺一不可：说清"不再是入口判定的词"、说清"旧记录不受影响"、给出恢复路径。
+    // 不能写成"永久删除"——它是逻辑删除，同词新增就能复活（见数据库设计.md §0.1）
+    await ElMessageBox.confirm(
+      `删除「${row.term}」后它不再参与入口判定，管理端列表里也不再显示。` +
+        '历史导诊记录不受影响；日后需要它时，用同一个词重新新增即可恢复。',
+      '删除术语',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await deleteKbTerm(row.id)
+    // 删掉的是本页最后一条且不在第 1 页 → 先回退一页，否则会停在一页空白上
+    if (terms.value.length === 1 && termPage.current > 1) {
+      termPage.current -= 1
+    }
+    await loadTerms()
+    ElMessage.success(`术语「${row.term}」已删除，入口校验即时生效`)
+  } catch (e) {
+    ElMessage.error(errText(e))
+  }
+}
+
+const termEditVisible = ref(false)
+const termSaving = ref(false)
+/** 新增与编辑共用：带 id 即编辑（预填当前行），不带即新增 */
+const termForm = reactive({ id: '', term: '', type: 'symptom' })
+
+/** 新增：空表单。类型默认「症状」——真实主诉里补得最多的是口语症状词 */
+function openTermCreate() {
+  Object.assign(termForm, { id: '', term: '', type: 'symptom' })
+  termEditVisible.value = true
+}
+
+/** 编辑：预填当前行的词面与类型（启停不在这个表单里） */
+function openTermEdit(row) {
+  Object.assign(termForm, { id: row.id, term: row.term, type: row.type })
+  termEditVisible.value = true
+}
+
+async function submitTerm() {
+  termSaving.value = true
+  try {
+    if (termForm.id) {
+      const updated = await updateKbTerm(termForm.id, { term: termForm.term, type: termForm.type })
+      termEditVisible.value = false
+      // 编辑是就地修正：**不动筛选、不回第 1 页**——管理员看着的那一行还在原处
+      await loadTerms()
+      const typeLabel = termTypeLabel(updated.type)
+      ElMessage.success(`术语已改为「${updated.term}」（${typeLabel}），入口校验即时生效`)
+    } else {
+      const created = await createKbTerm({ term: termForm.term, type: termForm.type })
+      termEditVisible.value = false
+      // 清空筛选并回到第 1 页：否则新词可能落在筛选条件外，管理员看不到自己刚加的东西、以为没成功
+      termQuery.keyword = ''
+      termQuery.enabled = ''
+      termPage.current = 1
+      await loadTerms()
+      const typeLabel = termTypeLabel(created.type)
+      ElMessage.success(`术语「${created.term}」（${typeLabel}）已新增，入口校验即时生效`)
+    }
+  } catch (e) {
+    // 校验/判重的规则在 kb：直接用后端文案，前端不另拼一套判断
+    ElMessage.error(errText(e))
+  } finally {
+    termSaving.value = false
   }
 }
 

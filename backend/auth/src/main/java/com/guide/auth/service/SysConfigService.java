@@ -26,8 +26,6 @@ public class SysConfigService {
     public static final String KEY_TERM_MANUAL_REVIEW = "term.manual.review";
     /** 聚合归桶相似度阈值（链路 C 后半用，键位先占，管理端已可调） */
     public static final String KEY_CLUSTER_BUCKET_THRESHOLD = "cluster.bucket.threshold";
-    /** 追问升级阈值（轮次） */
-    public static final String KEY_UPGRADE_ROUNDS = "guide.upgrade.rounds";
 
     /** 敏感词违规的统计窗口（分钟，滑动窗口） */
     public static final String KEY_SENSITIVE_WINDOW_MINUTES = "sensitive.window.minutes";

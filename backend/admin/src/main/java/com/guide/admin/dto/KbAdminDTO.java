@@ -153,6 +153,21 @@ public final class KbAdminDTO {
         private Integer enabled;
     }
 
+    /** 新增术语：只有词面与类型，**不放启用状态**——启停只有 toggle 一个入口 */
+    @Getter
+    @Setter
+    public static class TermReq {
+        /**
+         * 词面。{@code @NotBlank} 只挡"完全没填"；长度、单字、内部空白这些**领域规则归 kb**
+         * （{@code MedicalTermService.add}），这里不复制第二套，否则两处的文案迟早对不上。
+         */
+        @NotBlank(message = "术语不能为空")
+        private String term;
+
+        /** part / symptom（英文小写编码值）；不标 @NotBlank，由编排层给出可读的类型错误 */
+        private String type;
+    }
+
     /** 分页结果（与其他管理端接口同一形状） */
     @Getter
     @Setter
