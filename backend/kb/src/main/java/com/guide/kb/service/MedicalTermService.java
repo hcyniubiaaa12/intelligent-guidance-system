@@ -90,13 +90,44 @@ public class MedicalTermService {
      * （种子那批 72 条就是同一个时间戳）。只按时间排，同秒行之间的顺序由数据库决定，
      * 翻页时可能同一条出现两次或一条都看不到。雪花 id 单调递增，`id DESC` 能把同秒行也定死。
      */
-    public IPage<MedicalTerm> page(String keyword, Boolean enabled, long pageNum, long pageSize) {
+    public IPage<MedicalTerm> page(String keyword, TermSource source, Boolean enabled,
+                                   long pageNum, long pageSize) {
         return medicalTermMapper.selectPage(new Page<>(pageNum, pageSize),
                 Wrappers.<MedicalTerm>lambdaQuery()
                         .like(keyword != null && !keyword.isBlank(), MedicalTerm::getTerm, keyword)
+                        .eq(source != null, MedicalTerm::getSource, source == null ? null : source.getCode())
                         .eq(enabled != null, MedicalTerm::getEnabled, Boolean.TRUE.equals(enabled) ? 1 : 0)
                         .orderByDesc(MedicalTerm::getCreatedAt)
                         .orderByDesc(MedicalTerm::getId));
+    }
+
+    /**
+     * 批量启用「待确认」的模型抽取术语（管理端「待确认 N · 全部启用」）。
+     *
+     * <p><b>只动 {@code source=llm_extract && enabled=0}</b>，其余 id 静默跳过——这是「待确认」的严格口径，
+     * 不能放宽成 {@code enabled=0}：那会把管理员**故意停用**的词也算进去，一次批量操作就推翻人的决定。
+     * 不做「全库启用」语义（不可撤销的大动作），由调用方把明确的 id 清单交进来。
+     *
+     * <p><b>refresh 只调一次</b>：一条 UPDATE 改多行，白名单是整体重建，逐条刷新只是白扫全表。
+     *
+     * @return **实际**启用条数（可能小于请求条数：人工词、已生效的词都会被跳过），前端拿它做 toast
+     */
+    public int batchEnable(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int updated = medicalTermMapper.update(null, Wrappers.<MedicalTerm>lambdaUpdate()
+                .set(MedicalTerm::getEnabled, 1)
+                .in(MedicalTerm::getId, ids)
+                // 用编码值而不是枚举本身：Wrapper 的取值可能被序列化进缓存的 SQL 片段，
+                // 编码值是稳定字符串（同样由 @EnumValue 决定落库值），这里显式写出以免依赖参数绑定的实现细节
+                .eq(MedicalTerm::getSource, TermSource.LLM_EXTRACT.getCode())
+                .eq(MedicalTerm::getEnabled, 0));
+        if (updated > 0) {
+            refresh();
+        }
+        log.info("批量启用待确认术语：请求 {} 条，实际启用 {} 条", ids.size(), updated);
+        return updated;
     }
 
     /**

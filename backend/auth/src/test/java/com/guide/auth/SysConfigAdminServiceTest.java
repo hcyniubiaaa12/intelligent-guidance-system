@@ -77,10 +77,23 @@ class SysConfigAdminServiceTest {
         assertEquals("10", topK.getDefaultValue());
         assertEquals("int", topK.getType());
         assertEquals("1–50", topK.getRange());
+    }
 
-        SysConfigAdminDTO.ParamVO termReview = params.stream()
+    @Test
+    @DisplayName("术语审核开关归知识库页：链路参数由 9 项减为 8 项，开关出现在知识库分组")
+    void termReviewSwitchMovesToKnowledgeBaseGroup() {
+        List<SysConfigAdminDTO.ParamVO> link = service.listParams(SysConfigAdminService.ParamGroup.LINK);
+        assertEquals(8, link.size(), "LLM 配置页搬走术语审核开关后应剩 8 项");
+        assertTrue(link.stream().noneMatch(p -> SysConfigService.KEY_TERM_MANUAL_REVIEW.equals(p.getKey())),
+                "审核开关不该再挂在 LLM 配置页的分组里");
+
+        List<SysConfigAdminDTO.ParamVO> kb = service.listParams(SysConfigAdminService.ParamGroup.KB);
+        SysConfigAdminDTO.ParamVO termReview = kb.stream()
                 .filter(p -> SysConfigService.KEY_TERM_MANUAL_REVIEW.equals(p.getKey())).findFirst().orElseThrow();
         assertEquals("bool", termReview.getType());
+        assertEquals("true", termReview.getDefaultValue());
+        // 切分参数也在这个分组（知识库页），本轮不给它们单独开页面
+        assertTrue(kb.stream().anyMatch(p -> SysConfigService.KEY_CHUNK_TARGET_LENGTH.equals(p.getKey())));
     }
 
     @Test

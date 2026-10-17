@@ -34,7 +34,7 @@ public class LlmConfigAdminController {
         return Result.ok(diagnosticService.modelInfo());
     }
 
-    /** 受管运行时参数（检索 Top-K/Top-N、追问上限、阈值、术语审核开关）；敏感词处置参数在用户管理页，不在这里 */
+    /** 受管运行时参数（检索 Top-K/Top-N、追问上限、阈值、档案上限）；敏感词处置在用户管理页、知识库页参数（含术语审核开关）在知识库页 */
     @GetMapping("/params")
     public Result<List<SysConfigAdminDTO.ParamVO>> params() {
         return Result.ok(sysConfigAdminService.listParams(SysConfigAdminService.ParamGroup.LINK));

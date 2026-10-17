@@ -16,6 +16,7 @@ import com.guide.kb.entity.KbChunk;
 import com.guide.kb.entity.KbDoc;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.DocStatus;
+import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
 import com.guide.kb.service.DeptMappingService;
 import com.guide.kb.service.DeptService;
@@ -47,6 +48,9 @@ public class KbAdminService {
 
     /** 单次列表最多返回多少行，防止前端传个大数把库拖垮 */
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** 一次批量启用最多多少条：防一次误点把整库候选词全放行 */
+    private static final int MAX_BATCH_ENABLE = 500;
 
     private final KbDocService kbDocService;
     private final DeptService deptService;
@@ -252,13 +256,32 @@ public class KbAdminService {
     }
 
     /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用） */
-    public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, long pageNum, long pageSize) {
-        IPage<MedicalTerm> page = medicalTermService.page(keyword, enabled, Math.max(1, pageNum), clamp(pageSize));
+    public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, String source,
+                                                      long pageNum, long pageSize) {
+        IPage<MedicalTerm> page = medicalTermService.page(keyword, TermSource.fromCode(source), enabled,
+                Math.max(1, pageNum), clamp(pageSize));
         List<KbAdminDTO.TermVO> records = new ArrayList<>(page.getRecords().size());
         for (MedicalTerm term : page.getRecords()) {
             records.add(toTermVO(term));
         }
         return pageVO(page.getTotal(), records);
+    }
+
+    /**
+     * 批量启用待确认术语：**上限 500**（防一次误点全库），领域条件（只动 llm_extract && enabled=0）
+     * 与 refresh 全在 kb 侧，这里只做数量兜底并回传实际启用条数。
+     *
+     * <p>500 是经验阈值：它远大于一个空库第一份文档能抽出的词数（实测个位数到几十），
+     * 又小于整个白名单的量级——超过它几乎一定是误操作，而不是"我确实要确认这么多"。
+     */
+    public int batchEnable(List<String> ids) {
+        List<String> targets = ids == null ? List.of()
+                : ids.stream().filter(id -> id != null && !id.isBlank()).toList();
+        if (targets.size() > MAX_BATCH_ENABLE) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "一次最多启用 " + MAX_BATCH_ENABLE + " 条术语");
+        }
+        return medicalTermService.batchEnable(targets);
     }
 
     /**

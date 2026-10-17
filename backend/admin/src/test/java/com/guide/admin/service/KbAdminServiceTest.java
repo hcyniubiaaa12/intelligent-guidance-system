@@ -109,13 +109,72 @@ class KbAdminServiceTest {
         Page<MedicalTerm> page = new Page<>(1, 10);
         page.setTotal(1);
         page.setRecords(List.of(term("t1", "反酸", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 0)));
-        when(medicalTermService.page(any(), any(), anyLong(), anyLong())).thenReturn(page);
+        when(medicalTermService.page(any(), any(), any(), anyLong(), anyLong())).thenReturn(page);
 
-        KbAdminDTO.TermVO row = service.terms(null, null, 1, 10).getRecords().get(0);
+        KbAdminDTO.TermVO row = service.terms(null, null, null, 1, 10).getRecords().get(0);
 
         assertThat(row.getType()).isEqualTo("symptom");
         assertThat(row.getSource()).isEqualTo("llm_extract");
         assertThat(row.getEnabled()).isZero();
+    }
+
+    @Test
+    @DisplayName("术语列表：source 按 code 解析后与 enabled 一起透传给 kb（前端传小写 llm_extract）")
+    void termsPassSourceAndEnabledThrough() {
+        Page<MedicalTerm> page = new Page<>(1, 10);
+        page.setTotal(0);
+        when(medicalTermService.page(any(), any(), any(), anyLong(), anyLong())).thenReturn(page);
+
+        service.terms("胸", false, "llm_extract", 1, 10);
+
+        // 「待确认」口径必须两个条件同时下到查询里；来源用枚举而不是字符串，避免大小写/拼写漂移
+        verify(medicalTermService).page(eq("胸"), eq(TermSource.LLM_EXTRACT), eq(false), eq(1L), eq(10L));
+    }
+
+    @Test
+    @DisplayName("术语列表：source 缺省为 null（全部来源），未知来源给可读的参数错误，不查库")
+    void termsRejectUnknownSource() {
+        Page<MedicalTerm> page = new Page<>(1, 10);
+        when(medicalTermService.page(any(), any(), any(), anyLong(), anyLong())).thenReturn(page);
+        service.terms(null, null, null, 1, 10);
+        verify(medicalTermService).page(eq(null), eq(null), eq(null), eq(1L), eq(10L));
+
+        assertThatThrownBy(() -> service.terms(null, null, "bogus", 1, 10))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+    }
+
+    @Test
+    @DisplayName("批量启用：返回实际启用条数（不是请求条数），kb 的两个领域条件由它自己保证")
+    void batchEnableReturnsActualCount() {
+        when(medicalTermService.batchEnable(List.of("t1", "t2", "t3"))).thenReturn(2);
+
+        assertThat(service.batchEnable(List.of("t1", "t2", "t3"))).isEqualTo(2);
+        verify(medicalTermService).batchEnable(List.of("t1", "t2", "t3"));
+    }
+
+    @Test
+    @DisplayName("批量启用：超过 500 个 id 直接拒绝且不写库（防一次误点全库）")
+    void batchEnableRejectsMoreThan500Ids() {
+        List<String> ids = java.util.stream.IntStream.rangeClosed(1, 501)
+                .mapToObj(i -> "t" + i).toList();
+
+        assertThatThrownBy(() -> service.batchEnable(ids))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.PARAM_INVALID.getCode());
+        verify(medicalTermService, never()).batchEnable(any());
+    }
+
+    @Test
+    @DisplayName("批量启用：恰好 500 个放行（边界是上限本身，不是 499）")
+    void batchEnableAllowsExactly500Ids() {
+        List<String> ids = java.util.stream.IntStream.rangeClosed(1, 500)
+                .mapToObj(i -> "t" + i).toList();
+        when(medicalTermService.batchEnable(ids)).thenReturn(500);
+
+        assertThat(service.batchEnable(ids)).isEqualTo(500);
     }
 
     @Test

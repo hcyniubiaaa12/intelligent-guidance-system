@@ -436,14 +436,9 @@ class MedicalTermServiceTest {
     @Test
     @DisplayName("列表按时间倒序、id 兜底：新加的词出现在第一页，同秒插入的行也不会翻页错乱")
     void pageOrdersByCreatedAtThenIdDesc() {
-        // lambda 版 Wrapper 解析列名要查 MyBatis-Plus 的实体元数据；纯单测没有 Spring 上下文，
-        // 得手工注册一次（否则 getSqlSegment() 抛 "can not find lambda cache"）
-        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
-                new org.apache.ibatis.builder.MapperBuilderAssistant(
-                        new org.apache.ibatis.session.Configuration(), ""),
-                MedicalTerm.class);
+        initMedicalTermTableInfo();
 
-        service.page(null, null, 1, 10);
+        service.page(null, null, null, 1, 10);
 
         String sql = captureWrapper().getSqlSegment().toLowerCase();
         // 顺序有讲究：时间优先、id 只负责把同一秒内的顺序定死（种子那 72 条共用一个时间戳）。
@@ -456,13 +451,78 @@ class MedicalTermServiceTest {
         assertThat(sql).doesNotContain("term asc");
     }
 
-    /** 抓取 selectPage 收到的 wrapper（只关心它带的排序条件） */
-    @SuppressWarnings("unchecked")
-    private com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm> captureWrapper() {
+    @Test
+    @DisplayName("列表：source 与 enabled 组合筛选，两个条件同时下到查询里（待确认口径 = 模型抽取 + 未生效）")
+    void pageFiltersBySourceAndEnabled() {
+        initMedicalTermTableInfo();
+
+        service.page("胸闷", TermSource.LLM_EXTRACT, false, 1, 10);
+
+        com.baomidou.mybatisplus.core.conditions.AbstractWrapper<MedicalTerm, ?, ?> wrapper =
+                captureWrapper();
+        String sql = wrapper.getSqlSegment().toLowerCase();
+        // 待确认必须两个条件同时成立：只用 enabled=0 会把管理员故意停用的人工词也算进去
+        assertThat(sql).contains("source").contains("enabled").contains("term like");
+        // 枚举取的是编码值（不是常量名、也不是序号）——落库与查询必须同一套写法
+        assertThat(wrapper.getParamNameValuePairs().values()).contains("llm_extract", 0);
+    }
+
+    // ---------- 批量启用（管理端一键确认） ----------
+
+    @Test
+    @DisplayName("批量启用：只动 llm_extract && enabled=0，写库后 refresh 只一次，返回实际启用条数")
+    void batchEnableOnlyTouchesLlmExtractDisabledAndRefreshesOnce() {
+        initMedicalTermTableInfo();
+        when(medicalTermMapper.update(any(), any())).thenReturn(2);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        int enabled = service.batchEnable(List.of("t1", "t2", "t3"));
+
+        assertThat(enabled).isEqualTo(2);
         ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm>> captor =
-                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+                wrapperCaptor();
+        verify(medicalTermMapper).update(any(), captor.capture());
+        com.baomidou.mybatisplus.core.conditions.AbstractWrapper<MedicalTerm, ?, ?> wrapper =
+                (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<MedicalTerm, ?, ?>) captor.getValue();
+        String sql = wrapper.getSqlSegment().toLowerCase();
+        // 人工维护 / 人工停用的词不能被一键启用翻回来：两个条件缺一不可
+        assertThat(sql).contains("source").contains("enabled").contains("id in");
+        assertThat(wrapper.getParamNameValuePairs().values())
+                .contains("llm_extract")
+                .contains("t1", "t2", "t3");
+        // 不是逐条 refresh
+        verify(medicalTermMapper, times(1)).selectList(any());
+    }
+
+    @Test
+    @DisplayName("批量启用：空清单不写库、不刷新")
+    void batchEnableIgnoresEmptyIds() {
+        assertThat(service.batchEnable(List.of())).isZero();
+
+        verify(medicalTermMapper, never()).update(any(), any());
+        verify(medicalTermMapper, never()).selectList(any());
+    }
+
+    /** lambda 版 Wrapper 解析列名要查 MyBatis-Plus 的实体元数据；纯单测没有 Spring 上下文，得手工注册一次 */
+    private void initMedicalTermTableInfo() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new org.apache.ibatis.session.Configuration(), ""),
+                MedicalTerm.class);
+    }
+
+    /** 抓取 selectPage 收到的 wrapper（只关心它带的排序与筛选条件） */
+    @SuppressWarnings("unchecked")
+    private com.baomidou.mybatisplus.core.conditions.AbstractWrapper<MedicalTerm, ?, ?> captureWrapper() {
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm>> captor =
+                wrapperCaptor();
         verify(medicalTermMapper).selectPage(any(), captor.capture());
-        return captor.getValue();
+        return (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<MedicalTerm, ?, ?>) captor.getValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MedicalTerm>> wrapperCaptor() {
+        return ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
     }
 
     private MedicalTerm term(String id, String text, int enabled) {

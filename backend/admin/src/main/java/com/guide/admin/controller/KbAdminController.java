@@ -2,6 +2,8 @@ package com.guide.admin.controller;
 
 import com.guide.admin.dto.KbAdminDTO;
 import com.guide.admin.service.KbAdminService;
+import com.guide.auth.dto.SysConfigAdminDTO;
+import com.guide.auth.service.SysConfigAdminService;
 import com.guide.common.api.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,7 @@ import java.util.List;
 public class KbAdminController {
 
     private final KbAdminService kbAdminService;
+    private final SysConfigAdminService sysConfigAdminService;
 
     /** 上传文档并开始入库（同步落 MinIO，异步入库；返回 taskId 供前端轮询进度） */
     @PostMapping("/docs")
@@ -112,13 +115,23 @@ public class KbAdminController {
         return Result.ok(kbAdminService.mappings(keyword, page, size));
     }
 
-    /** 术语白名单（含停用；enabled 不传即全部） */
+    /** 术语白名单（含停用；enabled 不传即全部；source = llm_extract / manual，不传即全部来源） */
     @GetMapping("/terms")
     public Result<KbAdminDTO.PageVO<KbAdminDTO.TermVO>> terms(@RequestParam(defaultValue = "1") long page,
                                                               @RequestParam(defaultValue = "10") long size,
                                                               @RequestParam(required = false) String keyword,
-                                                              @RequestParam(required = false) Boolean enabled) {
-        return Result.ok(kbAdminService.terms(keyword, enabled, page, size));
+                                                              @RequestParam(required = false) Boolean enabled,
+                                                              @RequestParam(required = false) String source) {
+        return Result.ok(kbAdminService.terms(keyword, enabled, source, page, size));
+    }
+
+    /**
+     * 批量启用待确认术语（模型抽取且未生效）；body {@code { ids: [] }}，上限 500。
+     * 返回**实际**启用条数——前端拿它做 toast，而不是回显请求条数（人工词会被跳过）。
+     */
+    @PostMapping("/terms/batch-enable")
+    public Result<Integer> batchEnableTerms(@RequestBody(required = false) KbAdminDTO.TermBatchEnableReq req) {
+        return Result.ok(kbAdminService.batchEnable(req == null ? null : req.getIds()));
     }
 
     /** 新增术语：默认人工维护、立即生效（领域规则在 kb，含物理判重与复活） */
@@ -144,6 +157,25 @@ public class KbAdminController {
     @DeleteMapping("/terms/{termId}")
     public Result<Void> deleteTerm(@PathVariable String termId) {
         kbAdminService.deleteTerm(termId);
+        return Result.ok();
+    }
+
+    /**
+     * 知识库页参数（KB 组）：切分参数 + **术语人工审核开关**。
+     *
+     * <p>与敏感词页「处置规则与词库同页」同一判据：审核开关决定"抽出的词要不要我确认"，
+     * 而待确认列表就在本页——把它留在 LLM 配置页，等于让管理员在两个不相关的页面之间来回找。
+     * 形状照抄 {@code SensitiveWordAdminController} 的那组，不另造 DTO。
+     */
+    @GetMapping("/params")
+    public Result<List<SysConfigAdminDTO.ParamVO>> params() {
+        return Result.ok(sysConfigAdminService.listParams(SysConfigAdminService.ParamGroup.KB));
+    }
+
+    /** 批量保存知识库页参数：按白名单类型校验，任一项不合法整批不生效 */
+    @PutMapping("/params")
+    public Result<Void> saveParams(@Valid @RequestBody SysConfigAdminDTO.ParamUpdate update) {
+        sysConfigAdminService.updateParams(update.getItems());
         return Result.ok();
     }
 }
