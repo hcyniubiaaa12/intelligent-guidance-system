@@ -71,8 +71,6 @@ public class SysConfigAdminService {
                     "1–20", "送入 Prompt 的切片数", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_ASK_MAX_ROUNDS, "追问轮数上限", ParamType.INT, 1, 10, "3",
                     "1–10", "超限后强制出低置信度结论", ParamGroup.LINK),
-            new ParamSpec(SysConfigService.KEY_UPGRADE_ROUNDS, "追问升级阈值（轮次）", ParamType.INT, 1, 10, "3",
-                    "1–10", "达到阈值升级处置", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_CLUSTER_BUCKET_THRESHOLD, "聚合归桶相似度阈值", ParamType.DECIMAL, 0, 1, "0.85",
                     "0–1", "语义归桶余弦相似度下限", ParamGroup.LINK),
             new ParamSpec(SysConfigService.KEY_LOW_CONFIDENCE, "低置信度分流阈值", ParamType.DECIMAL, 0, 1, "0.5",
