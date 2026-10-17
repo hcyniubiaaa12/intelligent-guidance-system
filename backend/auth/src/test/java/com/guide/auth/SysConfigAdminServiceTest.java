@@ -186,6 +186,22 @@ class SysConfigAdminServiceTest {
     }
 
     @Test
+    @DisplayName("追问升级阈值是死配置：页面不再提供，直接调保存接口也拒（钉住删除决定，防止顺手加回来）")
+    void deadUpgradeRoundsConfigIsGone() {
+        List<SysConfigAdminDTO.ParamVO> link = service.listParams(SysConfigAdminService.ParamGroup.LINK);
+        assertTrue(link.stream().noneMatch(p -> "guide.upgrade.rounds".equals(p.getKey())),
+                "该键从未有业务代码消费，不该再出现在受管参数里");
+
+        BizException e = assertThrows(BizException.class,
+                () -> service.updateParams(update("guide.upgrade.rounds", "3").getItems()));
+
+        assertEquals(2008, e.getCode());
+        verify(configMapper, never()).insert(any(SysConfig.class));
+        verify(configMapper, never()).updateById(any(SysConfig.class));
+        verify(sysConfigService, never()).refresh();
+    }
+
+    @Test
     @DisplayName("整数越界/非整数都被拒（向量召回 Top-K 只接受 1–50）")
     void rejectsBadInt() {
         BizException tooBig = assertThrows(BizException.class,
