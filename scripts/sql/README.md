@@ -24,9 +24,9 @@ mysql -uroot -p < mysql_init.sql
 
 ⚠️ 演练前先把脚本第 8 / 10 行的库名改掉：那里写死了 `CREATE DATABASE IF NOT EXISTS \`guide\`` + `USE \`guide\``，**直接 `mysql 临时库 < mysql_init.sql` 会灌到线上库去**（语句都幂等，不会损坏数据，但"临时库"是空的、结论全错）。
 
-### 已知需要单独 ALTER 的三处
+### 已知需要单独 ALTER 的四处
 
-本机 2026-09-29（前两处）与 2026-09-30（第三处）已执行；别的环境照抄（都在 `guide` 库上）：
+本机 2026-09-29（前两处）、2026-09-30（第三处）与 2026-10-18（第四处，术语来源追溯）已执行；别的环境照抄（都在 `guide` 库上）：
 
 ```sql
 -- 审核任务的主科室列改过名：旧库是 result_dept_id
@@ -39,6 +39,10 @@ ALTER TABLE dept_mapping DROP INDEX idx_dm_symptom, ADD UNIQUE KEY uk_dm_symptom
 -- 会话归档（患者端「收纳」）：旧库没有 archived 列
 ALTER TABLE chat_session ADD COLUMN archived TINYINT NOT NULL DEFAULT 0
     COMMENT '0/1 患者把这条会话收进「已归档」（只是收纳，非删除）' AFTER has_result;
+
+-- 术语来源追溯：旧库没有 doc_id 列（模型抽取的词记下首次抽到它的文档；人工新增为 NULL）
+ALTER TABLE medical_term ADD COLUMN doc_id VARCHAR(32) NULL
+    COMMENT '首次抽到该词的入库文档（source=llm_extract）；人工新增为 NULL' AFTER source;
 ```
 
 若某条索引在库里不存在，`DROP INDEX` 会报 `Can't DROP ... check that column/key exists`——把该子句去掉再执行即可。
@@ -61,8 +65,8 @@ psql -U postgres -d guide_vec -f pgvector_init.sql
 ## 语料与科室（可挂号范围）
 
 科室蓝本与知识片段由应用侧装载：`guide.seed.enabled=true`（默认开启）时启动即幂等装载
-12 个科室 + 术语白名单——**它是挂号科室与知识库的唯一默认来源**，
-链路 B 上传流水线就绪后可关闭。
+12 个科室——**它是挂号科室与知识库的唯一默认来源**，链路 B 上传流水线就绪后可关闭。
+术语白名单**不在种子里**（2026-10-17 起）：空表是合法状态，由管理端人工新增或入库抽取生长。
 
 幂等判据是**逐科室按名判存在**（`DeptService.findByName`）：已存在的科室跳过（不改它的
 位置/简介/启停，那是运营动作），缺失的科室补建。**不要退回"科室表非空即跳过"**——那样在

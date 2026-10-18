@@ -217,9 +217,10 @@ CREATE TABLE IF NOT EXISTS `dept_mapping` (
 
 CREATE TABLE IF NOT EXISTS `medical_term` (
     `id`         VARCHAR(32)  NOT NULL,
-    `term`       VARCHAR(128) NOT NULL COMMENT '术语（白名单唯一生效源；ES 聚合只是候选池）',
+    `term`       VARCHAR(128) NOT NULL COMMENT '术语（白名单唯一生效源；候选由入库抽取直接写本表）',
     `type`       VARCHAR(32)  NOT NULL COMMENT '枚举：part/symptom',
     `source`     VARCHAR(32)  NOT NULL COMMENT '枚举：llm_extract/manual',
+    `doc_id`     VARCHAR(32)  NULL COMMENT '首次抽到该词的入库文档（source=llm_extract）；人工新增为 NULL',
     `enabled`    TINYINT      NOT NULL DEFAULT 0 COMMENT 'LLM 抽取默认 0，受"人工审核"开关控制',
     `deleted`    TINYINT      NOT NULL DEFAULT 0,
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
