@@ -150,6 +150,15 @@ public final class KbAdminDTO {
         private String type;
         /** llm_extract / manual */
         private String source;
+        /**
+         * 首次抽到该词的入库文档 id（人工新增为 null）。
+         *
+         * <p>只给列表页带 {@code docTitle}；单行响应（新增/编辑/启停）不带——
+         * 那些场景页面不回显来源文档，多查一次只是浪费。
+         */
+        private String docId;
+        /** 来源文档标题；文档已删除或人工新增时为 null（前端据此显示「文档已删除」/「—」） */
+        private String docTitle;
         private Integer enabled;
     }
 

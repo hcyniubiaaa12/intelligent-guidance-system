@@ -298,6 +298,15 @@
             {{ row.source === 'llm_extract' ? '模型抽取' : '人工维护' }}
           </template>
         </el-table-column>
+        <!-- 来源追溯：只记首次抽到该词的文档。文档删除后术语不跟着消失，这里显示「文档已删除」 -->
+        <el-table-column label="来源文档" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <template v-if="row.source === 'llm_extract'">
+              {{ row.docTitle || (row.docId ? '文档已删除' : '—') }}
+            </template>
+            <template v-else>—</template>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <!-- 两种"未生效"必须分开：同一列混着写，管理员会以为人工停用的词也能被一键启用 -->

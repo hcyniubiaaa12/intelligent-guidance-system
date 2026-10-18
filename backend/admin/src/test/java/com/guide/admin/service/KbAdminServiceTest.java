@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,6 +117,30 @@ class KbAdminServiceTest {
         assertThat(row.getType()).isEqualTo("symptom");
         assertThat(row.getSource()).isEqualTo("llm_extract");
         assertThat(row.getEnabled()).isZero();
+    }
+
+    @Test
+    @DisplayName("术语列表：来源文档 id 批量换成标题；已删除文档查不到标题 → 前端显示「文档已删除」")
+    void termsAttachSourceDocumentTitle() {
+        MedicalTerm withDoc = term("t1", "反酸", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 0);
+        withDoc.setDocId("doc-1");
+        MedicalTerm deletedDoc = term("t2", "胸闷", TermType.SYMPTOM, TermSource.LLM_EXTRACT, 0);
+        deletedDoc.setDocId("doc-gone");
+        Page<MedicalTerm> page = new Page<>(1, 10);
+        page.setTotal(2);
+        page.setRecords(List.of(withDoc, deletedDoc));
+        when(medicalTermService.page(any(), any(), any(), anyLong(), anyLong())).thenReturn(page);
+        when(kbDocService.titlesByIds(any())).thenReturn(Map.of("doc-1", "呼吸内科分诊知识"));
+
+        List<KbAdminDTO.TermVO> rows = service.terms(null, null, null, 1, 10).getRecords();
+
+        // 来源文档只查一次（批量），不逐行
+        verify(kbDocService).titlesByIds(any());
+        assertThat(rows.get(0).getDocId()).isEqualTo("doc-1");
+        assertThat(rows.get(0).getDocTitle()).isEqualTo("呼吸内科分诊知识");
+        // 文档已删：id 还在、标题查不到——前端据「有 id 无标题」显示「文档已删除」
+        assertThat(rows.get(1).getDocId()).isEqualTo("doc-gone");
+        assertThat(rows.get(1).getDocTitle()).isNull();
     }
 
     @Test

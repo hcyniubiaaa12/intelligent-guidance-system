@@ -255,14 +255,20 @@ public class KbAdminService {
         return pageVO(page.getTotal(), records);
     }
 
-    /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用） */
+    /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用；带来源文档标题） */
     public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, String source,
                                                       long pageNum, long pageSize) {
         IPage<MedicalTerm> page = medicalTermService.page(keyword, TermSource.fromCode(source), enabled,
                 Math.max(1, pageNum), clamp(pageSize));
+        // 来源文档标题批量取一次（N+1 只为一列标题不值得）；已删除文档查不到 → 前端显示「文档已删除」
+        Map<String, String> docTitles = kbDocService.titlesByIds(page.getRecords().stream()
+                .map(MedicalTerm::getDocId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList());
         List<KbAdminDTO.TermVO> records = new ArrayList<>(page.getRecords().size());
         for (MedicalTerm term : page.getRecords()) {
-            records.add(toTermVO(term));
+            records.add(toTermVO(term, term.getDocId() == null ? null : docTitles.get(term.getDocId())));
         }
         return pageVO(page.getTotal(), records);
     }
@@ -317,13 +323,24 @@ public class KbAdminService {
         medicalTermService.remove(termId);
     }
 
-    /** 术语实体 → 前端形状（枚举一律出 code；新增/编辑/启停/分页共用这一处映射） */
+    /** 术语实体 → 前端形状（枚举一律出 code）；单行响应不带来源文档标题，见 {@link #toTermVO(MedicalTerm, String)} */
     private KbAdminDTO.TermVO toTermVO(MedicalTerm term) {
+        return toTermVO(term, null);
+    }
+
+    /**
+     * 术语实体 → 前端形状（新增/编辑/启停/分页共用这一处映射）。
+     *
+     * @param docTitle 来源文档标题；列表页批量取好后传入，单行响应传 null
+     */
+    private KbAdminDTO.TermVO toTermVO(MedicalTerm term, String docTitle) {
         KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
         vo.setId(term.getId());
         vo.setTerm(term.getTerm());
         vo.setType(term.getType() == null ? null : term.getType().getCode());
         vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
+        vo.setDocId(term.getDocId());
+        vo.setDocTitle(docTitle);
         vo.setEnabled(term.getEnabled());
         return vo;
     }
