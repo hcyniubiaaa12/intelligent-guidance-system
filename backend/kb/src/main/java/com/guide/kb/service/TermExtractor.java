@@ -104,7 +104,9 @@ public class TermExtractor {
             withTerms.addAll(chunks.subList(index, chunks.size()));
         }
 
-        log.info("术语抽取完成：docId={} 批次数={} 失败批次={} 抽到词条 {}（跨批去重后）",
+        // 「已尝试」而不是「批次数」：熔断后 batchNo 是**尝试过**的批数（含失败那几批），
+        // 叫「批次数」会被读成"成功抽取的批次"
+        log.info("术语抽取完成：docId={} 已尝试 {} 批 失败批次={} 抽到词条 {}（跨批去重后）",
                 docId, batchNo, failedBatches, merged.size());
         if (broken) {
             log.info("术语抽取已中止，剩余 {} 片未抽取：docId={}", chunks.size() - index, docId);
