@@ -296,6 +296,12 @@ public class MedicalTermService {
      */
     private String validateTerm(String term) {
         String text = term == null ? "" : term.strip();
+        String normalized = normalizeTerm(text);
+        if (normalized != null) {
+            return normalized;
+        }
+        // **判定只在 normalizeTerm 一处**；这里只为"哪一条不合法"选一句给人看的话。
+        // 若哪天规则变了，改 normalizeTerm 一处即可——这两条分支只负责文案，不负责判定方向。
         int length = text.codePointCount(0, text.length());
         if (length < MIN_TERM_LENGTH) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
@@ -305,10 +311,7 @@ public class MedicalTermService {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
                     "术语最多 " + MAX_TERM_LENGTH + " 个字");
         }
-        if (text.chars().anyMatch(Character::isWhitespace)) {
-            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语不能包含空格或换行");
-        }
-        return text;
+        throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "术语不能包含空格或换行");
     }
 
     /**

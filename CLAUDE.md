@@ -55,9 +55,9 @@ backend/
 
 ## 3. 中间件（只许用这些，不额外引入）
 
-MySQL、PostgreSQL + pgvector、MinIO、Spring Security + JWT、MyBatis、Redis（存储用户登录 JWT）、Elasticsearch（chunk 全文检索 + 医疗术语聚合）。
+MySQL、PostgreSQL + pgvector、MinIO、Spring Security + JWT、MyBatis、Redis（存储用户登录 JWT）、Elasticsearch（chunk 全文检索 + 医疗术语加分）。
 不引入消息队列、注册中心；新依赖先确认现有组件无法等价实现。
-双库分工：MySQL 管事实，pgvector 管语义，ES 管全文检索与术语聚合。
+双库分工：MySQL 管事实，pgvector 管语义，ES 管全文检索与术语加分。
 
 ## 4. Git 提交规范
 

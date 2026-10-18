@@ -97,6 +97,35 @@ class IngestPipelineTest {
     }
 
     @Test
+    @DisplayName("抽取失败不改变流水线结果：DocIngestService 吞掉异常后正常返回 ⇒ 任务 success、文档 done")
+    void extractionFailureKeepsTheTaskSuccessful() {
+        when(docIngestService.beginParse(DOC_ID)).thenReturn(new ParseSession.Parsed(blocks()));
+        // 真实的 DocIngestService 在抽取失败时只记 WARN、照常返回切片（见 splitAndIndex 的 extractTerms）。
+        // 这里以"正常返回"代表那一路——流水线看到的就是一次成功入库
+        stubSplitAndIndex(2);
+
+        pipeline.start(DOC_ID);
+
+        verify(taskService).success(TASK_ID);
+        verify(kbDocService).markDone(DOC_ID, 2);
+        verify(taskService, never()).fail(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("第二段真抛异常（没被吞掉）→ 任务标失败，绝不静默成功")
+    void uncaughtSplitFailureIsMarkedFailed() {
+        when(docIngestService.beginParse(DOC_ID)).thenReturn(new ParseSession.Parsed(blocks()));
+        when(docIngestService.splitAndIndex(eq(DOC_ID), any(), any(), any()))
+                .thenThrow(new IllegalStateException("数据库忙"));
+
+        pipeline.start(DOC_ID);
+
+        verify(taskService).fail(eq(TASK_ID), eq("入库过程出现异常，请重新处理"));
+        verify(kbDocService).markFailed(eq(DOC_ID), eq("入库过程出现异常，请重新处理"), eq(DocFailType.RETRYABLE));
+        verify(taskService, never()).success(anyString());
+    }
+
+    @Test
     @DisplayName("外部格式：只提交，任务号落库，等轮询")
     void externalFormatOnlySubmits() {
         when(docIngestService.beginParse(DOC_ID)).thenReturn(new ParseSession.Submitted(JOB_ID));
