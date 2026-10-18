@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ES chunk 索引读写工具（管全文检索与术语聚合）。
+ * ES chunk 索引读写工具（管全文检索与关键词通道的术语加分）。
  * 写入方：kb（唯一写入口，与 pgvector 双写）；读取方：rag（BM25 关键词召回）。
  * 中文分词用 analysis-ik（索引 ik_max_word / 检索 ik_smart）。
  * 可用性策略：ES 不可用时不抛异常打断主链路——召回退化为空列表（由 rag 侧融合兜底）。

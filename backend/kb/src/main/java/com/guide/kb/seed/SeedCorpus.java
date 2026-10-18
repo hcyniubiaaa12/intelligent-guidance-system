@@ -19,7 +19,7 @@ public final class SeedCorpus {
     public record SeedDept(String name, String location, String intro, List<SeedChunk> chunks) {
     }
 
-    /** 切片：标题 + 正文 + 术语（术语随 chunk 入 ES，供 terms 聚合产出白名单候选池） */
+    /** 切片：标题 + 正文 + 术语（术语随 chunk 入 ES 供关键词通道加分；白名单候选由入库抽取直接写 MySQL） */
     public record SeedChunk(String title, String content, List<String> terms) {
     }
 

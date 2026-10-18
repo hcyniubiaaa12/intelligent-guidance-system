@@ -10,7 +10,7 @@ import java.util.List;
  * @param title   切片标题（溯源引用）
  * @param content 切片正文
  * @param seq     切片序号
- * @param terms   医学术语（随 chunk 入 ES，供 terms 聚合产出白名单候选池）
+ * @param terms   医学术语（随 chunk 入 ES 供关键词通道加分；白名单候选由入库抽取直接写 MySQL）
  * @param type    版面类型；非外部版面识别来源使用 UNKNOWN
  */
 public record ChunkInput(String title, String content, int seq, List<String> terms, LayoutBlock.BlockType type) {
