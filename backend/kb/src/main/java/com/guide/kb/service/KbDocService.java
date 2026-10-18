@@ -54,6 +54,7 @@ public class KbDocService {
     private final EsChunkUtil esChunkUtil;
     private final PgVectorUtil pgVectorUtil;
     private final MinioUtil minioUtil;
+    private final MedicalTermService medicalTermService;
 
     /**
      * 某科室的「回流补充 · XX科」容器（懒创建）。
@@ -298,11 +299,14 @@ public class KbDocService {
     public void delete(String docId) {
         KbDoc doc = require(docId);
         deleteChunks(docId);
+        // 术语是这份文档抽出的派生数据：随文档一起删（物理删除，理由见 MedicalTermService）。
+        // 人工新增的词 doc_id 为 NULL，不受影响
+        int removedTerms = medicalTermService.deleteBySourceDoc(docId);
         if (isMinioObject(doc.getFileUrl())) {
             minioUtil.remove(doc.getFileUrl());
         }
         kbDocMapper.deleteById(docId);
-        log.info("文档已删除：docId={} title={}", docId, doc.getTitle());
+        log.info("文档已删除：docId={} title={} 级联术语 {} 条", docId, doc.getTitle(), removedTerms);
     }
 
     /**
