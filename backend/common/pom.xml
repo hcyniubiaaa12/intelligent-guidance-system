@@ -37,7 +37,7 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
         </dependency>
-        <!-- Elasticsearch 官方 Java API Client：chunk 全文检索（BM25）+ 术语聚合 -->
+        <!-- Elasticsearch 官方 Java API Client：chunk 全文检索（BM25）+ 关键词通道的术语加分 -->
         <dependency>
             <groupId>co.elastic.clients</groupId>
             <artifactId>elasticsearch-java</artifactId>

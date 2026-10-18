@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
 /**
- * Elasticsearch 客户端（官方 Java API Client）：chunk 全文检索（BM25）+ 术语聚合。
+ * Elasticsearch 客户端（官方 Java API Client）：chunk 全文检索（BM25）+ 关键词通道的术语加分。
  * 地址由 elasticsearch.uris 配置（多个逗号分隔）；未配账号则不加认证头。
  * 连接惰性建立——ES 不可用时应用照常启动，检索侧由 EsChunkUtil 降级处理。
  */

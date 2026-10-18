@@ -41,7 +41,7 @@ public class PromptProperties {
     public static final String PLACEHOLDER_TARGET = "{target}";
     /** 模型切的单片段上限 */
     public static final String PLACEHOLDER_MAX = "{max}";
-    /** 待切分的长文本 */
+    /** 待处理的长文本（模型切 / 术语抽取共用同一占位符） */
     public static final String PLACEHOLDER_TEXT = "{text}";
     /** 回流合成 chunk：症状原文 */
     public static final String PLACEHOLDER_SYMPTOM = "{symptom}";
@@ -59,6 +59,8 @@ public class PromptProperties {
     private Split split = new Split();
 
     private Feedback feedback = new Feedback();
+
+    private TermExtract termExtract = new TermExtract();
 
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
@@ -123,6 +125,19 @@ public class PromptProperties {
         private String fallbackTemplate;
     }
 
+    /**
+     * 术语抽取（链路 B 入库即抽取）：给一批切片，要它只给**部位 / 症状**术语与类型。
+     *
+     * <p>与切分提示词同理——抽取口径（收哪些词、怎么判 part / symptom）直接决定白名单候选池的质量，
+     * 迭代时不该改 Java 代码。输出协议由 {@code TermExtractor} 解析，提示词只负责说清要求。
+     */
+    @Data
+    public static class TermExtract {
+        private String system;
+        /** 必含 {text} */
+        private String userTemplate;
+    }
+
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
@@ -143,6 +158,8 @@ public class PromptProperties {
         require(feedback.getSystem(), "prompts.feedback.system", List.of());
         require(feedback.getUserTemplate(), "prompts.feedback.user-template", feedbackPlaceholders);
         require(feedback.getFallbackTemplate(), "prompts.feedback.fallback-template", feedbackPlaceholders);
+        require(termExtract.getSystem(), "prompts.term-extract.system", List.of());
+        require(termExtract.getUserTemplate(), "prompts.term-extract.user-template", List.of(PLACEHOLDER_TEXT));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

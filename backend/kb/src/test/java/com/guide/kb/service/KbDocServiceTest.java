@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 import java.util.List;
+import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -39,6 +41,23 @@ class KbDocServiceTest {
 
     private final KbDocService service = new KbDocService(kbDocMapper, kbChunkMapper, deptService,
             esChunkUtil, pgVectorUtil, minioUtil);
+
+    @Test
+    @DisplayName("来源文档标题：一次批量查，已删除文档查不到（返回的 map 里没有它）")
+    void titlesByIdsAreFetchedInOneBatch() {
+        KbDoc alive = doc("kb/1001/心内科.pdf");
+        alive.setId(DOC_ID);
+        alive.setTitle("心内科分诊知识");
+        when(kbDocMapper.selectBatchIds(any())).thenReturn(List.of(alive));
+
+        Map<String, String> titles = service.titlesByIds(List.of(DOC_ID, "gone"));
+
+        assertThat(titles).containsEntry(DOC_ID, "心内科分诊知识").doesNotContainKey("gone");
+        verify(kbDocMapper).selectBatchIds(any());
+        // 空集合不查库（术语列表整页都是人工词时）
+        assertThat(service.titlesByIds(List.of())).isEmpty();
+        verify(kbDocMapper).selectBatchIds(any());
+    }
 
     @Test
     @DisplayName("删除文档：ES → 向量 → 元数据 → MinIO，一步不差、一步不倒")

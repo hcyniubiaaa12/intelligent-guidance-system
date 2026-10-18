@@ -207,6 +207,48 @@
 
     <!-- ============ 术语白名单 ============ -->
     <template v-else>
+      <!-- 审核开关与词表同页：抽出了什么 / 要不要我确认，是一件事的两半 -->
+      <div class="a-panel" style="padding: 0 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px">
+        <div class="a-panel__head">
+          <span class="a-panel__title">术语审核</span>
+          <span class="a-panel__hint">模型抽取的词默认待确认；关掉开关则抽取即生效，存 sys_config</span>
+        </div>
+        <div v-if="termRuleLoading" class="a-empty">加载中…</div>
+        <div v-else-if="!termRule" class="a-empty">审核开关加载失败，实际生效口径以下方「待确认」计数为准</div>
+        <template v-else>
+          <div class="a-field">
+            <label class="a-field__label">{{ termRule.label }}</label>
+            <div class="a-chips" style="margin: 0">
+              <button
+                class="a-chip"
+                :class="{ 'a-chip--on': termRule.value === 'true' }"
+                :disabled="termRuleSaving"
+                @click="termRule.value = 'true'"
+              >
+                开启
+              </button>
+              <button
+                class="a-chip"
+                :class="{ 'a-chip--on': termRule.value !== 'true' }"
+                :disabled="termRuleSaving"
+                @click="termRule.value = 'false'"
+              >
+                关闭
+              </button>
+            </div>
+            <div class="a-field__hint">
+              {{ termRule.remark }}
+              <template v-if="termRule.range"> · 取值范围 {{ termRule.range }}</template>
+              · 默认 {{ termRule.defaultValue }}
+            </div>
+          </div>
+          <button class="a-btn" :disabled="termRuleSaving" @click="saveTermRule">
+            {{ termRuleSaving ? '保存中…' : '保存开关' }}
+          </button>
+          <div class="a-field__hint">保存后立即生效；关掉只影响之后抽取的词，已待确认的词仍需下方「全部启用」</div>
+        </template>
+      </div>
+
       <div class="kb-toolbar">
         <el-input
           v-model="termQuery.keyword"
@@ -215,17 +257,35 @@
           style="width: 180px"
           @keyup.enter="searchTerms"
         />
+        <el-select v-model="termQuery.source" clearable placeholder="全部来源" style="width: 140px">
+          <el-option label="模型抽取" value="llm_extract" />
+          <el-option label="人工维护" value="manual" />
+        </el-select>
         <el-select v-model="termQuery.enabled" clearable placeholder="全部状态" style="width: 130px">
           <el-option label="已生效" :value="true" />
-          <el-option label="待审核/已停用" :value="false" />
+          <el-option label="未生效" :value="false" />
         </el-select>
         <button class="a-btn" @click="searchTerms">查询</button>
         <span class="a-panel__hint">
-          白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，ES 聚合只是候选池
+          白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，候选由入库抽取直接写入
         </span>
         <span class="a-panel__hint" style="margin-left: auto">共 {{ termPage.total }} 条</span>
         <button class="a-btn" @click="openTermCreate">新 增 术 语</button>
       </div>
+
+      <!-- 「待确认」= 模型抽取且未生效；人工停用的词不算——那是人的决定，不能被一键启用推翻 -->
+      <div class="kb-pending">
+        <span class="a-panel__hint">
+          待确认
+          <b>{{ termPendingCount }}</b>
+          条模型抽取的术语尚未生效
+          <template v-if="termPendingCount">（人工停用的词不计入，也不会被批量启用翻回来）</template>
+        </span>
+        <button class="a-btn" :disabled="!termPendingCount || termBatchEnabling" @click="onBatchEnable">
+          {{ termBatchEnabling ? '启用中…' : '全 部 启 用' }}
+        </button>
+      </div>
+
       <el-table v-loading="termLoading" :data="terms" empty-text="白名单为空">
         <el-table-column prop="term" label="术语" min-width="160" />
         <el-table-column label="类型" width="100">
@@ -238,11 +298,24 @@
             {{ row.source === 'llm_extract' ? '模型抽取' : '人工维护' }}
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <!-- 来源追溯：只记首次抽到该词的文档。文档删除后术语不跟着消失，这里显示「文档已删除」 -->
+        <el-table-column label="来源文档" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'warning'" effect="plain" size="small">
-              {{ row.enabled ? '已生效' : '未生效' }}
+            <template v-if="row.source === 'llm_extract'">
+              {{ row.docTitle || (row.docId ? '文档已删除' : '—') }}
+            </template>
+            <template v-else>—</template>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <!-- 两种"未生效"必须分开：同一列混着写，管理员会以为人工停用的词也能被一键启用 -->
+            <el-tag v-if="row.enabled" type="success" effect="plain" size="small">已生效</el-tag>
+            <el-tag v-else-if="row.source === 'llm_extract'" type="warning" effect="plain" size="small">
+              待确认
             </el-tag>
+            <!-- 默认类型映射到 --blue（wash 底蓝字）；不用 info——--el-color-info 未映射，会渲染成 EP 默认灰 -->
+            <el-tag v-else effect="plain" size="small">已停用</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200">
@@ -459,7 +532,7 @@ import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '
 import {
   pageKbDocs, uploadKbDoc, getKbChunks, reprocessKbDoc, deleteKbDoc,
   listKbDepts, updateKbDept, createKbDept, pageKbMappings, pageKbTerms, toggleKbTerm, createKbTerm,
-  updateKbTerm, deleteKbTerm
+  updateKbTerm, deleteKbTerm, batchEnableKbTerms, getKbParams, saveKbParams
 } from '../../api/admin'
 
 const tabs = [
@@ -474,7 +547,10 @@ function switchTab(t) {
   tab.value = t
   if (t === 'dept' && !depts.value.length) loadDepts()
   if (t === 'map') loadMappings()
-  if (t === 'term') loadTerms()
+  if (t === 'term') {
+    loadTermRule()
+    loadTerms()
+  }
 }
 
 function errText(e) {
@@ -703,7 +779,9 @@ function progressOf(row) {
     return { text: `解析中 ${pct}%`, ratio: pct, tone: '' }
   }
   if (task.stage === 'split') {
-    return { text: '正在切分', ratio: null }
+    // 切分之后还有一步术语抽取（入库即抽取），两者都计入 split 阶段；
+    // 仍无百分比——切出多少片是切分的结果，抽取也不是可线性推进的量
+    return { text: '正在切分与提取术语', ratio: null }
   }
   if (task.stage === 'embed') {
     const total = task.total || 0
@@ -938,8 +1016,12 @@ function termTypeLabel(type) {
 // —— 术语白名单 ——
 const terms = ref([])
 const termLoading = ref(false)
-const termQuery = reactive({ keyword: '', enabled: '' })
+const termQuery = reactive({ keyword: '', enabled: '', source: '' })
 const termPage = reactive({ current: 1, size: 10, total: 0 })
+/** 「待确认」条数：模型抽取且未生效。**与筛选无关**——它答的是"这一库里积压了多少待确认"，
+ *  所以固定按最严口径另查一次，而不是用当前列表的 total（那样切个筛选数字就变了，会骗人） */
+const termPendingCount = ref(0)
+const termBatchEnabling = ref(false)
 
 async function loadTerms() {
   termLoading.value = true
@@ -948,7 +1030,8 @@ async function loadTerms() {
       page: termPage.current,
       size: termPage.size,
       keyword: termQuery.keyword || undefined,
-      enabled: termQuery.enabled === '' ? undefined : termQuery.enabled
+      enabled: termQuery.enabled === '' ? undefined : termQuery.enabled,
+      source: termQuery.source || undefined
     })
     terms.value = data.records || []
     termPage.total = data.total || 0
@@ -956,6 +1039,17 @@ async function loadTerms() {
     ElMessage.error(errText(e))
   } finally {
     termLoading.value = false
+  }
+  // 待确认计数与列表同源但不同口径：固定 source=llm_extract + enabled=false 查一次 total。
+  // size=1 就够——只要 total，但取不到时（接口失败）不要把它显示成 0，那会让人以为没有待确认
+  try {
+    const pending = await pageKbTerms({
+      page: 1, size: 1, source: 'llm_extract', enabled: false
+    })
+    termPendingCount.value = pending.total || 0
+  } catch {
+    // 计数失败不影响列表本身：按钮靠 termPendingCount 为 0 禁用，此刻它保持上一次的值，
+    // 比"静默变成 0 然后允许点空列表"要好
   }
 }
 
@@ -973,6 +1067,9 @@ async function onToggleTerm(row) {
     const updated = await toggleKbTerm(row.id)
     row.enabled = updated.enabled
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
+    // 停用一条 llm_extract 的词会让它立刻变成「待确认」（口径 source=llm_extract && enabled=0），
+    // 重拉列表顺带重算待确认计数——否则徽标与「全部启用」按钮停在翻转前的状态
+    await loadTerms()
   } catch (e) {
     ElMessage.error(errText(e))
   }
@@ -1001,6 +1098,88 @@ async function onDeleteTerm(row) {
     ElMessage.success(`术语「${row.term}」已删除，入口校验即时生效`)
   } catch (e) {
     ElMessage.error(errText(e))
+  }
+}
+
+/**
+ * 「全部启用」：先把待确认的 id 清单拿全（可能不止一页），再一次性提交。
+ *
+ * <p>**为什么先取 id 再发请求**：接口收 id 清单而不是"全部"——一个不可撤销的大动作不该有
+ * 无参数的形态，清单同时也让 confirm 里能写出准确的条数（工单验收第 10 条）。
+ *
+ * <p>成功后**清空筛选并回第 1 页**：刚启用的词不在当前筛选条件下的概率很高
+ * （比如正按"未生效"筛），留着筛选会让管理员看不到任何变化、以为点了没生效。
+ */
+async function onBatchEnable() {
+  const ids = []
+  for (let page = 1; ; page++) {
+    const data = await pageKbTerms({
+      page, size: 100, source: 'llm_extract', enabled: false
+    })
+    ids.push(...(data.records || []).map((t) => t.id))
+    if (ids.length >= (data.total || 0) || !(data.records || []).length) break
+  }
+  if (!ids.length) {
+    ElMessage.warning('没有待确认的术语')
+    await loadTerms()
+    return
+  }
+  try {
+    // 说清条数与后果：启用不是破坏性操作，但候选池大时会显著改变患者端行为
+    await ElMessageBox.confirm(
+      `将启用 ${ids.length} 条模型抽取的术语，它们会立即参与入口判定。` +
+        '之后新患者的主诉只要含其中任一词，就不再被模板追问。',
+      '全部启用待确认术语',
+      { confirmButtonText: '全部启用', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  termBatchEnabling.value = true
+  try {
+    const count = await batchEnableKbTerms(ids)
+    // 清筛选 + 回第 1 页：否则刚启用的词可能落在筛选外，看不到变化
+    Object.assign(termQuery, { keyword: '', enabled: '', source: '' })
+    termPage.current = 1
+    await loadTerms()
+    ElMessage.success(`已启用 ${count} 条术语，入口校验即时生效`)
+  } catch (e) {
+    ElMessage.error(errText(e))
+  } finally {
+    termBatchEnabling.value = false
+  }
+}
+
+// —— 术语人工审核开关（与词表同页：抽出了什么 / 要不要我确认，是一件事的两半）——
+const termRule = ref(null)
+const termRuleLoading = ref(false)
+const termRuleSaving = ref(false)
+
+async function loadTermRule() {
+  termRuleLoading.value = true
+  try {
+    const params = await getKbParams()
+    // 只认术语审核开关这一项，其余（切分三档）当前页面没有端点可改，不渲染
+    termRule.value = params.find((p) => p.key === 'term.manual.review') || null
+  } catch (e) {
+    termRule.value = null
+    ElMessage.error(errText(e))
+  } finally {
+    termRuleLoading.value = false
+  }
+}
+
+async function saveTermRule() {
+  if (!termRule.value) return
+  termRuleSaving.value = true
+  try {
+    await saveKbParams([{ key: termRule.value.key, value: String(termRule.value.value) }])
+    ElMessage.success('术语审核开关已保存，立即生效')
+    termRule.value = await getKbParams().then((p) => p.find((x) => x.key === 'term.manual.review'))
+  } catch (e) {
+    ElMessage.error(errText(e))
+  } finally {
+    termRuleSaving.value = false
   }
 }
 
@@ -1035,8 +1214,7 @@ async function submitTerm() {
       const created = await createKbTerm({ term: termForm.term, type: termForm.type })
       termEditVisible.value = false
       // 清空筛选并回到第 1 页：否则新词可能落在筛选条件外，管理员看不到自己刚加的东西、以为没成功
-      termQuery.keyword = ''
-      termQuery.enabled = ''
+      Object.assign(termQuery, { keyword: '', enabled: '', source: '' })
       termPage.current = 1
       await loadTerms()
       const typeLabel = termTypeLabel(created.type)
@@ -1066,6 +1244,22 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+/* 「待确认 N · 全部启用」：横条跟着工具栏同一套间距，按钮贴右端 */
+.kb-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--wash);
+  border-radius: 8px;
+}
+.kb-pending .a-panel__hint b {
+  color: var(--coral);
+}
+.kb-pending button {
+  margin-left: auto;
 }
 .kb-fail {
   color: var(--err);

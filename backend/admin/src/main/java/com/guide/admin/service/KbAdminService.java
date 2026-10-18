@@ -16,6 +16,7 @@ import com.guide.kb.entity.KbChunk;
 import com.guide.kb.entity.KbDoc;
 import com.guide.kb.entity.MedicalTerm;
 import com.guide.kb.enums.DocStatus;
+import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
 import com.guide.kb.service.DeptMappingService;
 import com.guide.kb.service.DeptService;
@@ -47,6 +48,9 @@ public class KbAdminService {
 
     /** 单次列表最多返回多少行，防止前端传个大数把库拖垮 */
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** 一次批量启用最多多少条：防一次误点把整库候选词全放行 */
+    private static final int MAX_BATCH_ENABLE = 500;
 
     private final KbDocService kbDocService;
     private final DeptService deptService;
@@ -251,14 +255,39 @@ public class KbAdminService {
         return pageVO(page.getTotal(), records);
     }
 
-    /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用） */
-    public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, long pageNum, long pageSize) {
-        IPage<MedicalTerm> page = medicalTermService.page(keyword, enabled, Math.max(1, pageNum), clamp(pageSize));
+    /** 术语白名单分页（含停用：停用只是不生效，行留着可重新启用；带来源文档标题） */
+    public KbAdminDTO.PageVO<KbAdminDTO.TermVO> terms(String keyword, Boolean enabled, String source,
+                                                      long pageNum, long pageSize) {
+        IPage<MedicalTerm> page = medicalTermService.page(keyword, TermSource.fromCode(source), enabled,
+                Math.max(1, pageNum), clamp(pageSize));
+        // 来源文档标题批量取一次（N+1 只为一列标题不值得）；已删除文档查不到 → 前端显示「文档已删除」
+        Map<String, String> docTitles = kbDocService.titlesByIds(page.getRecords().stream()
+                .map(MedicalTerm::getDocId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList());
         List<KbAdminDTO.TermVO> records = new ArrayList<>(page.getRecords().size());
         for (MedicalTerm term : page.getRecords()) {
-            records.add(toTermVO(term));
+            records.add(toTermVO(term, term.getDocId() == null ? null : docTitles.get(term.getDocId())));
         }
         return pageVO(page.getTotal(), records);
+    }
+
+    /**
+     * 批量启用待确认术语：**上限 500**（防一次误点全库），领域条件（只动 llm_extract && enabled=0）
+     * 与 refresh 全在 kb 侧，这里只做数量兜底并回传实际启用条数。
+     *
+     * <p>500 是经验阈值：它远大于一个空库第一份文档能抽出的词数（实测个位数到几十），
+     * 又小于整个白名单的量级——超过它几乎一定是误操作，而不是"我确实要确认这么多"。
+     */
+    public int batchEnable(List<String> ids) {
+        List<String> targets = ids == null ? List.of()
+                : ids.stream().filter(id -> id != null && !id.isBlank()).toList();
+        if (targets.size() > MAX_BATCH_ENABLE) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    "一次最多启用 " + MAX_BATCH_ENABLE + " 条术语");
+        }
+        return medicalTermService.batchEnable(targets);
     }
 
     /**
@@ -294,13 +323,24 @@ public class KbAdminService {
         medicalTermService.remove(termId);
     }
 
-    /** 术语实体 → 前端形状（枚举一律出 code；新增/编辑/启停/分页共用这一处映射） */
+    /** 术语实体 → 前端形状（枚举一律出 code）；单行响应不带来源文档标题，见 {@link #toTermVO(MedicalTerm, String)} */
     private KbAdminDTO.TermVO toTermVO(MedicalTerm term) {
+        return toTermVO(term, null);
+    }
+
+    /**
+     * 术语实体 → 前端形状（新增/编辑/启停/分页共用这一处映射）。
+     *
+     * @param docTitle 来源文档标题；列表页批量取好后传入，单行响应传 null
+     */
+    private KbAdminDTO.TermVO toTermVO(MedicalTerm term, String docTitle) {
         KbAdminDTO.TermVO vo = new KbAdminDTO.TermVO();
         vo.setId(term.getId());
         vo.setTerm(term.getTerm());
         vo.setType(term.getType() == null ? null : term.getType().getCode());
         vo.setSource(term.getSource() == null ? null : term.getSource().getCode());
+        vo.setDocId(term.getDocId());
+        vo.setDocTitle(docTitle);
         vo.setEnabled(term.getEnabled());
         return vo;
     }

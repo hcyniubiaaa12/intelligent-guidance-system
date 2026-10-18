@@ -43,8 +43,12 @@ import java.util.function.IntConsumer;
 @RequiredArgsConstructor
 public class DocIngestService {
 
-    /** 入库批大小：批间回调进度，也是为了失败时不必把整篇重来（重来走「先删旧再重建」） */
-    private static final int INDEX_BATCH_SIZE = 20;
+    /**
+     * 入库批大小：批间回调进度，也是为了失败时不必把整篇重来（重来走「先删旧再重建」）。
+     *
+     * <p>包内可见：术语抽取（{@link TermExtractor}）复用同一个数值；批大小**只有这一处定义**。
+     */
+    static final int INDEX_BATCH_SIZE = 20;
 
     /** 产出异常的判据：全文抽出不足这么多字，基本可以断定是解析没干活（扫描件/加密件） */
     private static final int MIN_USABLE_CHARS = 20;
@@ -57,6 +61,8 @@ public class DocIngestService {
     private final DocParseModel docParseModel;
     private final MinioUtil minioUtil;
     private final SysConfigService sysConfigService;
+    private final TermExtractor termExtractor;
+    private final MedicalTermService medicalTermService;
 
     // ---------- 第一段：起手 ----------
 
@@ -129,21 +135,46 @@ public class DocIngestService {
         if (chunks.isEmpty()) {
             throw new SplitValidationException("切分结果为空：这份文档没有可用的文字内容，请检查原件");
         }
-        onTotal.accept(chunks.size());
+        // 抽取在切分之后、第一批写入之前：ES 一次写入即带 terms，不走"先写空再更新"的二次写路径。
+        // 耗时计入 split 阶段（不为旁路新增 ingest_task 阶段——那会立刻产生"抽取失败要不要改阶段"的无解问题）
+        List<ChunkInput> indexed = extractTerms(docId, chunks);
+        onTotal.accept(indexed.size());
         int done = 0;
-        for (int from = 0; from < chunks.size(); from += INDEX_BATCH_SIZE) {
+        for (int from = 0; from < indexed.size(); from += INDEX_BATCH_SIZE) {
             // 防线①**每批复查一次**：写入是分批的，中途被删的文档不能再往下写。
             // 只在起手查一次的话，删掉文档之后剩下的批照样写三处——那些切片在 MySQL 里活着、
             // 检索也命中，而文档行已经没了，页面上再也找不到它们，也没地方清理
             requireDocAlive(docId);
-            List<ChunkInput> batch = chunks.subList(from, Math.min(from + INDEX_BATCH_SIZE, chunks.size()));
+            List<ChunkInput> batch = indexed.subList(from, Math.min(from + INDEX_BATCH_SIZE, indexed.size()));
             chunkIndexService.indexChunks(docId, doc.getDeptId(), batch);
             done += batch.size();
             onProgress.accept(done);
         }
         log.info("切分入库完成：docId={} 块 {} → 切片 {} 条（目标 {} 字 / 上限 {} 字）",
-                docId, blocks.size(), chunks.size(), params.targetLength(), params.maxLength());
-        return chunks.size();
+                docId, blocks.size(), indexed.size(), params.targetLength(), params.maxLength());
+        return indexed.size();
+    }
+
+    /**
+     * 入库即抽取：把切好的片送进抽取器，抽到的词合并进白名单候选，切片带着术语返回。
+     *
+     * <p><b>整段是旁路</b>：任何失败只 WARN、不上抛。模型抖动、词库写库失败都不能让一份已经
+     * 解析完的文档白费（DocumentMind 按次计费）。两层兜底——抽取器内部已逐批吞掉失败，
+     * 这里再兜一层防"抽取器本身抛"与"合并写库失败"。
+     */
+    private List<ChunkInput> extractTerms(String docId, List<ChunkInput> chunks) {
+        try {
+            TermExtractor.ExtractionResult result = termExtractor.extract(docId, chunks);
+            try {
+                medicalTermService.mergeExtracted(docId, result.terms());
+            } catch (RuntimeException e) {
+                log.warn("抽取术语写白名单失败（不影响入库，ES 仍带术语）：docId={} {}", docId, e.getMessage());
+            }
+            return result.chunks();
+        } catch (RuntimeException e) {
+            log.warn("术语抽取失败，切片照常入库但本次不带术语：docId={} {}", docId, e.getMessage());
+            return chunks;
+        }
     }
 
     // ---------- 内部 ----------
