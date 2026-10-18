@@ -188,9 +188,27 @@ public class DocSplitter {
         }
     }
 
-    /** 去掉全部空白再比对：模型重排换行不该算丢字，改了字才算 */
+    /**
+     * 去掉全部空白再比对：模型重排换行不该算丢字，改了字才算。
+     *
+     * <p><b>不能用 {@code \s}</b>：Java 的 {@code \s} 只认 ASCII 空白，全角空格（U+3000，
+     * 中文报刊的段首缩进）与不换行空格（U+00A0）都不在其中。真机上一份 1170 字的文档
+     * 因为模型没保留 6 个全角空格被判「拼回 1164 字」——那是空白差异，不是丢字。
+     * 零宽字符（U+200B–U+200D）与 BOM（U+FEFF）肉眼不可见，模型丢掉同样不该判失败。
+     */
     private String squeeze(String text) {
-        return text == null ? "" : text.replaceAll("\\s+", "");
+        if (text == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(text.length());
+        text.codePoints().forEach(cp -> {
+            boolean invisible = Character.isWhitespace(cp) || Character.isSpaceChar(cp)
+                    || (cp >= 0x200B && cp <= 0x200D) || cp == 0xFEFF;
+            if (!invisible) {
+                out.appendCodePoint(cp);
+            }
+        });
+        return out.toString();
     }
 
     // ---------- 第三层：递归切（无条件兜底）----------
