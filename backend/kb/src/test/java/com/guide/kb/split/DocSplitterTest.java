@@ -151,6 +151,19 @@ class DocSplitterTest {
     }
 
     @Test
+    @DisplayName("产出校验：全角空格与不换行空格不算丢字（中文报刊的段首缩进会被模型丢掉）")
+    void modelSplitValidationIgnoresUnicodeWhitespace() {
+        // 1170→1164 那次真机的成因：原文含 U+3000，Java 的 \s 不认它，模型输出又是没有缩进的
+        String text = "一".repeat(90) + "　" + "一".repeat(68) + " " + "二".repeat(160);
+        // 模型按语义切两段，缩进与不换行空格都没保留——这不是改字
+        modelSplitter.result = List.of("一".repeat(158), "二".repeat(160));
+
+        List<ChunkInput> chunks = splitter.split(List.of(LayoutBlock.text(text, null)), PARAMS, "文档");
+
+        assertThat(chunks).hasSize(2);
+    }
+
+    @Test
     @DisplayName("产出校验：只返回一块 = 它没有切")
     void modelSplitValidationRejectsSingleChunk() {
         modelSplitter.result = List.of("一".repeat(320));
