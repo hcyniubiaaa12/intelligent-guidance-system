@@ -43,7 +43,7 @@ public class EsChunkUtil {
      * 2026-10-17 该字段从 {@code keyword} 改成 {@code text}（术语加分需要 ik 分词才能被 match 命中），
      * 旧索引因此需要**人工**重建：先删索引、重启应用让它按新 mapping 重建、再重灌切片。
      * 检测到旧 mapping 时这里只记 WARN，**不自动删索引**——删索引丢数据，必须是人的运维决定。
-     * 具体步骤见 {@code docs/architecture/链路A-导诊对话.md} 与工单 03 的验收。
+     * 具体步骤见 {@code docs/architecture/链路A-导诊对话.md} §6.5 的「索引重建」段。
      */
     public void ensureIndex() {
         String index = properties.getChunkIndex();

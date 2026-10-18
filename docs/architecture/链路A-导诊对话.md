@@ -167,6 +167,18 @@
 - 术语清单同时服务于管理端"看得到系统认识哪些词"，是知识库覆盖度的直接观测
 - 双写一致性：chunk 写 MySQL（事务内）→ pgvector → ES 是**同一方法内顺序写入，不是同一事务**——pgvector 走独立连接、ES 走 HTTP，两者都吃不到 MySQL 的事务。因此失败时必须靠「写时补偿」回删已写入的向量（见链路 B 对齐点③）；删除补偿顺序为 先删 ES → 再删向量 → 再删元数据 → 再删 MinIO
 
+#### 索引重建（改 field type 的唯一路径）
+
+ES 不允许原地修改字段类型，`putMapping` 对已存在的 `medical_terms: keyword` 会直接报错。改过 mapping（如 2026-10-17 把 `medical_terms` 从 `keyword` 改为 `text` + ik）后，唯一路径是：
+
+1. **删旧索引**：`DELETE /<chunk 索引名>`——索引名以 `ElasticsearchProperties` 的 `chunkIndex`（`elasticsearch.chunk-index`，配置在 `application.yml` / `application-local.yml`）为准，不要按文档里的示例名写死
+2. **重启应用**：`EsChunkUtil.ensureIndex()` 在索引不存在时按新 mapping 重建（启动日志出现「ES 索引已创建」）
+3. **重灌切片**：重新上传文档，或对存量文档「重新处理」
+
+**重灌的现实约束**：`medical_terms` 只存在 ES 文档里（MySQL `kb_chunk` 没有这一列），删索引即丢 terms。存量文档只能通过「重新处理」重新抽取（pdf / png 会再次产生 DocumentMind 解析费用），或接受在重灌之前关键词通道不覆盖它们（术语加分为空，正文 BM25 与向量通道照常）。
+
+**这条是工单 03 验收的一部分，不是可选项**：不重建索引，`medical_terms` 仍按 `keyword` 映射，术语加分完全无效（实测 keyword 下 `match` 命中 0 条）——省掉这一步，加分功能等于没上线。
+
 ### 6.6 按用户的累计处置（警告 / 禁言）
 
 命中留痕（6.3）回答"系统看见过什么"；本节回答"同一个用户反复触发之后怎么办"——**滑动窗口内累计命中词次**达阈值即处置。
