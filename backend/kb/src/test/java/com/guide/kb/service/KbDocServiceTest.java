@@ -38,9 +38,10 @@ class KbDocServiceTest {
     private final EsChunkUtil esChunkUtil = mock(EsChunkUtil.class);
     private final PgVectorUtil pgVectorUtil = mock(PgVectorUtil.class);
     private final MinioUtil minioUtil = mock(MinioUtil.class);
+    private final MedicalTermService medicalTermService = mock(MedicalTermService.class);
 
     private final KbDocService service = new KbDocService(kbDocMapper, kbChunkMapper, deptService,
-            esChunkUtil, pgVectorUtil, minioUtil);
+            esChunkUtil, pgVectorUtil, minioUtil, medicalTermService);
 
     @Test
     @DisplayName("来源文档标题：一次批量查，已删除文档查不到（返回的 map 里没有它）")
@@ -73,6 +74,8 @@ class KbDocServiceTest {
         order.verify(kbChunkMapper).delete(any());
         order.verify(minioUtil).remove("kb/" + DOC_ID + "/心内科.pdf");
         order.verify(kbDocMapper).deleteById(DOC_ID);
+        // 术语是这份文档抽出的派生数据，随文档一起删；人工词 doc_id 为 NULL 不受影响
+        verify(medicalTermService).deleteBySourceDoc(DOC_ID);
     }
 
     @Test

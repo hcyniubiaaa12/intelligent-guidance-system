@@ -438,6 +438,38 @@ class MedicalTermServiceTest {
     }
 
 
+    // ---------- 文档删除级联 ----------
+
+    @Test
+    @DisplayName("文档删除级联：按 doc_id 物理删除其抽取术语并立即刷新（派生数据不占唯一键）")
+    void deleteBySourceDocRemovesDerivedTermsAndRefreshes() {
+        when(medicalTermMapper.deleteByDocId(DOC_ID)).thenReturn(3);
+        when(medicalTermMapper.selectList(any())).thenReturn(List.of());
+
+        int removed = service.deleteBySourceDoc(DOC_ID);
+
+        assertThat(removed).isEqualTo(3);
+        verify(medicalTermMapper).deleteByDocId(DOC_ID);
+        // 物理删除（自定义 SQL）：逻辑删除会留下物理行占着 uk_mt_term_type，
+        // 而抽取对已删除行是"跳过不复活"，同一个词以后永远回不来
+        verify(medicalTermMapper, never()).deleteById(any(String.class));
+        // 白名单立即重建（不等 60s TTL）
+        verify(medicalTermMapper, atLeastOnce()).selectList(any());
+    }
+
+    @Test
+    @DisplayName("文档删除级联：没删到行不刷新；空 docId 直接跳过（不查库）")
+    void deleteBySourceDocNoop() {
+        when(medicalTermMapper.deleteByDocId("doc-x")).thenReturn(0);
+
+        assertThat(service.deleteBySourceDoc("doc-x")).isZero();
+        assertThat(service.deleteBySourceDoc(null)).isZero();
+        assertThat(service.deleteBySourceDoc("   ")).isZero();
+
+        verify(medicalTermMapper, never()).deleteByDocId(null);
+        verify(medicalTermMapper, never()).selectList(any());
+    }
+
     @Test
     @DisplayName("列表按时间倒序、id 兜底：新加的词出现在第一页，同秒插入的行也不会翻页错乱")
     void pageOrdersByCreatedAtThenIdDesc() {

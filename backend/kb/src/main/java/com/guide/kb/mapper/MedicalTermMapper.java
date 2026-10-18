@@ -2,6 +2,7 @@ package com.guide.kb.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.guide.kb.entity.MedicalTerm;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -10,7 +11,7 @@ import org.apache.ibatis.annotations.Update;
 /**
  * 医疗术语白名单。
  *
- * <p>下面三个方法是**本模块仅有的自定义 SQL**，它们绕开 MyBatis-Plus 的逻辑删除——这是刻意的：
+ * <p>下面几个方法是**本模块仅有的自定义 SQL**，它们绕开 MyBatis-Plus 的逻辑删除——这是刻意的：
  * `deleted` 是逻辑标志，而 **`uk_mt_term_type(term, type)` 是物理唯一键，它不认这个标志**。
  * 只按"逻辑存在"判重，删过的词仍占着唯一键，下次 INSERT 就会撞键（`@TableLogic` 只作用于
  * 框架生成的语句，`selectCount` / `selectList` 都被自动加上 `deleted = 0`，指望它们看见被删行
@@ -54,4 +55,17 @@ public interface MedicalTermMapper extends BaseMapper<MedicalTerm> {
     @Select("SELECT MAX(deleted) FROM medical_term WHERE term = #{term} AND type = #{type} AND id <> #{excludeId}")
     Integer otherRowDeleted(@Param("term") String term, @Param("type") String type,
                             @Param("excludeId") String excludeId);
+
+    /**
+     * 文档删除的级联清理：**物理删除**该文档抽出的全部术语（含已逻辑删除的行）。
+     *
+     * <p><b>为什么这里不走 {@code @TableLogic}</b>：术语是从文档抽出的**派生数据**，
+     * 不是人的决定。逻辑删除会留下物理行占着 `uk_mt_term_type`，而 `mergeExtracted` 对
+     * 已删除行是「跳过不复活」——同一份文档重新入库、或别的文档再抽到同一个词时，
+     * 这个词就永远回不来了。派生数据的清理不该堵死自动流程。
+     *
+     * <p>只按 {@code doc_id} 删：人工新增的词该列为 NULL，不受任何文档删除影响。
+     */
+    @Delete("DELETE FROM medical_term WHERE doc_id = #{docId}")
+    int deleteByDocId(@Param("docId") String docId);
 }

@@ -176,6 +176,31 @@ public class MedicalTermService {
         log.info("术语 {} 已删除（逻辑删除，同词新增可恢复）", id);
     }
 
+    /**
+     * 文档删除的级联清理：删掉该文档抽出的全部术语。
+     *
+     * <p><b>物理删除，与人工「删除」刻意不同</b>：那些词是机器从这份文档抽出的**派生数据**，
+     * 不是人的决定。逻辑删除会让物理行继续占着 `uk_mt_term_type`，而 {@link #mergeExtracted}
+     * 对已删除行是「跳过不复活」——重新入库或别的文档再抽到同一个词时，它永远回不来。
+     * 派生数据的清理不该堵死自动流程。
+     *
+     * <p>只删 `doc_id` 指向该文档的行：人工新增的词该列为 NULL，不受影响。
+     * 写库后 {@code refresh()} 一次，白名单立即生效。
+     *
+     * @return 实际删除的行数（含此前已被逻辑删除的行）
+     */
+    public int deleteBySourceDoc(String docId) {
+        if (docId == null || docId.isBlank()) {
+            return 0;
+        }
+        int removed = medicalTermMapper.deleteByDocId(docId);
+        if (removed > 0) {
+            refresh();
+            log.info("文档 {} 已删除，级联清理其抽取术语 {} 条", docId, removed);
+        }
+        return removed;
+    }
+
     private record CacheEntry(Set<String> terms, long loadedAt) {
     }
 
