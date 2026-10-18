@@ -355,9 +355,14 @@ public class MedicalTermService {
      *
      * <p>整份文档的词一次写、写后 {@code refresh()} 一次——不是逐词 refresh，也不是每批一次。
      *
+     * <p><b>{@code docId} 只写在「插入」分支</b>（首次抽到该词的那份文档），跳过分支不动它：
+     * 同一个词后来又被别的文档抽到，来源仍指向最先引入它的那份文档。文档删除不回改术语，
+     * 悬空的 docId 由管理端显示成「文档已删除」（术语是全局白名单，不该随文档消失）。
+     *
+     * @param docId 本次入库的文档 id（来源追溯）
      * @return 三个计数（插入 / 跳过活跃 / 跳过已删除），供调用方记日志
      */
-    public MergeResult mergeExtracted(Collection<ExtractedTerm> terms) {
+    public MergeResult mergeExtracted(String docId, Collection<ExtractedTerm> terms) {
         if (terms == null || terms.isEmpty()) {
             return new MergeResult(0, 0, 0);
         }
@@ -392,6 +397,7 @@ public class MedicalTermService {
                 entity.setTerm(text);
                 entity.setType(term.type());
                 entity.setSource(TermSource.LLM_EXTRACT);
+                entity.setDocId(docId);
                 entity.setEnabled(enabled);
                 medicalTermMapper.insert(entity);
                 inserted++;

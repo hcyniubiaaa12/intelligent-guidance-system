@@ -38,6 +38,9 @@ import static org.mockito.Mockito.when;
  */
 class MedicalTermServiceTest {
 
+    /** 抽取来源文档的 id：来源追溯只记「首次抽到该词的那份文档」 */
+    private static final String DOC_ID = "doc-1";
+
     private final MedicalTermMapper medicalTermMapper = mock(MedicalTermMapper.class);
     private final com.guide.auth.service.SysConfigService sysConfigService =
             mock(com.guide.auth.service.SysConfigService.class);
@@ -344,7 +347,7 @@ class MedicalTermServiceTest {
         when(medicalTermMapper.countIncludingDeleted("左腹部", "part")).thenReturn(0);
         when(medicalTermMapper.selectList(any())).thenReturn(List.of());
 
-        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+        MedicalTermService.MergeResult result = service.mergeExtracted(DOC_ID, extracted(
                 new ExtractedTerm("胸闷", TermType.SYMPTOM),
                 new ExtractedTerm("左腹部", TermType.PART)));
 
@@ -352,6 +355,8 @@ class MedicalTermServiceTest {
         verify(medicalTermMapper, times(2)).insert(saved.capture());
         assertThat(saved.getAllValues()).extracting(MedicalTerm::getSource)
                 .containsOnly(TermSource.LLM_EXTRACT);
+        // 来源追溯：新插入的词记下首次抽到它的文档
+        assertThat(saved.getAllValues()).extracting(MedicalTerm::getDocId).containsOnly(DOC_ID);
         // 审核开关开着 = 待确认，抽出来先不生效
         assertThat(saved.getAllValues()).extracting(MedicalTerm::getEnabled).containsOnly(0);
         assertThat(result.inserted()).isEqualTo(2);
@@ -369,7 +374,7 @@ class MedicalTermServiceTest {
         when(medicalTermMapper.countIncludingDeleted("胸闷", "symptom")).thenReturn(0);
         when(medicalTermMapper.selectList(any())).thenReturn(List.of());
 
-        service.mergeExtracted(extracted(new ExtractedTerm("胸闷", TermType.SYMPTOM)));
+        service.mergeExtracted(DOC_ID, extracted(new ExtractedTerm("胸闷", TermType.SYMPTOM)));
 
         ArgumentCaptor<MedicalTerm> saved = ArgumentCaptor.forClass(MedicalTerm.class);
         verify(medicalTermMapper).insert(saved.capture());
@@ -384,7 +389,7 @@ class MedicalTermServiceTest {
         when(medicalTermMapper.selectCount(any())).thenReturn(1L);
         when(medicalTermMapper.selectList(any())).thenReturn(List.of());
 
-        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+        MedicalTermService.MergeResult result = service.mergeExtracted(DOC_ID, extracted(
                 new ExtractedTerm("胸闷", TermType.SYMPTOM)));
 
         assertThat(result.inserted()).isZero();
@@ -401,7 +406,7 @@ class MedicalTermServiceTest {
         when(medicalTermMapper.countIncludingDeleted("反酸", "symptom")).thenReturn(1);
         when(medicalTermMapper.selectList(any())).thenReturn(List.of());
 
-        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+        MedicalTermService.MergeResult result = service.mergeExtracted(DOC_ID, extracted(
                 new ExtractedTerm("反酸", TermType.SYMPTOM)));
 
         assertThat(result.inserted()).isZero();
@@ -415,7 +420,7 @@ class MedicalTermServiceTest {
     void mergeExtractedDropsInvalidTermsBeforeTouchingTheTable() {
         when(medicalTermMapper.selectList(any())).thenReturn(List.of());
 
-        MedicalTermService.MergeResult result = service.mergeExtracted(extracted(
+        MedicalTermService.MergeResult result = service.mergeExtracted(DOC_ID, extracted(
                 new ExtractedTerm("痛", TermType.SYMPTOM),
                 new ExtractedTerm("胸 闷", TermType.SYMPTOM)));
 

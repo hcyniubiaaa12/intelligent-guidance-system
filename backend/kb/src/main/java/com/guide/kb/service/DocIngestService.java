@@ -166,7 +166,7 @@ public class DocIngestService {
         try {
             TermExtractor.ExtractionResult result = termExtractor.extract(docId, chunks);
             try {
-                medicalTermService.mergeExtracted(result.terms());
+                medicalTermService.mergeExtracted(docId, result.terms());
             } catch (RuntimeException e) {
                 log.warn("抽取术语写白名单失败（不影响入库，ES 仍带术语）：docId={} {}", docId, e.getMessage());
             }

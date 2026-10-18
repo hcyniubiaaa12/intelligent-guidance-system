@@ -120,7 +120,7 @@ class DocIngestServiceTest {
         // 抽取拿到的正是切分结果；写入的两批都带上了 terms
         verify(termExtractor).extract(DOC_ID, split);
         // 抽到的词整份文档只合并一次（不是每批一次）
-        verify(medicalTermService, times(1)).mergeExtracted(List.of(new ExtractedTerm("胸闷", TermType.SYMPTOM)));
+        verify(medicalTermService, times(1)).mergeExtracted(eq(DOC_ID), eq(List.of(new ExtractedTerm("胸闷", TermType.SYMPTOM))));
         ArgumentCaptor<List<ChunkInput>> written = ArgumentCaptor.forClass(List.class);
         verify(chunkIndexService, times(2)).indexChunks(eq(DOC_ID), anyString(), written.capture());
         assertThat(written.getAllValues()).flatExtracting(l -> l)
@@ -151,7 +151,7 @@ class DocIngestServiceTest {
         when(termExtractor.extract(eq(DOC_ID), anyList())).thenReturn(new TermExtractor.ExtractionResult(
                 List.of(new ExtractedTerm("胸闷", TermType.SYMPTOM)),
                 chunks(2)));
-        when(medicalTermService.mergeExtracted(any())).thenThrow(new IllegalStateException("数据库忙"));
+        when(medicalTermService.mergeExtracted(any(), any())).thenThrow(new IllegalStateException("数据库忙"));
 
         int total = service.splitAndIndex(DOC_ID, blocks(), t -> {
         }, d -> {

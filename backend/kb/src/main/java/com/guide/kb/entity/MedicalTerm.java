@@ -22,6 +22,17 @@ public class MedicalTerm extends BaseEntity {
 
     private TermSource source;
 
+    /**
+     * 首次抽到该词的入库文档（{@code source=llm_extract} 时有值，人工新增为 {@code null}）。
+     *
+     * <p><b>只记「第一次」</b>：同一个词被后续文档再次抽到时走"跳过活跃行"，来源不覆盖——
+     * 这个字段回答的是"这个词是从哪份文档开始出现的"，不是"所有出现过的文档"。
+     * 要后者得建关联表，而管理端只需要前者来判断可信度。
+     *
+     * <p>文档被删后这里会留下悬空 id（术语不随文档删除），管理端显示「文档已删除」。
+     */
+    private String docId;
+
     /** 1 启用 / 0 停用 */
     private Integer enabled;
 }

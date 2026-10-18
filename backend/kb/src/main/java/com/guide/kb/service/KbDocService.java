@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -148,6 +149,21 @@ public class KbDocService {
                 .eq(status != null, KbDoc::getStatus, status)
                 .like(keyword != null && !keyword.isBlank(), KbDoc::getTitle, keyword)
                 .orderByDesc(KbDoc::getCreatedAt));
+    }
+
+    /**
+     * 批量取「文档 id → 标题」（术语列表的「来源文档」列用）。
+     *
+     * <p>一次 {@code selectBatchIds} 而不是逐行 {@code require}：术语一页最多 100 行，
+     * N+1 次查询只为显示一列标题不值得。{@code @TableLogic} 过滤掉已删除文档——
+     * 调用方据此把「有 docId 但查不到标题」显示成「文档已删除」。
+     */
+    public Map<String, String> titlesByIds(Collection<String> docIds) {
+        if (docIds == null || docIds.isEmpty()) {
+            return Map.of();
+        }
+        return kbDocMapper.selectBatchIds(docIds).stream()
+                .collect(Collectors.toMap(KbDoc::getId, KbDoc::getTitle, (a, b) -> a));
     }
 
     /** 该文档的切片（管理端「查看切片」）：按 seq 排，正文以 MySQL 为准 */
