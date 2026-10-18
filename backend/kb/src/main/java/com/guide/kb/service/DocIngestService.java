@@ -43,8 +43,12 @@ import java.util.function.IntConsumer;
 @RequiredArgsConstructor
 public class DocIngestService {
 
-    /** 入库批大小：批间回调进度，也是为了失败时不必把整篇重来（重来走「先删旧再重建」） */
-    private static final int INDEX_BATCH_SIZE = 20;
+    /**
+     * 入库批大小：批间回调进度，也是为了失败时不必把整篇重来（重来走「先删旧再重建」）。
+     *
+     * <p>包内可见：术语抽取（{@link TermExtractor}）复用同一个数值；批大小**只有这一处定义**。
+     */
+    static final int INDEX_BATCH_SIZE = 20;
 
     /** 产出异常的判据：全文抽出不足这么多字，基本可以断定是解析没干活（扫描件/加密件） */
     private static final int MIN_USABLE_CHARS = 20;
