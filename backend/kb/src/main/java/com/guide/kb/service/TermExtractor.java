@@ -35,8 +35,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TermExtractor {
 
-    /** 一批多少片：与入库批次对齐（{@code DocIngestService.INDEX_BATCH_SIZE}） */
-    static final int BATCH_SIZE = 20;
+    // 批大小复用入库批大小（DocIngestService.INDEX_BATCH_SIZE）：抽取与入库按同一粒度推进，
+    // 批间回调与失败粒度一致。批大小只有这一处定义。
 
     /**
      * 连续失败多少批就熔断。
@@ -72,7 +72,8 @@ public class TermExtractor {
         boolean broken = false;
         while (index < chunks.size()) {
             batchNo++;
-            List<ChunkInput> batch = chunks.subList(index, Math.min(index + BATCH_SIZE, chunks.size()));
+            List<ChunkInput> batch = chunks.subList(index,
+                    Math.min(index + DocIngestService.INDEX_BATCH_SIZE, chunks.size()));
             index += batch.size();
             try {
                 List<ExtractedTerm> batchTerms = parse(chatModel.chat(messagesOf(batch)));

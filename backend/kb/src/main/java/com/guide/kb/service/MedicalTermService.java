@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 医学术语白名单（链路 A 入口防误杀 + 信息充足性规则门槛）。
- * MySQL medical_term 是**唯一生效源**：内存 Set 从这里加载，ES 聚合只是候选池；
+ * MySQL medical_term 是**唯一生效源**：内存 Set 从这里加载，候选由入库抽取直接写本表；
  * 知识库更新（回流 / 重新入库 / 管理端增删）后调用 {@link #refresh()} 失效重建。
  */
 @Slf4j

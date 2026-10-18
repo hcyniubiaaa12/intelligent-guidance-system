@@ -267,7 +267,7 @@
         </el-select>
         <button class="a-btn" @click="searchTerms">查询</button>
         <span class="a-panel__hint">
-          白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，ES 聚合只是候选池
+          白名单是 chat 入口的防误杀闸门，启停即时生效；唯一生效源是本表，候选由入库抽取直接写入
         </span>
         <span class="a-panel__hint" style="margin-left: auto">共 {{ termPage.total }} 条</span>
         <button class="a-btn" @click="openTermCreate">新 增 术 语</button>
@@ -305,7 +305,8 @@
             <el-tag v-else-if="row.source === 'llm_extract'" type="warning" effect="plain" size="small">
               待确认
             </el-tag>
-            <el-tag v-else type="info" effect="plain" size="small">已停用</el-tag>
+            <!-- 默认类型映射到 --blue（wash 底蓝字）；不用 info——--el-color-info 未映射，会渲染成 EP 默认灰 -->
+            <el-tag v-else effect="plain" size="small">已停用</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200">
@@ -1057,6 +1058,9 @@ async function onToggleTerm(row) {
     const updated = await toggleKbTerm(row.id)
     row.enabled = updated.enabled
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
+    // 停用一条 llm_extract 的词会让它立刻变成「待确认」（口径 source=llm_extract && enabled=0），
+    // 重拉列表顺带重算待确认计数——否则徽标与「全部启用」按钮停在翻转前的状态
+    await loadTerms()
   } catch (e) {
     ElMessage.error(errText(e))
   }

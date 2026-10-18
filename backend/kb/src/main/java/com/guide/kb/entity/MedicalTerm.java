@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 白名单（4.3）：唯一生效源，chat 入口加载内存 Set 一律取自此表；ES 聚合只是候选池。
+ * 白名单（4.3）：唯一生效源，chat 入口加载内存 Set 一律取自此表；候选由入库抽取直接写本表。
  * LLM 抽取新术语落库默认 enabled=0，受"人工审核"开关控制；管理端增删/停用即时影响线上校验。
  */
 @Getter

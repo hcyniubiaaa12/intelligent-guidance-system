@@ -48,8 +48,8 @@ class EsChunkUtilMappingTest {
     }
 
     @Test
-    @DisplayName("旧 mapping（medical_terms=keyword）被判为需重建；已是 text / 字段缺失则不报")
-    void rebuildIsRequiredOnlyWhenTermFieldIsNotText() {
+    @DisplayName("medical_terms 不是 text 或缺失时都需重建；已是正确 text 则不报")
+    void rebuildIsRequiredUnlessTermFieldIsCorrectText() {
         TypeMapping oldKeyword = TypeMapping.of(m -> m
                 .properties("medical_terms", p -> p.keyword(k -> k)));
         assertTrue(EsChunkUtil.termMappingNeedsRebuild(oldKeyword));
@@ -57,10 +57,11 @@ class EsChunkUtilMappingTest {
         TypeMapping current = EsChunkUtil.chunkIndexMapping();
         assertFalse(EsChunkUtil.termMappingNeedsRebuild(current));
 
-        // 更老的索引没有该字段：putMapping 能补，不算"需重建"
+        // 字段缺失也要重建：ensureIndex 对已存在索引只补 chunk_type，
+        // 缺失的 medical_terms 会被 dynamic mapping 按标准分析器映射（不是 ik）
         TypeMapping noTerms = TypeMapping.of(m -> m
                 .properties("chunk_type", p -> p.keyword(k -> k)));
-        assertFalse(EsChunkUtil.termMappingNeedsRebuild(noTerms));
-        assertFalse(EsChunkUtil.termMappingNeedsRebuild(null));
+        assertTrue(EsChunkUtil.termMappingNeedsRebuild(noTerms));
+        assertTrue(EsChunkUtil.termMappingNeedsRebuild(null));
     }
 }

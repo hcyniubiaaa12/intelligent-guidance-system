@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ES chunk 索引读写工具（管全文检索与术语聚合）。
+ * ES chunk 索引读写工具（管全文检索与关键词通道的术语加分）。
  * 写入方：kb（唯一写入口，与 pgvector 双写）；读取方：rag（BM25 关键词召回）。
  * 中文分词用 analysis-ik（索引 ik_max_word / 检索 ik_smart）。
  * 可用性策略：ES 不可用时不抛异常打断主链路——召回退化为空列表（由 rag 侧融合兜底）。
@@ -43,7 +43,7 @@ public class EsChunkUtil {
      * 2026-10-17 该字段从 {@code keyword} 改成 {@code text}（术语加分需要 ik 分词才能被 match 命中），
      * 旧索引因此需要**人工**重建：先删索引、重启应用让它按新 mapping 重建、再重灌切片。
      * 检测到旧 mapping 时这里只记 WARN，**不自动删索引**——删索引丢数据，必须是人的运维决定。
-     * 具体步骤见 {@code docs/architecture/链路A-导诊对话.md} 与工单 03 的验收。
+     * 具体步骤见 {@code docs/architecture/链路A-导诊对话.md} §6.5 的「索引重建」段。
      */
     public void ensureIndex() {
         String index = properties.getChunkIndex();
@@ -82,16 +82,19 @@ public class EsChunkUtil {
     }
 
     /**
-     * 旧索引的 {@code medical_terms} 是否还是 {@code keyword}（需要人工重建）。
+     * 旧索引的 {@code medical_terms} 是否**不是** {@code text}（需要人工重建）。
      *
-     * <p>字段缺失返回 {@code false}：那是更老的索引，{@code putMapping} 能补新字段，不需要重建。
+     * <p>字段缺失同样判为需要重建：{@link #ensureIndex()} 对已存在的索引只补 {@code chunk_type}，
+     * 不会补 {@code medical_terms}；缺字段的索引会在第一次写入时被 ES 的 dynamic mapping
+     * 按标准分析器映射成 {@code text}（不是 ik），术语加分照样匹配不上中文术语。
+     * mapping 为 {@code null} 时同理——拿不到 mapping 就不能假定它已经正确。
      */
     static boolean termMappingNeedsRebuild(TypeMapping mapping) {
         if (mapping == null) {
-            return false;
+            return true;
         }
         Property terms = mapping.properties().get("medical_terms");
-        return terms != null && !terms.isText();
+        return terms == null || !terms.isText();
     }
 
     private void warnIfTermMappingStale(String index) throws IOException {
@@ -99,7 +102,7 @@ public class EsChunkUtil {
         var record = response.result().get(index);
         TypeMapping mapping = record == null ? null : record.mappings();
         if (termMappingNeedsRebuild(mapping)) {
-            log.warn("ES 索引 medical_terms 仍是 keyword，术语加分不会生效——需人工重建："
+            log.warn("ES 索引 medical_terms 不是 text（缺失或仍是 keyword），术语加分不会生效——需人工重建："
                     + "删索引 {} 后重启应用重建，再重灌切片（ES 不允许原地改字段类型）", index);
         }
     }

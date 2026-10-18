@@ -41,7 +41,7 @@ public class PromptProperties {
     public static final String PLACEHOLDER_TARGET = "{target}";
     /** 模型切的单片段上限 */
     public static final String PLACEHOLDER_MAX = "{max}";
-    /** 待切分的长文本 */
+    /** 待处理的长文本（模型切 / 术语抽取共用同一占位符） */
     public static final String PLACEHOLDER_TEXT = "{text}";
     /** 回流合成 chunk：症状原文 */
     public static final String PLACEHOLDER_SYMPTOM = "{symptom}";
@@ -49,8 +49,6 @@ public class PromptProperties {
     public static final String PLACEHOLDER_MAIN_DEPT = "{mainDept}";
     /** 回流合成 chunk：交叉科室说明（可为空） */
     public static final String PLACEHOLDER_CROSS_DEPTS = "{crossDepts}";
-    /** 术语抽取（链路 B 入库）的待抽取切片文本 */
-    public static final String PLACEHOLDER_TERM_TEXT = "{text}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -161,7 +159,7 @@ public class PromptProperties {
         require(feedback.getUserTemplate(), "prompts.feedback.user-template", feedbackPlaceholders);
         require(feedback.getFallbackTemplate(), "prompts.feedback.fallback-template", feedbackPlaceholders);
         require(termExtract.getSystem(), "prompts.term-extract.system", List.of());
-        require(termExtract.getUserTemplate(), "prompts.term-extract.user-template", List.of(PLACEHOLDER_TERM_TEXT));
+        require(termExtract.getUserTemplate(), "prompts.term-extract.user-template", List.of(PLACEHOLDER_TEXT));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

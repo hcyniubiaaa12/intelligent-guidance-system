@@ -42,7 +42,7 @@ pgvector:
   # 与阿里 text-embedding-v3 对齐；换 embedding 模型需同步改维度并重建向量
   dimension: ${PGVECTOR_DIM:1024}
 
-# Elasticsearch——chunk 全文检索（BM25）+ 医疗术语聚合；写入方：kb（唯一写入口）
+# Elasticsearch——chunk 全文检索（BM25）+ 关键词通道的术语加分；写入方：kb（唯一写入口）
 elasticsearch:
   uris: ${ES_URIS:http://192.168.193.131:9200}
   username: ${ES_USERNAME:}
