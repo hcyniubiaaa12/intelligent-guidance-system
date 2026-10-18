@@ -1057,6 +1057,9 @@ async function onToggleTerm(row) {
     const updated = await toggleKbTerm(row.id)
     row.enabled = updated.enabled
     ElMessage.success(updated.enabled ? `「${row.term}」已启用，入口校验即时生效` : `「${row.term}」已停用`)
+    // 停用一条 llm_extract 的词会让它立刻变成「待确认」（口径 source=llm_extract && enabled=0），
+    // 重拉列表顺带重算待确认计数——否则徽标与「全部启用」按钮停在翻转前的状态
+    await loadTerms()
   } catch (e) {
     ElMessage.error(errText(e))
   }
