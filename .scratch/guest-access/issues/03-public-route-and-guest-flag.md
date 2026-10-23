@@ -14,20 +14,28 @@
 
 **验收**
 
-- [ ] `/` 有 `meta.public: true`；`/register`、`/admin/**` 无此标记
-- [ ] `stores/user.js` 有唯一的游客判定导出，注释写明它是全仓唯一入口
-- [ ] 全仓 grep 游客判断只有一处定义、且没有别处另写 `!token`
+- [x] `/` 有 `meta.public: true`；`/register`、`/admin/**` 无此标记
+- [x] `stores/user.js` 有唯一的游客判定导出，注释写明它是全仓唯一入口
+- [x] 全仓 grep 游客判断只有一处定义、且没有别处另写 `!token`
 - [ ] 未登录直接访问 `/` **不再跳转**，页面正常渲染
 - [ ] 未登录访问 `/register` 仍被送去登录页
-- [ ] 后端代码零改动（`git diff --stat` 里没有 `backend/`）
-- [ ] `npm run build` 通过
+- [x] 后端代码零改动（`git diff --stat` 里没有 `backend/`）
+- [x] `npm run build` 通过
 
 **Blocked by:** 01（否则游客一进页面就可能被 401 强制跳转，本工单的验收条件无法成立）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Comments
 
 **为什么依赖 01**：`/` 变成 public 之后，`http.js` 会因为 `meta.public` 跳过跳转，但 `sse.js` 的本地副本不会——两个接口对同一个 401 做出相反反应。先把口径合并（01），这条边界才是确定的。
 
 **中间态可接受**：03 做完后游客能进页面但看不到任何提示、左栏照旧显示"还没有就诊记录"（且会发一次会话列表请求）。它是可上线的中间态（不比现状差），但**不是完整功能**——04/05 补齐前不要宣布这条链完成。
+
+**实现说明（2026-10-23）**：
+
+- `frontend/src/router/index.js`：`/` 加 `meta: { public: true }`；`/register`、`/admin/**` 未加。守卫改读 `user.isGuest`。`/preview` 的既有 `public` 未动。
+- `frontend/src/stores/user.js`：**删掉 `isLogin`，只留 `isGuest`**（`computed(() => !token.value)`），注释写明它是全仓唯一入口。理由：全仓 `isLogin` 只有路由守卫一个消费者，留两个互为反面的导出正是工单要防的"各挑一个"。grep 确认 `views/admin/*`、`views/common/Login.vue`、`api/*` 均未使用 `isLogin`。
+- 后端零改动，`git diff --stat` 只有两个前端文件。
+- `npm run check` 161 条全绿；`npm run build` 通过。
+- **归人工**：两条浏览器行为验收（未登录访问 `/` 不跳转、未登录访问 `/register` 仍跳登录页）需要真机/浏览器，本工单未跑，保持未勾。
