@@ -672,12 +672,47 @@
   color: var(--ink-3);
   text-align: right;
 }
+/* 游客态：这一格换成「登录后我才能给您导诊 · 去登录」——**同位置、同角色，不新增一行**
+   （工单 05）。它是个按钮而不是纯文本：点发送那一刻焦点要交给「去登录」。
+   视觉上仍是一句安静的小字（不变成主操作），只有「去登录」三个字着主色；
+   整句的可点范围靠 padding 补齐到 44px，不把那圈框画出来。 */
+.p-composer__hint--guest {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  /* 左右 8px 内边距 + 等量负外边距：高亮时那圈底色不贴着字，且**文字位置一动不动** */
+  padding: 0 8px;
+  margin: 0 -8px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: color .18s ease;
+}
+.p-composer__hint--guest:hover { color: var(--ink-2); }
+.p-composer__hintlink {
+  color: var(--leaf-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* 游客点发送：这一格"高亮一下"（1.5s 后复位），把注意力引到「去登录」上。
+   不新造浮层、不新开一行——提示本来就是常驻的，这里只是让它亮一次。
+   用底色而不是位移/描边：一份说明文字闪一下就够了，做到"弹出"反而像错误弹窗。 */
+.p-composer__hint--guest.is-nudged {
+  background: var(--leaf-soft);
+  border-radius: var(--r-xs);
+  color: var(--ink-2);
+}
 
 /* 375px 下说明换到下一行，给选图和发送保留完整触控宽度。 */
 @media (max-width: 480px) {
   .p-composer__bar { flex-wrap: wrap; gap: 6px 12px; }
   .p-composer__send { margin-left: auto; }
   .p-composer__hint { flex-basis: 100%; order: 3; text-align: left; }
+  /* 换到下一行时贴左边排：flex 容器里 `justify-content:flex-end` 会把短句顶到右缘 */
+  .p-composer__hint--guest { justify-content: flex-start; }
   .p-topbar { gap: 6px; }
   .p-topbar__ops { gap: 4px; }
   .p-topbar__nick { max-width: 74px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; letter-spacing: 0; }

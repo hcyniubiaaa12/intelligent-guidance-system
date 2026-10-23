@@ -187,7 +187,20 @@
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><ellipse cx="12" cy="4.6" rx="2.6" ry="2.9"/><path d="M8.2 8.6c1.1-.6 2.4-.9 3.8-.9s2.7.3 3.8.9c1 .5 1.5 1.5 1.5 2.6v4.2c0 .6-.5 1-1 1h-.6l-.5 5.6c-.1.6-.6 1-1.2 1h-4c-.6 0-1.1-.4-1.2-1l-.5-5.6h-.6c-.5 0-1-.4-1-1v-4.2c0-1.1.5-2.1 1.5-2.6z"/></svg>
                   人体图选部位
                 </button>
-                <span class="p-composer__hint">分诊建议，不能替代医生诊断</span>
+                <!-- 免责语那一格：已登录是免责语，游客态**换成**「登录后我才能给您导诊 · 去登录」。
+                     同位置、同角色，**不是新增一行**（医疗产品的免责在游客态下由这句话承担）。
+                     它是个按钮而不是纯文本：点发送那一刻焦点要交给它，键盘用户也才够得着。 -->
+                <span v-if="!user.isGuest" class="p-composer__hint">分诊建议，不能替代医生诊断</span>
+                <button
+                  v-else
+                  ref="loginHintEl"
+                  type="button"
+                  class="p-composer__hint p-composer__hint--guest"
+                  :class="{ 'is-nudged': loginNudged }"
+                  @click="goLogin"
+                >
+                  登录后我才能给您导诊 · <span class="p-composer__hintlink">去登录</span>
+                </button>
                 <button
                   class="p-composer__send"
                   :disabled="chat.streaming || partStage === 'awaiting' || !draft.trim()"
@@ -299,6 +312,25 @@ const rail = ref(null)
 const sideOpen = ref(false)
 /** 健康档案浮层的开关 */
 const profileOpen = ref(false)
+
+/**
+ * 输入区左下角那句「登录后我才能给您导诊 · 去登录」（游客态）——**点击路径的闸**（工单 05）。
+ *
+ * 它是**常驻**的，不是按需浮出来的：它占的就是免责语那一格（同位置、同角色，不新增一行）。
+ * 游客点发送时只是把这一格**高亮 1.5s** 并把焦点交给它，不弹浮层、不跳转——
+ * 跳转会打断一个刚选完部位、写完一句话的游客，页面突然消失是惩罚性交互。
+ */
+const loginHintEl = ref(null)
+const loginNudged = ref(false)
+let loginNudgeTimer = null
+
+function nudgeLogin() {
+  loginNudged.value = true
+  clearTimeout(loginNudgeTimer)
+  loginNudgeTimer = setTimeout(() => { loginNudged.value = false }, 1500)
+  // 焦点直接落到「去登录」上：键盘用户按回车之后，下一步该按的就是它
+  nextTick(() => loginHintEl.value?.focus())
+}
 
 /**
  * 部位声明的两样东西与它的**三态机**（草案 06：引导 → 选图 → 已锁定）。
@@ -668,7 +700,14 @@ function scrollToBottom(force = false) {
 // partStage === 'awaiting' 意味着这一条会是新会话的首条输入，没声明部位就不该发出去
 function send(text) {
   const content = (typeof text === 'string' ? text : draft.value).trim()
+  // 游客态：闸只在**点击路径**上（工单 05）。按钮本身不禁用——灰按钮会让人以为"我哪里没填对"，
+  // 真正的原因必须在他试图发送时告诉他。这里不动草稿、不跳转、不发请求。
+  // 注意顺序：`partStage === 'awaiting'` 那条仍是硬拦截（等待态按钮本来就禁用，这条兜 Enter 旁路）。
   if (!content || chat.streaming || partStage.value === 'awaiting') return
+  if (user.isGuest) {
+    nudgeLogin()
+    return
+  }
   draft.value = ''
   nextTick(autoGrow) // 清空后缩回单行
   chat.pushEntry({ type: 'user', content })
@@ -852,7 +891,12 @@ async function onLogout() {
 
 // 游客的「去登录」：带上回跳地址 `/`（本页就是患者首页）。去重与落点判定在 Login.vue，
 // 这里只负责给出"回到哪"。
+//
+// 走之前把草稿存进 store（工单 05）：跳登录那一刻本页卸载，`draft` / `parts` / `partStage`
+// 都是局部状态，三样全没了——**而这是我们要求他去登录的，不是他改了主意**。
+// 只有游客态才存：已登录用户点这里本来就不会发生（那句提示只在游客态渲染）。
 function goLogin() {
+  if (user.isGuest) chat.saveGuestDraft({ draft: draft.value, parts: parts.value.locations, partStage: partStage.value })
   sideOpen.value = false
   router.push({ path: '/login', query: { redirect: '/' } })
 }
@@ -863,16 +907,32 @@ function hhmm(at) {
 
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') marksRO = new ResizeObserver(syncMarksScroll)
-  // 挂号成功那一刻把"刚结束的这条会话"交代给了 store（内存态）——这里按只读回放打开它。
-  // 只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  // 两样"交回本页"的内存态，取走即清，互不覆盖：
+  //   ① 挂号成功那一刻把"刚结束的这条会话"交代给了 store——这里按只读回放打开它。
+  //      只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  //   ② 游客从"去登录"回来：把文字与部位声明还原到本页状态（工单 05）。
+  //      两者不会同时有值（一个来自挂号、一个来自游客去登录），谁先取都行；先取回放，
+  //      因为回放态下输入区整块不渲染，草稿留着也不会被它顶掉。
   const pending = chat.consumeReplay()
   if (pending) openSession(pending.sessionId, true)
+
+  // 草稿还原：`parts` 是 `{ locations, sentence }`，而 store 只存 locations——
+  // `sentence` 只用于"选完部位那一次把句子拼进输入框"，已经拼进去了，不必还原；
+  // 还原后声明句子留空不会影响门禁（门禁只看 `partStage`）与请求体（只看 locations）。
+  const saved = chat.consumeGuestDraft()
+  if (saved) {
+    draft.value = saved.draft
+    parts.value = { locations: saved.parts, sentence: '' }
+    partStage.value = saved.partStage
+    nextTick(autoGrow)
+  }
 })
 
 onBeforeUnmount(() => {
   turnAbort?.abort()
   marksRO?.disconnect()
   clearTimeout(copiedTimer)
+  clearTimeout(loginNudgeTimer)
 })
 </script>
 
