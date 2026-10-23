@@ -60,3 +60,18 @@
 **与工单字面的一处偏差**：工单写「未 登 录」，实现里文本是 **「未登录」+ `letter-spacing: .08em`**。仓里既有约定就是"标签放宽靠字距，文字本身不插空格"（`patient.css` 里 `.p-eyebrow` 上方那条注释，理由是复制 / 搜索 / 读屏连贯），已有同类标签（「健康档案」「我的就诊」）也都是这么写的。视觉等价，按既有约定落地。
 
 **归人工（本环境无浏览器）**：网络面板确认无 `GET /api/records/sessions`；点「去登录」→ 登录 → 回到 `/` 的实跑；视觉走查（`--rail` 底、无新增边线）。
+
+### 评审补充（2026-10-23）——漏掉的时序：**登出之后**
+
+本工单的验收全部盯着"游客首屏挂载"这一种形态，漏掉了另一种：**已登录用户在本页点「退出」**。`Chat.vue` 的 `onLogout()` 依次做 `startNew()` → `chat.clearGuestDraft()` → `user.logout()`；`user.logout()` 清 token 后 `isGuest` 翻真，但 `SideRail` 里的 `days` / `archivedDays` / `total` / `booked` 是**上一次 `loadSessions()` 灌进去的值**，没有任何一处会清它们：`loadSessions()` 的游客闸是 `if (props.isGuest) return`（**返回 ≠ 清空**），而模板里 `v-if="isGuest"` 那句空态是**并列**在列表模板之后——主区 `v-for="day in shownDays"` 与归档区照常渲染。
+
+症状：用户卡变成「未登录」+「去登录」、空态写「登录后查看就诊记录」，**而它上面仍列着上一位患者的全部主诉**，归档区「取回」还点得动（会发 `archiveSession` 请求）。这直接违背「共用设备上不能看到上一位患者的主诉」——同一份判据在 `onLogout` 的注释里为 `clearGuestDraft()` 写过一遍。
+
+**修法（两层，缺一不可）**：
+
+1. **事实层**：`SideRail.vue` 加 `watch(() => props.isGuest, g => { if (g) { days / archivedDays / total / booked 归零、archOpen = false、expanded = new Set() } }, { immediate: true })`。`immediate: true` 是必要的——游客首屏挂载时那四个 ref 恰好是空数组，靠的是"初始值恰好为空"而不是不变式；写进 watch 后，将来谁改了初始值也不会把游客的列表带出来。
+2. **渲染层**：主区 + 归档区整块包进 `<template v-else>`，与 `<p v-if="isGuest">登录后查看就诊记录</p>` 真正互斥（改前那句 `v-if` 只是并列，并非守卫）。
+
+两层都做的理由已写进模板与 watch 的注释：清数据保证"列表里没有他的数据"，`v-if` 保证"即使将来别处往 `days` 里塞了值也不会漏出去"。
+
+**为什么本工单的验收没抓到**：验收清单第 3 条写的是"游客态左栏……列表区显示「登录后查看就诊记录」"，它只覆盖 `mount(isGuest=true)`；第 5 条验的是"去登录 ⇒ 登录 ⇒ 回 `/`"（游客 → 已登录），**方向正好相反**。缺的是"已登录 → 游客"这一条——同一个 prop 的**变化**，不是它的两种静态取值。要补的形态是：**同一实例上 `isGuest` 由 false 翻 true**，然后断言 `.p-chat__list` 里既没有 `.p-i` 也没有归档折叠条。

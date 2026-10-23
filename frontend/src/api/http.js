@@ -26,7 +26,7 @@ http.interceptors.response.use(
     if (body.code === 200) return body.data
     // 业务码 2000 = 未登录/登录已过期（HTTP 200 场景兜底，如登出后 token 失效）
     if (body.code === 2000) {
-      // 公开路由上 onUnauthorized 返回 false、不跳转：错误照旧 reject 交调用方展示
+      // 公开路由上、游客态下 onUnauthorized 不跳转：错误照旧 reject 交调用方展示
       onUnauthorized()
       return Promise.reject(new Error(body.message || '未登录或登录已过期'))
     }
