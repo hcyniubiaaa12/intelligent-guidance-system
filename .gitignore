@@ -1,5 +1,10 @@
-# 毕业设计过程文件（docx 解包/校验产物，不入库）
+# 毕业论文过程文件（docx 解包/校验产物与插图脚本，不入库）
 毕业文件/
+scripts/build_kaibao.py
+scripts/fix_kaibao_figure.py
+scripts/gen_function_diagram.py
+scripts/render_fig.mjs
+scripts/update_kaibao_figure.py
 
 # AI 工作记忆目录（本地数据，不入库）
 .workbuddy/
