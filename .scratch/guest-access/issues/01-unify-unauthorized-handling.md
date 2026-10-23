@@ -34,7 +34,7 @@ if (当前路由.meta.public) {
 - [x] 游客可访问的路由（`meta.public`）上收到 401 ⇒ 不跳转，调用方拿到错误
 - [x] 非 public 路由上收到 401 ⇒ 清 store + 跳 `/login?redirect=当前路径`
 - [x] `npm run build` 通过；`npm run check` 现有 161 条全绿
-- [ ] 真机：把 token 改坏后发一条消息 ⇒ 跳登录页（回归"登录过期"路径没被打破）
+- [x] 真机：把 token 改坏后发一条消息 ⇒ 跳登录页（回归"登录过期"路径没被打破）（由工单 07 探针 8 / 本次补充探针 7 覆盖）
 
 **Blocked by:** 无
 
