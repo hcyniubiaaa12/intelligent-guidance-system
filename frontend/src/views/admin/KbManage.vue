@@ -64,6 +64,36 @@
 
     <!-- ============ 文档入库 ============ -->
     <template v-else-if="tab === 'doc'">
+      <!-- 切分参数与文档列表同页：调的是"这篇文档会被切成什么样"，列表就是它的结果。
+           折叠默认收起——它不常改，而展开会占掉一屏文档列表的高度。 -->
+      <div class="a-panel" style="padding: 0 0 14px; margin-bottom: 14px">
+        <div class="a-panel__head" style="cursor: pointer" @click="splitOpen = !splitOpen">
+          <span class="a-panel__title">切分参数</span>
+          <span class="a-panel__hint">{{ splitOpen ? '收起' : '展开' }} · 影响之后上传的文档，存 sys_config</span>
+        </div>
+        <template v-if="splitOpen">
+          <div v-if="splitLoading" class="a-empty">加载中…</div>
+          <div v-else-if="!splitParams.length" class="a-empty">参数加载失败，切分按代码侧默认值执行</div>
+          <template v-else>
+            <div v-for="p in splitParams" :key="p.key" class="a-field">
+              <label class="a-field__label">{{ p.label }}</label>
+              <input v-model="p.value" class="a-field__input" type="number" :step="1" />
+              <div class="a-field__hint">
+                {{ p.remark }}
+                <template v-if="p.range"> · 取值范围 {{ p.range }}</template>
+                · 默认 {{ p.defaultValue }}
+              </div>
+            </div>
+            <button class="a-btn" :disabled="splitSaving" @click="saveSplitParams">
+              {{ splitSaving ? '保存中…' : '保存参数' }}
+            </button>
+            <div class="a-field__hint">
+              保存后立即生效；三档须层层不降（上限 ≥ 目标长度、模型触发 ≥ 上限），后端会拦
+            </div>
+          </template>
+        </template>
+      </div>
+
       <div class="kb-toolbar">
         <el-select v-model="docQuery.deptId" clearable placeholder="全部科室" style="width: 168px">
           <el-option v-for="d in depts" :key="d.id" :label="d.name" :value="d.id" />
@@ -525,7 +555,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Document, UploadFilled } from '@element-plus/icons-vue'
 import { PAGE_LAYOUT, PAGE_LAYOUT_NO_TOTAL, PAGE_SIZES, applySizeChange } from '../../utils/pager'
@@ -1149,6 +1179,48 @@ async function onBatchEnable() {
     termBatchEnabling.value = false
   }
 }
+
+// —— 切分三档参数（KB 组里除审核开关外的那三项）——
+// 与术语审核开关同一个 GET /kb/params 端点，这里只取切分那三项——
+// 端点就绪前页面只渲染审核开关，那条"没有端点可改"的注释已作废。
+const splitOpen = ref(false)
+const splitParams = ref([])
+const splitLoading = ref(false)
+const splitSaving = ref(false)
+
+const SPLIT_KEYS = ['chunk.target.length', 'chunk.max.length', 'chunk.model.min.length']
+
+async function loadSplitParams() {
+  if (!splitOpen.value) return
+  splitLoading.value = true
+  try {
+    const params = await getKbParams()
+    // 按下标排序而不是 params 里的顺序：后端列表顺序变了不该让三档在页面上换位
+    splitParams.value = SPLIT_KEYS.map((k) => params.find((p) => p.key === k)).filter(Boolean)
+  } catch (e) {
+    splitParams.value = []
+    ElMessage.error(errText(e))
+  } finally {
+    splitLoading.value = false
+  }
+}
+
+async function saveSplitParams() {
+  if (!splitParams.value.length) return
+  splitSaving.value = true
+  try {
+    await saveKbParams(splitParams.value.map((p) => ({ key: p.key, value: String(p.value) })))
+    ElMessage.success('切分参数已保存，之后上传的文档按新值切分')
+    await loadSplitParams()
+  } catch (e) {
+    ElMessage.error(errText(e))
+  } finally {
+    splitSaving.value = false
+  }
+}
+
+// 展开时才拉：默认收起，不为一个折叠面板在进页面时多发一次请求
+watch(splitOpen, () => loadSplitParams())
 
 // —— 术语人工审核开关（与词表同页：抽出了什么 / 要不要我确认，是一件事的两半）——
 const termRule = ref(null)
