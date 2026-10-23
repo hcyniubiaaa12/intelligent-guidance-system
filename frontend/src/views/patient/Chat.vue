@@ -833,6 +833,10 @@ async function onLogout() {
     await apiLogout()
   } finally {
     chat.reset() // 清对话状态，避免换账号后看到上一账号的会话
+    // 草稿另清一次、且**显式**写在这里：登出根本不经过对话页挂载，`consumeGuestDraft()`
+    // 那条兜不到它。不清的后果是共用设备上，下一个人登录回来会看到上一位患者写的主诉。
+    // （`reset()` 刻意不碰 guestDraft——它清的是"这次会话"，草稿要跨登录存活。）
+    chat.clearGuestDraft()
     user.logout()
     router.push('/login')
   }
