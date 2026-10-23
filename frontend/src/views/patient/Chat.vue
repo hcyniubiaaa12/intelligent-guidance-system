@@ -872,20 +872,32 @@ function goRegister(cardEntry) {
   })
 }
 
-// 退出登录：先调后端删 Redis 登录态（登出即时失效），再清本地态跳登录页；
-// 接口失败也照常清本地态，避免卡死
+// 退出登录：先调后端删 Redis 登录态（登出即时失效），再清本地态，**留在 `/` 的游客态**（工单 06）。
+// 退出登录的语义是"不再以这个身份操作"，不是"这个产品对我关门了"——跳到登录页再让他自己点回首页，
+// 是一段没有信息量的绕路。游客态本身不用这里摆：`user.logout()` 清空 token 后 `user.isGuest` 即为 true
+// （全仓唯一的游客判定），左栏用户区 / 顶栏 / 输入区闸门都跟着它变。
+// 接口失败也照常清本地态：后端 `/api/auth/logout` 不在 permitAll 里，token 已失效时它必然 401，
+// 而那正是最需要清干净的情况——被一个失败的网络请求卡住就等于"退不出去"。
 async function onLogout() {
   turnAbort?.abort()
   try {
     await apiLogout()
   } finally {
-    chat.reset() // 清对话状态，避免换账号后看到上一账号的会话
-    // 草稿另清一次、且**显式**写在这里：登出根本不经过对话页挂载，`consumeGuestDraft()`
-    // 那条兜不到它。不清的后果是共用设备上，下一个人登录回来会看到上一位患者写的主诉。
-    // （`reset()` 刻意不碰 guestDraft——它清的是"这次会话"，草稿要跨登录存活。）
+    // ① `startNew()` 而不是只调 `chat.reset()`：reset() 只清 sessionId / entries / streaming，
+    //    **不碰**页面局部的 `replay` / `parts` / `partStage` / `draft`。只调 reset() 会留下
+    //    「左栏已经是游客态、正文却停在一段只读回放里」的中间态；startNew() 正是这四样的归零口径
+    //    （收掉回放、声明回 awaiting、输入框清空、关掉手机端左栏覆盖层）。
+    // ② `clearGuestDraft()` 放在 startNew() **之后**（最后一道）：它清的是 store 里那份跨登录存活的草稿，
+    //    startNew() 不碰它（`reset()` 刻意不清——草稿不是"这次会话"的一部分）；登出根本不经过对话页挂载，
+    //    `consumeGuestDraft()` 那条兜不到它，所以必须显式清——不清的后果是共用设备上下一个人登录回来
+    //    会看到上一位患者写的主诉。放最后，是为了让"登出后草稿一定为空"由最后一步保证：将来 startNew()
+    //    若被加了任何写草稿的动作，也覆不回来。
+    startNew()
     chat.clearGuestDraft()
     user.logout()
-    router.push('/login')
+    // 不跳 `/login`（包括不"跳转后由路由守卫决定去向"）。本页就挂在 `/` 上，这一行只是兜底：
+    // 万一将来从别的路由点到退出，也回到首页的游客态，而不是留在一个需要登录的页面上。
+    if (router.currentRoute.value.path !== '/') router.push('/')
   }
 }
 
