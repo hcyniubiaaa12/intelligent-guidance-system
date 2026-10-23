@@ -3,9 +3,7 @@
 // 事件协议（见后端 SseEvents）：session → delta → (question | info | result) → done，异常走 error，
 // notice（处置提示/警告）可出现在任意位置且不改变主流程；每条的 data 均为 JSON；
 // error 之后后端还会补一个 done，前端以 error 收尾即可。
-import router from '../router'
-import { useUserStore } from '../stores/user'
-import { useChatStore } from '../stores/chat'
+import { onUnauthorized } from './authRedirect'
 import { buildChatBody } from './chatBody'
 
 // SSE 事件名 → handlers 回调名
@@ -20,15 +18,8 @@ const HANDLER = {
   error: 'onError'
 }
 
-// 与 src/api/http.js 的 redirectToLogin 行为一致：清登录态并跳登录页
-// 同时清空对话 store——共用设备上换账号登录后，不能看到上一位患者的主诉与结论卡
-function redirectToLogin() {
-  useChatStore().reset()
-  useUserStore().logout()
-  if (router.currentRoute.value.path !== '/login') {
-    router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
-  }
-}
+// 401 的处置与 `api/http.js` 同一个入口：`utils/authRedirect.js`。
+// 别在这里重建判据——它曾经自持一份、不看 meta.public，公开路由上游客一发消息就被踹去登录页。
 
 // 非 2xx：尽力读出可读错误（后端 Result 体 / 纯文本 / 兜底状态码）
 async function readFailure(res) {
@@ -103,8 +94,8 @@ export async function streamChat({ sessionId, content, parts }, handlers = {}, s
 
   if (!res.ok) {
     const { code, message } = await readFailure(res)
-    // 401 与业务码 2000 = 未登录/登录已过期，与 http.js 一致
-    if (res.status === 401 || code === 2000) redirectToLogin()
+    // 401 与业务码 2000 = 未登录/登录已过期，与 http.js 同一口径
+    if (res.status === 401 || code === 2000) onUnauthorized()
     fail(message)
     return
   }
@@ -113,7 +104,7 @@ export async function streamChat({ sessionId, content, parts }, handlers = {}, s
   const contentType = res.headers.get('content-type') || ''
   if (!contentType.includes('text/event-stream')) {
     const { code, message } = await readFailure(res)
-    if (res.status === 401 || code === 2000) redirectToLogin()
+    if (res.status === 401 || code === 2000) onUnauthorized()
     fail(message)
     return
   }

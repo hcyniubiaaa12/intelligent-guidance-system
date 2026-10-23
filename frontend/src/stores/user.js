@@ -7,7 +7,10 @@ export const useUserStore = defineStore('user', () => {
   const role = ref(localStorage.getItem('role') || '')
   const nickname = ref(localStorage.getItem('nickname') || '')
 
-  const isLogin = computed(() => !!token.value)
+  // 游客判定：**全仓唯一入口**。= 未持有 token。
+  // 不在别处另写 `!token`，也不保留与它互为反面的第二个导出（如旧的 `isLogin`）——
+  // 同一个事实有两个可分别使用的名字时，下一个人会各挑一个，两处判定迟早分叉。
+  const isGuest = computed(() => !token.value)
   // role 取枚举编码值（user.role 存英文小写，见《数据库设计.md》§0）
   const isAdmin = computed(() => role.value === 'admin')
 
@@ -29,5 +32,5 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('nickname')
   }
 
-  return { token, role, nickname, isLogin, isAdmin, setLogin, logout }
+  return { token, role, nickname, isGuest, isAdmin, setLogin, logout }
 })

@@ -10,6 +10,7 @@
         :active-session-id="activeSessionId"
         :nickname="user.nickname"
         :mobile-open="sideOpen"
+        :is-guest="user.isGuest"
         @select="openSession"
         @new="startNew"
         @close-mobile="sideOpen = false"
@@ -17,6 +18,7 @@
         @open-profile="openProfile"
         @logout="onLogout"
         @archive-change="onArchiveChange"
+        @login="goLogin"
       />
 
       <!-- ---------- 中：对话舞台 ---------- -->
@@ -26,7 +28,13 @@
         <header class="p-topbar p-chat__topbar">
           <button class="p-chat__menubtn" @click="sideOpen = true">会话</button>
           <div class="p-topbar__title">智能导诊</div>
-          <div class="p-topbar__ops">
+          <!-- 游客态与左栏用户区**同一口径**：未登录 + 去登录。同一页面上两处对身份的
+               表述不能打架——这里若照旧写「我的就诊」「退出」，游客会以为自己已登录 -->
+          <div v-if="user.isGuest" class="p-topbar__ops">
+            <span class="p-topbar__who">未登录</span>
+            <button class="p-topbar__logout p-topbar__logout--guest" title="登录后可查看就诊记录" @click="goLogin">去登录</button>
+          </div>
+          <div v-else class="p-topbar__ops">
             <button class="p-topbar__nick" title="看我的挂号历史" @click="openBooked">{{ user.nickname || '我的就诊' }}</button>
             <button class="p-topbar__logout" @click="onLogout">退出</button>
           </div>
@@ -179,7 +187,20 @@
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><ellipse cx="12" cy="4.6" rx="2.6" ry="2.9"/><path d="M8.2 8.6c1.1-.6 2.4-.9 3.8-.9s2.7.3 3.8.9c1 .5 1.5 1.5 1.5 2.6v4.2c0 .6-.5 1-1 1h-.6l-.5 5.6c-.1.6-.6 1-1.2 1h-4c-.6 0-1.1-.4-1.2-1l-.5-5.6h-.6c-.5 0-1-.4-1-1v-4.2c0-1.1.5-2.1 1.5-2.6z"/></svg>
                   人体图选部位
                 </button>
-                <span class="p-composer__hint">分诊建议，不能替代医生诊断</span>
+                <!-- 免责语那一格：已登录是免责语，游客态**换成**「登录后我才能给您导诊 · 去登录」。
+                     同位置、同角色，**不是新增一行**（医疗产品的免责在游客态下由这句话承担）。
+                     它是个按钮而不是纯文本：点发送那一刻焦点要交给它，键盘用户也才够得着。 -->
+                <span v-if="!user.isGuest" class="p-composer__hint">分诊建议，不能替代医生诊断</span>
+                <button
+                  v-else
+                  ref="loginHintEl"
+                  type="button"
+                  class="p-composer__hint p-composer__hint--guest"
+                  :class="{ 'is-nudged': loginNudged }"
+                  @click="goLogin"
+                >
+                  登录后我才能给您导诊 · <span class="p-composer__hintlink">去登录</span>
+                </button>
                 <button
                   class="p-composer__send"
                   :disabled="chat.streaming || partStage === 'awaiting' || !draft.trim()"
@@ -291,6 +312,25 @@ const rail = ref(null)
 const sideOpen = ref(false)
 /** 健康档案浮层的开关 */
 const profileOpen = ref(false)
+
+/**
+ * 输入区左下角那句「登录后我才能给您导诊 · 去登录」（游客态）——**点击路径的闸**（工单 05）。
+ *
+ * 它是**常驻**的，不是按需浮出来的：它占的就是免责语那一格（同位置、同角色，不新增一行）。
+ * 游客点发送时只是把这一格**高亮 1.5s** 并把焦点交给它，不弹浮层、不跳转——
+ * 跳转会打断一个刚选完部位、写完一句话的游客，页面突然消失是惩罚性交互。
+ */
+const loginHintEl = ref(null)
+const loginNudged = ref(false)
+let loginNudgeTimer = null
+
+function nudgeLogin() {
+  loginNudged.value = true
+  clearTimeout(loginNudgeTimer)
+  loginNudgeTimer = setTimeout(() => { loginNudged.value = false }, 1500)
+  // 焦点直接落到「去登录」上：键盘用户按回车之后，下一步该按的就是它
+  nextTick(() => loginHintEl.value?.focus())
+}
 
 /**
  * 部位声明的两样东西与它的**三态机**（草案 06：引导 → 选图 → 已锁定）。
@@ -660,7 +700,14 @@ function scrollToBottom(force = false) {
 // partStage === 'awaiting' 意味着这一条会是新会话的首条输入，没声明部位就不该发出去
 function send(text) {
   const content = (typeof text === 'string' ? text : draft.value).trim()
+  // 游客态：闸只在**点击路径**上（工单 05）。按钮本身不禁用——灰按钮会让人以为"我哪里没填对"，
+  // 真正的原因必须在他试图发送时告诉他。这里不动草稿、不跳转、不发请求。
+  // 注意顺序：`partStage === 'awaiting'` 那条仍是硬拦截（等待态按钮本来就禁用，这条兜 Enter 旁路）。
   if (!content || chat.streaming || partStage.value === 'awaiting') return
+  if (user.isGuest) {
+    nudgeLogin()
+    return
+  }
   draft.value = ''
   nextTick(autoGrow) // 清空后缩回单行
   chat.pushEntry({ type: 'user', content })
@@ -825,17 +872,50 @@ function goRegister(cardEntry) {
   })
 }
 
-// 退出登录：先调后端删 Redis 登录态（登出即时失效），再清本地态跳登录页；
-// 接口失败也照常清本地态，避免卡死
+// 退出登录：先调后端删 Redis 登录态（登出即时失效），再清本地态，**留在 `/` 的游客态**（工单 06）。
+// 退出登录的语义是"不再以这个身份操作"，不是"这个产品对我关门了"——跳到登录页再让他自己点回首页，
+// 是一段没有信息量的绕路。游客态本身不用这里摆：`user.logout()` 清空 token 后 `user.isGuest` 即为 true
+// （全仓唯一的游客判定），左栏用户区 / 顶栏 / 输入区闸门都跟着它变。
+// 接口失败也照常清本地态：后端 `/api/auth/logout` 不在 permitAll 里，token 已失效时它必然 401，
+// 而那正是最需要清干净的情况——被一个失败的网络请求卡住就等于"退不出去"。
 async function onLogout() {
   turnAbort?.abort()
   try {
     await apiLogout()
+  } catch (e) {
+    // **这里必须吞掉**，不是偷懒：登出接口失败时用户无事可做，也不该给他一个"登出失败"的
+    // 提示（那会让人以为还登录着）。但**不能连日志一起吞**——不带 catch 的话异常会冒成一条
+    // 未捕获 promise rejection，控制台里看起来像个真 bug，排查时白费时间。
+    console.warn('[chat] 登出接口失败，本地照常清态', e)
   } finally {
-    chat.reset() // 清对话状态，避免换账号后看到上一账号的会话
+    // ① `startNew()` 而不是只调 `chat.reset()`：reset() 只清 sessionId / entries / streaming，
+    //    **不碰**页面局部的 `replay` / `parts` / `partStage` / `draft`。只调 reset() 会留下
+    //    「左栏已经是游客态、正文却停在一段只读回放里」的中间态；startNew() 正是这四样的归零口径
+    //    （收掉回放、声明回 awaiting、输入框清空、关掉手机端左栏覆盖层）。
+    // ② `clearGuestDraft()` 放在 startNew() **之后**（最后一道）：它清的是 store 里那份跨登录存活的草稿，
+    //    startNew() 不碰它（`reset()` 刻意不清——草稿不是"这次会话"的一部分）；登出根本不经过对话页挂载，
+    //    `consumeGuestDraft()` 那条兜不到它，所以必须显式清——不清的后果是共用设备上下一个人登录回来
+    //    会看到上一位患者写的主诉。放最后，是为了让"登出后草稿一定为空"由最后一步保证：将来 startNew()
+    //    若被加了任何写草稿的动作，也覆不回来。
+    startNew()
+    chat.clearGuestDraft()
     user.logout()
-    router.push('/login')
+    // 不跳 `/login`（包括不"跳转后由路由守卫决定去向"）。本页就挂在 `/` 上，这一行只是兜底：
+    // 万一将来从别的路由点到退出，也回到首页的游客态，而不是留在一个需要登录的页面上。
+    if (router.currentRoute.value.path !== '/') router.push('/')
   }
+}
+
+// 游客的「去登录」：带上回跳地址 `/`（本页就是患者首页）。去重与落点判定在 Login.vue，
+// 这里只负责给出"回到哪"。
+//
+// 走之前把草稿存进 store（工单 05）：跳登录那一刻本页卸载，`draft` / `parts` / `partStage`
+// 都是局部状态，三样全没了——**而这是我们要求他去登录的，不是他改了主意**。
+// 只有游客态才存：已登录用户点这里本来就不会发生（那句提示只在游客态渲染）。
+function goLogin() {
+  if (user.isGuest) chat.saveGuestDraft({ draft: draft.value, parts: parts.value.locations, partStage: partStage.value })
+  sideOpen.value = false
+  router.push({ path: '/login', query: { redirect: '/' } })
 }
 
 function hhmm(at) {
@@ -844,16 +924,32 @@ function hhmm(at) {
 
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') marksRO = new ResizeObserver(syncMarksScroll)
-  // 挂号成功那一刻把"刚结束的这条会话"交代给了 store（内存态）——这里按只读回放打开它。
-  // 只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  // 两样"交回本页"的内存态，取走即清，互不覆盖：
+  //   ① 挂号成功那一刻把"刚结束的这条会话"交代给了 store——这里按只读回放打开它。
+  //      只读态是内存态：刷新页面回到普通空状态，那确实是新的一次就诊；刚才那段在左侧记录里仍可回放。
+  //   ② 游客从"去登录"回来：把文字与部位声明还原到本页状态（工单 05）。
+  //      两者不会同时有值（一个来自挂号、一个来自游客去登录），谁先取都行；先取回放，
+  //      因为回放态下输入区整块不渲染，草稿留着也不会被它顶掉。
   const pending = chat.consumeReplay()
   if (pending) openSession(pending.sessionId, true)
+
+  // 草稿还原：`parts` 是 `{ locations, sentence }`，而 store 只存 locations——
+  // `sentence` 只用于"选完部位那一次把句子拼进输入框"，已经拼进去了，不必还原；
+  // 还原后声明句子留空不会影响门禁（门禁只看 `partStage`）与请求体（只看 locations）。
+  const saved = chat.consumeGuestDraft()
+  if (saved) {
+    draft.value = saved.draft
+    parts.value = { locations: saved.parts, sentence: '' }
+    partStage.value = saved.partStage
+    nextTick(autoGrow)
+  }
 })
 
 onBeforeUnmount(() => {
   turnAbort?.abort()
   marksRO?.disconnect()
   clearTimeout(copiedTimer)
+  clearTimeout(loginNudgeTimer)
 })
 </script>
 

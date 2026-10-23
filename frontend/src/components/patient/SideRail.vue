@@ -47,8 +47,12 @@
 
       <div class="p-chat__sidehd">
         <!-- 就诊次数**跟着标签走**（`我的就诊 · 7 次`），不另起一个 19px 的大数字：
-             大数字会和下面 12.5px 的会话条目抢层级，而次数只是列表的量词 -->
-        <div class="p-eyebrow p-chat__lb">我的就诊 · <b>{{ countText }}</b></div>
+             大数字会和下面 12.5px 的会话条目抢层级，而次数只是列表的量词。
+             **游客态不报次数**：那是「取不到」不是「0 次」——写一个 0 等于替他说
+             "你从没来过"，与下面「登录后查看就诊记录」自相矛盾（同一条判据的另一面）。 -->
+        <div class="p-eyebrow p-chat__lb">
+          我的就诊<template v-if="!isGuest"> · <b>{{ countText }}</b></template>
+        </div>
         <div class="p-chat__tabs">
           <button :class="{ on: tab === 'all' }" @click="tab = 'all'">全部对话</button>
           <button :class="{ on: tab === 'booked' }" @click="tab = 'booked'">挂号历史</button>
@@ -56,59 +60,68 @@
       </div>
 
       <div class="p-chat__list">
-        <template v-for="day in shownDays" :key="day.date">
-          <div class="p-day">
-            <span>{{ shortDate(day.date) }}</span>
-            <span class="n">{{ day.sessions.length }} 次{{ isCollapsed(day) ? ' · 已折叠' : '' }}</span>
-          </div>
-          <!-- 一行 = 会话 + 归档动作。动作是**兄弟** button（.p-i 自己是 button，里面不能再放 button），
-               绝对定位贴在右侧，hover 才浮现——与对话区的复制按钮同一套语言 -->
-          <div v-for="s in visibleSessions(day)" :key="s.id" class="p-irow">
-            <button
-              class="p-i"
-              :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
-              @click="openSession(s.id)"
-            >
-              <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
-              <span class="p-i__q">{{ s.questionCount }} 问</span>
-              <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+        <!-- 游客态**整块互斥**：会话主区与归档区一条都不渲染，只留那句「登录后查看就诊记录」。
+             这是「渲染层」的保证——即使将来别处往 days 里塞了值，也不会漏到游客眼前
+             （「事实层」的保证在 watch(props.isGuest) 的清零，两层缺一不可）。 -->
+        <p v-if="isGuest" class="p-chat__nores">登录后查看就诊记录</p>
+        <template v-else>
+          <template v-for="day in shownDays" :key="day.date">
+            <div class="p-day">
+              <span>{{ shortDate(day.date) }}</span>
+              <span class="n">{{ day.sessions.length }} 次{{ isCollapsed(day) ? ' · 已折叠' : '' }}</span>
+            </div>
+            <!-- 一行 = 会话 + 归档动作。动作是**兄弟** button（.p-i 自己是 button，里面不能再放 button），
+                 绝对定位贴在右侧，hover 才浮现——与对话区的复制按钮同一套语言 -->
+            <div v-for="s in visibleSessions(day)" :key="s.id" class="p-irow">
+              <button
+                class="p-i"
+                :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                @click="openSession(s.id)"
+              >
+                <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                <span class="p-i__q">{{ s.questionCount }} 问</span>
+                <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+              </button>
+              <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归档</button>
+            </div>
+            <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
+              展开该天全部 {{ day.sessions.length }} 次
             </button>
-            <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归档</button>
-          </div>
-          <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
-            展开该天全部 {{ day.sessions.length }} 次
-          </button>
-          <button v-else-if="expanded.has(day.date)" class="p-fold" @click="collapseDay(day.date)">
-            收起该天
-          </button>
-        </template>
-        <p v-if="!shownDays.length" class="p-chat__nores">
-          {{ archivedTotal ? '都收进归档了' : tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
-        </p>
+            <button v-else-if="expanded.has(day.date)" class="p-fold" @click="collapseDay(day.date)">
+              收起该天
+            </button>
+          </template>
+          <!-- 非游客的空态：游客的 shownDays 本来就是空的，落进「还没有就诊记录」会把
+               「这里对他不开放」说成「他确实没看过病」，语义正好说反（「取不到」与「没有」是两件事），
+               所以游客那一支在上面的 v-if 里已经单独走掉了 -->
+          <p v-if="!shownDays.length" class="p-chat__nores">
+            {{ archivedTotal ? '都收进归档了' : tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
+          </p>
 
-        <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
-        <template v-if="archivedDaysShown.length">
-          <button class="p-fold" @click="archOpen = !archOpen">
-            {{ archOpen ? '收起归档' : `已归档 · ${archivedTotal} 次` }}
-          </button>
-          <template v-if="archOpen">
-            <template v-for="day in archivedDaysShown" :key="day.date">
-              <div class="p-day">
-                <span>{{ shortDate(day.date) }}</span>
-                <span class="n">{{ day.sessions.length }} 次</span>
-              </div>
-              <div v-for="s in day.sessions" :key="s.id" class="p-irow is-arch">
-                <button
-                  class="p-i"
-                  :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
-                  @click="openSession(s.id)"
-                >
-                  <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
-                  <span class="p-i__q">{{ s.questionCount }} 问</span>
-                  <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
-                </button>
-                <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取回</button>
-              </div>
+          <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
+          <template v-if="archivedDaysShown.length">
+            <button class="p-fold" @click="archOpen = !archOpen">
+              {{ archOpen ? '收起归档' : `已归档 · ${archivedTotal} 次` }}
+            </button>
+            <template v-if="archOpen">
+              <template v-for="day in archivedDaysShown" :key="day.date">
+                <div class="p-day">
+                  <span>{{ shortDate(day.date) }}</span>
+                  <span class="n">{{ day.sessions.length }} 次</span>
+                </div>
+                <div v-for="s in day.sessions" :key="s.id" class="p-irow is-arch">
+                  <button
+                    class="p-i"
+                    :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                    @click="openSession(s.id)"
+                  >
+                    <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                    <span class="p-i__q">{{ s.questionCount }} 问</span>
+                    <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+                  </button>
+                  <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取回</button>
+                </div>
+              </template>
             </template>
           </template>
         </template>
@@ -116,8 +129,24 @@
 
       <!-- 底部用户区：一张压在侧栏底上的白卡，与选中条目同一层次。
            昵称在上（它是"看挂号历史"的入口）、「健康档案」在下当副标，
-           退出收在最右的小字里——三件事都在，但不与列表的条目抢眼 -->
-      <div class="p-chat__user">
+           退出收在最右的小字里——三件事都在，但不与列表的条目抢眼。
+
+           **游客态只剩一件事**：卡片说"你是谁 + 能做什么"。昵称首字没有来源（游客没昵称），
+           头像位改画一个锁形图标（中性、说的是"这里要登录"，不是某个人的头像）；
+           「健康档案」「退出」都不渲染——前者对应个人数据、后者对未登录者没有意义。 -->
+      <div v-if="isGuest" class="p-chat__user is-guest">
+        <span class="p-chat__uava p-chat__uava--guest" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <rect x="3.2" y="6.9" width="9.6" height="7.1" rx="2.2" stroke="currentColor" stroke-width="1.5" />
+            <path d="M5.6 6.9V5.1a2.4 2.4 0 0 1 4.8 0v1.8" stroke="currentColor" stroke-width="1.5" />
+          </svg>
+        </span>
+        <span class="p-chat__uinfo">
+          <span class="p-chat__uwho">未登录</span>
+          <button class="p-chat__uprof" title="登录后可以查看就诊记录、填写健康档案" @click="emit('login')">去登录</button>
+        </span>
+      </div>
+      <div v-else class="p-chat__user">
         <span class="p-chat__uava" aria-hidden="true">{{ initial }}</span>
         <span class="p-chat__uinfo">
           <button class="p-chat__unick" title="看我的挂号历史" @click="emit('open-booked')">{{ name }}</button>
@@ -130,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { listSessions, archiveSession } from '../../api/records'
 
 /**
@@ -139,9 +168,13 @@ import { listSessions, archiveSession } from '../../api/records'
  * **会话列表的状态归本组件管**——它只服务于这个目录（新会话落库、挂号状态变化、归档…），
  * 留在页面里只会让 Chat.vue 变成第二个"什么都知道一点"的地方。对外只留三样输入与
  * 几样动作，不暴露任何列表字段：
- *   输入  props  `activeSessionId`（哪条是当前看的）、`nickname`、`mobileOpen`（手机覆盖层）
- *   动作  emits  `select` / `new` / `close-mobile` / `open-booked` / `open-profile` / `logout` / `archive-change`
+ *   输入  props  `activeSessionId`（哪条是当前看的）、`nickname`、`mobileOpen`（手机覆盖层）、
+ *                `isGuest`（游客态：整栏保留、内容空态化，且一条会话接口都不发）
+ *   动作  emits  `select` / `new` / `close-mobile` / `open-booked` / `open-profile` / `logout` /
+ *                `archive-change` / `login`（跳登录页，由页面做——组件不 import router）
  *         两个方法 `reload()`（页面在一轮导诊结束后刷新）、`showBooked()`（顶栏点昵称时切 tab）
+ *
+ * **组件零 store 依赖**是契约：「谁是游客」由页面算好传进来，不在这里再算一遍。
  *
  * 窄屏下它是**浮层语言的唯一例外**：不套 `.p-overlay`——那不是"浮层内容"，而是同一块
  * 侧栏在窄屏下的形态（底色仍是 `--rail`、内容一字未变），只在外面加一层 `--mask`。
@@ -151,10 +184,12 @@ const props = defineProps({
   activeSessionId: { type: [String, Number], default: null },
   nickname: { type: String, default: '' },
   /** 手机端这条是不是展开着（覆盖层） */
-  mobileOpen: { type: Boolean, default: false }
+  mobileOpen: { type: Boolean, default: false },
+  /** 游客态：整栏照常渲染，列表与用户区换成对应空态，且不发会话接口 */
+  isGuest: { type: Boolean, default: false }
 })
 const emit = defineEmits([
-  'select', 'new', 'close-mobile', 'open-profile', 'open-booked', 'logout', 'archive-change'
+  'select', 'new', 'close-mobile', 'open-profile', 'open-booked', 'logout', 'archive-change', 'login'
 ])
 
 // 一天内会话超过这个数就折叠；折叠时只露最新这几条
@@ -197,7 +232,33 @@ function filterByBooked(list) {
     .filter((d) => d.sessions.length > 0)
 }
 
+/**
+ * 登出（或过期）把 `isGuest` 翻真时，**必须把上一份列表从事实上清掉**。
+ *
+ * 只靠模板的 `v-if="!isGuest"` 不够：那是渲染层的守卫，`days` 里仍然躺着上一位患者的
+ * 主诉，任何将来引用它的地方（计数、空态判断、新加的面板）都会重新漏出去；
+ * 反过来只清数据也不够：清是异步时序之外的约定，渲染层挡一道才能兜住"别处初始化带值"。
+ * **两层缺一不可**——共用设备上看不见上一位患者的主诉，这个判据在仓里反复出现。
+ *
+ * `immediate: true` 是必要的：游客首屏挂载时也是空列表，但那靠的是"初始 ref 恰好是空数组"，
+ * 不是不变式。写进代码后，将来谁改了初始值也不会把游客的列表带出来。
+ */
+watch(() => props.isGuest, (g) => {
+  if (!g) return
+  days.value = []
+  archivedDays.value = []
+  total.value = 0
+  booked.value = 0
+  archOpen.value = false
+  expanded.value = new Set()
+}, { immediate: true })
+
 async function loadSessions() {
+  // 闸在**函数体第一行**，不是只在挂载那处：本函数有三处调用（挂载、归档切换、页面每轮结束
+  // 的 reload），漏掉任何一处在游客能触发的路径上就会发出 `GET /api/records/sessions`。
+  // 游客态不发请求、也不靠 401 兜——让请求发出去再安静失败，会把"他确实没看过病"与
+  // "这里对他不开放"混成同一个空态（「取不到」与「没有」必须是两个状态）。
+  if (props.isGuest) return
   try {
     const data = await listSessions()
     days.value = data.days || []
@@ -460,6 +521,35 @@ defineExpose({ reload: loadSessions, showBooked: () => { tab.value = 'booked' } 
 .p-chat__uprof:hover { color: var(--leaf-deep); }
 .p-chat__uout { flex: none; font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
 .p-chat__uout:hover { color: var(--alert); }
+
+/* ---------- 游客态的用户区 ----------
+   同一张卡、同一套字阶，只是把"三件事"收成"一件事"：说清身份 + 给唯一的出口。
+   头像位**不画昵称首字**（游客没有昵称，随手编一个字更像出错了），改画一枚锁形图标：
+   它是中性的，说的是"这里要登录"，而不是"你是某个人"。
+   锁用 `--rail` 底 + `--ink-2` 图标——暖沙里的中性灰，不占用杏色（杏色专属读数与推荐）。 */
+.p-chat__uava--guest {
+  background: var(--rail);
+  color: var(--ink-2);
+}
+/* 身份行是**文字不是按钮**：它不指向任何地方，别做成一个点不动的"按钮" */
+.p-chat__uwho {
+  max-width: 100%;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: .08em;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 上下文覆盖（不是把共享件重抄一遍）：游客卡里「去登录」是这张卡唯一的动作，
+   比已登录态当副标的「健康档案」提一档到主色；静息态仍不画下划线，hover 才给。 */
+.p-chat__user.is-guest .p-chat__uprof { color: var(--leaf-deep); }
+.p-chat__user.is-guest .p-chat__uprof:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 /* ---------- 目录条目：天头 + 条目 + 折叠条。侧栏底是 `--rail`，所以选中行用**实白卡片**
    ——「压上去」的层次靠这层明度关系出来，不是靠加边框 ---------- */
