@@ -9,12 +9,13 @@ import { useChatStore } from '../stores/chat'
 /**
  * 收到 401 / 业务码 2000 时的唯一处置入口。
  *
- * @returns {boolean} 是否由本函数接管了"未登录"这件事。
- *   - **游客**（未持有 token）在公开路由上 ⇒ false：不跳转，**"需要登录"交回调用方**展示；
- *   - 其余情形（持有 token 却在公开路由上被 401 = **登录过期**；或不在公开路由上）⇒ true：
- *     已清 store 并跳登录页（当前已停在 `/login` 时不再重复 push）。
- *   两个调用方都不靠返回值决定要不要报错——`http.js` 继续 reject、`sse.js` 继续走
- *   `handlers.onError`，**这条路上任何错误都不许被吞掉**。
+ * 两种情形：
+ *   - **游客**（未持有 token）在公开路由上 ⇒ 不跳转、不碰 store，**"需要登录"交回调用方**展示；
+ *   - 其余情形（持有 token 却在公开路由上被 401 = **登录过期**；或不在公开路由上）⇒
+ *     清 store 并跳登录页（当前已停在 `/login` 时不再重复 push）。
+ *
+ * 不返回任何值：两个调用方都不靠返回值决定行为——`http.js` 继续 reject、`sse.js` 继续走
+ * `handlers.onError`，**这条路上任何错误都不许被吞掉**。
  *
  * <p>判据不是「当前路由是否 public」一条，而是「**public 且确实是游客**」：
  * 只看路由会把「登录过期」也一并放过——`/` 是公开路由，过期用户在这里发消息被 401 后
@@ -29,7 +30,7 @@ export function onUnauthorized() {
   // 公开路由 + 游客：不跳转、不碰 store。
   // 游客根本走不到这里（`Chat.vue` 的 `send()` 入口就拦下了，请求不发），这条是兜底：
   // 万一将来某个公开页对游客发了请求，也不该把一个只是"先看看"的人踹去登录页。
-  if (route.meta.public && user.isGuest) return false
+  if (route.meta.public && user.isGuest) return
 
   // 到此要么是登录过期（手上有 token 但后端不认），要么在需要登录的路由上。
   // 清 store（token/role/nickname 同步清 localStorage），避免守卫仍判定已登录。
@@ -41,5 +42,4 @@ export function onUnauthorized() {
   if (route.path !== '/login') {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
   }
-  return true
 }

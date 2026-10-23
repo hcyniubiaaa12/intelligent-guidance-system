@@ -60,63 +60,68 @@
       </div>
 
       <div class="p-chat__list">
-        <template v-for="day in shownDays" :key="day.date">
-          <div class="p-day">
-            <span>{{ shortDate(day.date) }}</span>
-            <span class="n">{{ day.sessions.length }} 次{{ isCollapsed(day) ? ' · 已折叠' : '' }}</span>
-          </div>
-          <!-- 一行 = 会话 + 归档动作。动作是**兄弟** button（.p-i 自己是 button，里面不能再放 button），
-               绝对定位贴在右侧，hover 才浮现——与对话区的复制按钮同一套语言 -->
-          <div v-for="s in visibleSessions(day)" :key="s.id" class="p-irow">
-            <button
-              class="p-i"
-              :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
-              @click="openSession(s.id)"
-            >
-              <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
-              <span class="p-i__q">{{ s.questionCount }} 问</span>
-              <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
-            </button>
-            <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归档</button>
-          </div>
-          <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
-            展开该天全部 {{ day.sessions.length }} 次
-          </button>
-          <button v-else-if="expanded.has(day.date)" class="p-fold" @click="collapseDay(day.date)">
-            收起该天
-          </button>
-        </template>
-        <!-- 游客态的空态**优先于**下面那条三元：游客的 shownDays 本来就是空的，
-             落进「还没有就诊记录」会把「这里对他不开放」说成「他确实没看过病」，
-             语义正好说反（「取不到」与「没有」是两件事） -->
+        <!-- 游客态**整块互斥**：会话主区与归档区一条都不渲染，只留那句「登录后查看就诊记录」。
+             这是「渲染层」的保证——即使将来别处往 days 里塞了值，也不会漏到游客眼前
+             （「事实层」的保证在 watch(props.isGuest) 的清零，两层缺一不可）。 -->
         <p v-if="isGuest" class="p-chat__nores">登录后查看就诊记录</p>
-        <p v-else-if="!shownDays.length" class="p-chat__nores">
-          {{ archivedTotal ? '都收进归档了' : tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
-        </p>
+        <template v-else>
+          <template v-for="day in shownDays" :key="day.date">
+            <div class="p-day">
+              <span>{{ shortDate(day.date) }}</span>
+              <span class="n">{{ day.sessions.length }} 次{{ isCollapsed(day) ? ' · 已折叠' : '' }}</span>
+            </div>
+            <!-- 一行 = 会话 + 归档动作。动作是**兄弟** button（.p-i 自己是 button，里面不能再放 button），
+                 绝对定位贴在右侧，hover 才浮现——与对话区的复制按钮同一套语言 -->
+            <div v-for="s in visibleSessions(day)" :key="s.id" class="p-irow">
+              <button
+                class="p-i"
+                :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                @click="openSession(s.id)"
+              >
+                <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                <span class="p-i__q">{{ s.questionCount }} 问</span>
+                <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+              </button>
+              <button class="p-irow__act" title="收进归档（不是删除，随时可取回）" @click="setArchived(s, true)">归档</button>
+            </div>
+            <button v-if="isCollapsed(day)" class="p-fold" @click="expandDay(day.date)">
+              展开该天全部 {{ day.sessions.length }} 次
+            </button>
+            <button v-else-if="expanded.has(day.date)" class="p-fold" @click="collapseDay(day.date)">
+              收起该天
+            </button>
+          </template>
+          <!-- 非游客的空态：游客的 shownDays 本来就是空的，落进「还没有就诊记录」会把
+               「这里对他不开放」说成「他确实没看过病」，语义正好说反（「取不到」与「没有」是两件事），
+               所以游客那一支在上面的 v-if 里已经单独走掉了 -->
+          <p v-if="!shownDays.length" class="p-chat__nores">
+            {{ archivedTotal ? '都收进归档了' : tab === 'booked' ? '还没有挂过号' : '还没有就诊记录' }}
+          </p>
 
-        <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
-        <template v-if="archivedDaysShown.length">
-          <button class="p-fold" @click="archOpen = !archOpen">
-            {{ archOpen ? '收起归档' : `已归档 · ${archivedTotal} 次` }}
-          </button>
-          <template v-if="archOpen">
-            <template v-for="day in archivedDaysShown" :key="day.date">
-              <div class="p-day">
-                <span>{{ shortDate(day.date) }}</span>
-                <span class="n">{{ day.sessions.length }} 次</span>
-              </div>
-              <div v-for="s in day.sessions" :key="s.id" class="p-irow is-arch">
-                <button
-                  class="p-i"
-                  :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
-                  @click="openSession(s.id)"
-                >
-                  <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
-                  <span class="p-i__q">{{ s.questionCount }} 问</span>
-                  <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
-                </button>
-                <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取回</button>
-              </div>
+          <!-- 归档区（收纳）：**按天分组**（口径=会话开始那天），条目仍能点开只读回放，只是不在主区 -->
+          <template v-if="archivedDaysShown.length">
+            <button class="p-fold" @click="archOpen = !archOpen">
+              {{ archOpen ? '收起归档' : `已归档 · ${archivedTotal} 次` }}
+            </button>
+            <template v-if="archOpen">
+              <template v-for="day in archivedDaysShown" :key="day.date">
+                <div class="p-day">
+                  <span>{{ shortDate(day.date) }}</span>
+                  <span class="n">{{ day.sessions.length }} 次</span>
+                </div>
+                <div v-for="s in day.sessions" :key="s.id" class="p-irow is-arch">
+                  <button
+                    class="p-i"
+                    :class="{ on: s.id === activeSessionId, dim: !s.hasResult }"
+                    @click="openSession(s.id)"
+                  >
+                    <span class="p-i__x">{{ s.firstComplaint || '（无内容）' }}</span>
+                    <span class="p-i__q">{{ s.questionCount }} 问</span>
+                    <span class="p-i__d">{{ hhmm(s.startedAt) }}</span>
+                  </button>
+                  <button class="p-irow__act" title="取回主区" @click="setArchived(s, false)">取回</button>
+                </div>
+              </template>
             </template>
           </template>
         </template>
@@ -154,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { listSessions, archiveSession } from '../../api/records'
 
 /**
@@ -226,6 +231,27 @@ function filterByBooked(list) {
     .map((d) => ({ ...d, sessions: d.sessions.filter((s) => s.booked) }))
     .filter((d) => d.sessions.length > 0)
 }
+
+/**
+ * 登出（或过期）把 `isGuest` 翻真时，**必须把上一份列表从事实上清掉**。
+ *
+ * 只靠模板的 `v-if="!isGuest"` 不够：那是渲染层的守卫，`days` 里仍然躺着上一位患者的
+ * 主诉，任何将来引用它的地方（计数、空态判断、新加的面板）都会重新漏出去；
+ * 反过来只清数据也不够：清是异步时序之外的约定，渲染层挡一道才能兜住"别处初始化带值"。
+ * **两层缺一不可**——共用设备上看不见上一位患者的主诉，这个判据在仓里反复出现。
+ *
+ * `immediate: true` 是必要的：游客首屏挂载时也是空列表，但那靠的是"初始 ref 恰好是空数组"，
+ * 不是不变式。写进代码后，将来谁改了初始值也不会把游客的列表带出来。
+ */
+watch(() => props.isGuest, (g) => {
+  if (!g) return
+  days.value = []
+  archivedDays.value = []
+  total.value = 0
+  booked.value = 0
+  archOpen.value = false
+  expanded.value = new Set()
+}, { immediate: true })
 
 async function loadSessions() {
   // 闸在**函数体第一行**，不是只在挂载那处：本函数有三处调用（挂载、归档切换、页面每轮结束
