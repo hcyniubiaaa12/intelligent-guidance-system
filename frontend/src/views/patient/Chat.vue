@@ -882,6 +882,11 @@ async function onLogout() {
   turnAbort?.abort()
   try {
     await apiLogout()
+  } catch (e) {
+    // **这里必须吞掉**，不是偷懒：登出接口失败时用户无事可做，也不该给他一个"登出失败"的
+    // 提示（那会让人以为还登录着）。但**不能连日志一起吞**——不带 catch 的话异常会冒成一条
+    // 未捕获 promise rejection，控制台里看起来像个真 bug，排查时白费时间。
+    console.warn('[chat] 登出接口失败，本地照常清态', e)
   } finally {
     // ① `startNew()` 而不是只调 `chat.reset()`：reset() 只清 sessionId / entries / streaming，
     //    **不碰**页面局部的 `replay` / `parts` / `partStage` / `draft`。只调 reset() 会留下
