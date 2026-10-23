@@ -10,6 +10,7 @@
         :active-session-id="activeSessionId"
         :nickname="user.nickname"
         :mobile-open="sideOpen"
+        :is-guest="user.isGuest"
         @select="openSession"
         @new="startNew"
         @close-mobile="sideOpen = false"
@@ -17,6 +18,7 @@
         @open-profile="openProfile"
         @logout="onLogout"
         @archive-change="onArchiveChange"
+        @login="goLogin"
       />
 
       <!-- ---------- 中：对话舞台 ---------- -->
@@ -26,7 +28,13 @@
         <header class="p-topbar p-chat__topbar">
           <button class="p-chat__menubtn" @click="sideOpen = true">会话</button>
           <div class="p-topbar__title">智能导诊</div>
-          <div class="p-topbar__ops">
+          <!-- 游客态与左栏用户区**同一口径**：未登录 + 去登录。同一页面上两处对身份的
+               表述不能打架——这里若照旧写「我的就诊」「退出」，游客会以为自己已登录 -->
+          <div v-if="user.isGuest" class="p-topbar__ops">
+            <span class="p-topbar__who">未登录</span>
+            <button class="p-topbar__logout p-topbar__logout--guest" title="登录后可查看就诊记录" @click="goLogin">去登录</button>
+          </div>
+          <div v-else class="p-topbar__ops">
             <button class="p-topbar__nick" title="看我的挂号历史" @click="openBooked">{{ user.nickname || '我的就诊' }}</button>
             <button class="p-topbar__logout" @click="onLogout">退出</button>
           </div>
@@ -840,6 +848,13 @@ async function onLogout() {
     user.logout()
     router.push('/login')
   }
+}
+
+// 游客的「去登录」：带上回跳地址 `/`（本页就是患者首页）。去重与落点判定在 Login.vue，
+// 这里只负责给出"回到哪"。
+function goLogin() {
+  sideOpen.value = false
+  router.push({ path: '/login', query: { redirect: '/' } })
 }
 
 function hhmm(at) {
