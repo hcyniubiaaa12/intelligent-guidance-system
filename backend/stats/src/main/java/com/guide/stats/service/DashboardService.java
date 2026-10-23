@@ -90,7 +90,11 @@ public class DashboardService {
         LocalDate fromDate = LocalDate.now().minusDays(window - 1L);
         LocalDateTime from = fromDate.atStartOfDay();
 
-        Set<String> wrongPatientIds = wrongPatientRecordIds();
+        // root_cause 一次全量读、喂两个消费者（口径排除集 + 根因分布）。
+        // 这两处各自都要看全部归因行，故不设窗口、也不下推 LIKE——**只读一次**是这里唯一的目标。
+        List<RootCause> rootCauseRows = rootCauseMapper.selectList(Wrappers.<RootCause>lambdaQuery());
+
+        Set<String> wrongPatientIds = wrongPatientRecordIds(rootCauseRows);
         if (!wrongPatientIds.isEmpty()) {
             log.info("看板口径：排除已标「{}」的记录 {} 条", CAUSE_PATIENT_WRONG, wrongPatientIds.size());
         }
@@ -102,7 +106,7 @@ public class DashboardService {
         vo.setDays(window);
         vo.setKpis(kpis(current, previous));
         vo.setTrend(trend(fromDate, window, wrongPatientIds));
-        vo.setRootCauses(rootCauses());
+        vo.setRootCauses(rootCauses(rootCauseRows));
         vo.setSampleSize(current.total());
         log.info("看板聚合：窗口 {} 天｜有效反馈样本 {} 条（top1 命中 {} / top3 命中 {}）｜上期样本 {} 条",
                 window, current.total(), current.top1(), current.top3(), previous.total());
@@ -228,12 +232,15 @@ public class DashboardService {
      * <p>库里存的是小写 key，下发的是中文名（{@link RootCauseKey#labelOf}）；字典外的 key
      * 原样显示而不丢弃——统计可以少一行解释，不能把数据藏起来。
      *
+     * <p>入参是已经读好的归因行：{@code overview} 里它与"患者挂错"排除集共用**同一次**读取，
+     * 不再各自扫一遍全表。
+     *
      * <p>包级可见：作为可单测的接缝（不需要为它去凑 overview 的调用顺序）。
      */
-    List<DashboardDTO.CauseVO> rootCauses() {
+    List<DashboardDTO.CauseVO> rootCauses(List<RootCause> rows) {
         Map<String, Long> counts = new LinkedHashMap<>();
         Set<String> unknown = new TreeSet<>();
-        for (RootCause row : rootCauseMapper.selectList(Wrappers.<RootCause>lambdaQuery())) {
+        for (RootCause row : rows) {
             for (String cause : parseCauses(row.getCauses())) {
                 counts.merge(cause, 1L, Long::sum);
                 if (RootCauseKey.fromKey(cause).isEmpty()) {
@@ -257,12 +264,16 @@ public class DashboardService {
                 .toList();
     }
 
-    /** 已标注「患者挂错」的记录 id（准确率口径要排除）；包级可见同理，便于单测 */
-    Set<String> wrongPatientRecordIds() {
+    /**
+     * 已标注「患者挂错」的记录 id（准确率口径要排除）；包级可见同理，便于单测。
+     *
+     * <p>入参是已经读好的归因行（与根因分布共用一次读取）。**判定仍是"按数组元素精确比对"**：
+     * 原先那条 {@code LIKE} 只是粗筛，省的是内存里少看几行；而另一消费者本来就要全表，
+     * 留着它等于让"哪些行要参与判定"这条边界在两处各说一遍，且两处口径迟早会分叉。
+     */
+    Set<String> wrongPatientRecordIds(List<RootCause> rows) {
         Set<String> ids = new HashSet<>();
-        for (RootCause row : rootCauseMapper.selectList(Wrappers.<RootCause>lambdaQuery()
-                .like(RootCause::getCauses, CAUSE_PATIENT_WRONG))) {
-            // LIKE 只做粗筛（JSON 串包含），命中后仍按数组元素精确判定，避免子串误伤
+        for (RootCause row : rows) {
             if (parseCauses(row.getCauses()).contains(CAUSE_PATIENT_WRONG) && row.getRecordId() != null) {
                 ids.add(row.getRecordId());
             }
