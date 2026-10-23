@@ -19,11 +19,11 @@
 - [x] 左栏用户区变为「未 登 录」+「去登录」（由工单 07 探针 7 / 本次补充探针 1 覆盖）
 - [x] 输入框为空、无锁定回执（会话状态已清）（由工单 07 探针 7 覆盖）
 - [x] `guestDraft` 已清（再点「去登录」登录回来，不会看到上一位患者的内容）（由工单 07 探针 7 覆盖）
-- [ ] token 失效的情况下点退出，本地仍然清干净、仍然留在游客态（不被 401 卡住或踢去登录页）——**本次补充探针 3 实测未通过**，见下方「评审修复后的补充验证」
+- [x] token 失效的情况下点退出，本地仍然清干净、仍然留在游客态（不被 401 卡住或踢去登录页）（由本次补充探针 3 覆盖；**修复后重跑通过**，见下方「评审修复后的补充验证」）
 - [x] 已登录 → 退出 → 再点「去登录」→ 登录 ⇒ 正常回到 `/`，可正常导诊（由本次补充探针 4 覆盖）
 - [x] `npm run build` 通过；`npm run check` 全绿
 
-> 原先这六条标为"归人工验收、本轮不勾"；2026-10-23 已由工单 07 探针与评审后的补充探针真机覆盖（playwright-core 无头 Chrome，非人眼目测）。其中第 5 条（token 失效时退出）实测未通过，缺陷仍在，保持未勾。
+> 原先这六条标为"归人工验收、本轮不勾"；2026-10-23 已由工单 07 探针与评审后的补充探针真机覆盖（playwright-core 无头 Chrome，非人眼目测）。其中第 5 条（token 失效时退出）首次实测未通过，修复后重跑通过。
 
 **Blocked by:** 03, 05
 
@@ -62,12 +62,26 @@ if (router.currentRoute.value.path !== '/') router.push('/')
 
 **归人工验收（未勾）**：退出后留在游客态、左栏变「未 登 录 / 去登录」、token 失效时退出仍清干净、退出→登录→回 `/` 可正常导诊——这六条要起全栈真机点。
 
-### 补充验证（2026-10-23）——第 5 条（token 失效时退出）实测未通过
+### 补充验证（2026-10-23）——第 5 条曾实测失败，已修复
 
-六条里五条已由真机探针覆盖并勾上，**唯独「token 失效的情况下点退出，本地仍然清干净、仍然留在游客态」稳定失败**。复现：登录 → 把 `localStorage.token` 改成 `bad`（**不刷新**，让 store 仍认为已登录）→ 点「退出」→ 落到 `/login?redirect=/`。
+六条里五条首次即由真机探针覆盖；**「token 失效的情况下点退出，本地仍然清干净、仍然留在游客态」首次稳定失败，修复后重跑通过**。以下保留缺陷记录，因为成因不直观。
 
-**成因与规范 3 的落点冲突**：`apiLogout()` 拿坏 token 请求 `/api/auth/logout` 必然 401，axios 拦截器调 `onUnauthorized()`；此时 `isGuest` 仍为 false（改动只在 localStorage，store 里那份没动），判据落进「登录过期」分支 → 跳登录页。`finally` 照常清了本地态（这一点规范 3 是达成的），但紧接着的 `router.push('/')` 兜底没兜住：实测 URL 轨迹只有一次 `pushState`（`t=38ms` 到 `/login?redirect=/`），之后无跳转——执行兜底那行时 `currentRoute.value.path` 仍是 `/`，条件为假。
+**原始现象**：登录 → 把 `localStorage.token` 改成 `bad`（**不刷新**，让 store 仍认为已登录）→ 点「退出」→ 落到 `/login?redirect=/`。
+
+**成因与规范 3 的落点冲突**：`apiLogout()` 拿坏 token 请求 `/api/auth/logout` 必然 401，axios 拦截器调 `onUnauthorized()`；此时 `isGuest` 仍为 false（改动只在 localStorage，store 里那份没动），判据落进「登录过期」分支 → 跳登录页。`finally` 照常清了本地态（规范 3 是达成的），但紧接着的 `router.push('/')` 兜底没兜住：实测 URL 轨迹只有一次 `pushState`（`t=38ms` 到 `/login?redirect=/`），之后无跳转——执行兜底那行时 `currentRoute.value.path` 仍是 `/`，条件为假。
 
 **核心矛盾**：「登出」这一次 401 是**预期内**的，它不代表"登录过期、需要重新登录"；但 `onUnauthorized()` 无从区分。这也解释了为什么工单 01 收成单一入口后这个问题才显形——合并后的入口只有「路由是否 public + 是否游客」两个变量，没有"这次请求是不是登出"。
 
-**建议修法（未实施）**：给登出请求打标记跳过跳转（`http.post('/auth/logout', null, { skipAuthRedirect: true })` + 拦截器判 `err.config?.skipAuthRedirect`），并在 `onLogout` 的 `try` 后补 `catch`（当前只有 `try/finally`，401 会以未捕获 promise rejection 冒到控制台：`pageerror: Error: 未登录或登录已过期`）。**不要**改成"先 `user.logout()` 再调接口"——那样请求不带 token，后端真实登出会失效，等于假登出。
+**修法（已实施）**：
+
+1. `api/http.js` 加 `skipRedirect(config)` 判据（`config.skipAuthRedirect === true`），两处调 `onUnauthorized()` 前都跳过；默认行为不变。
+2. `api/auth.js` 的 `logout()` 改走 `http.post('/auth/logout', null, { skipAuthRedirect: true })`——**请求照发**，只是 401 不再触发跳转。
+3. `Chat.vue` 的 `onLogout()` 在 `try` 与 `finally` 之间补 `catch (e) { console.warn(...) }`：吞异常（用户登出失败无事可做，不该弹"登出失败"让他以为还登录着），但不吞日志。
+
+**为什么不能用"先 `user.logout()` 再调接口"**：那样请求不带 token，后端认不出是谁、Redis 登录态删不掉，等于假登出。第 2 步保留了"请求照发"，正是为了这点。
+
+**修复后复验**（补充探针 3 + 新增探针 9）：
+
+- **探针 3**（坏 token 登出）：URL 轨迹**只有一条 `start`，全程零跳转**，最终停在 `/`；用户区「未登录」+「去登录」、左栏 0 条会话 0 个天头、token 已清；`pageerror` 与未捕获 promise rejection **均为 0**；控制台只剩一条 401 resource error（被测行为本身）；`console.warn` 有一条 `[chat] 登出接口失败，本地照常清态`——那是我们自己打的，预期内。
+- **探针 9**（新增，防"假登出"）：有效 token 正常登出，登出请求 **POST 200 确实发出**；同一枚 token 登出前打 `/api/records/sessions` 得 **200**、登出后得 **401**，证明后端 Redis 登录态真被删掉。
+- **回归**：探针 1（登出后左栏不残留）、4（退出→登录→导诊）、7（坏 token 发消息仍跳登录页）全部仍通过——`skipAuthRedirect` 只作用于登出请求，把 401 的默认行为原样留给了其余所有请求。
