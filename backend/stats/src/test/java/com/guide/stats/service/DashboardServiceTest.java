@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -75,10 +76,18 @@ class DashboardServiceTest {
         return row;
     }
 
+    /** 一次 overview 的空库栈：归因空、本期/上期/趋势都空、两个计数 0 */
+    private void stubEmptyOverview() {
+        when(rootCauseMapper.selectList(any())).thenReturn(List.of());
+        when(guideRecordMapper.selectMaps(any())).thenReturn(List.of());
+        when(reviewTaskMapper.selectCount(any())).thenReturn(0L);
+        when(guideRecordMapper.selectCount(any())).thenReturn(0L);
+    }
+
     @Test
     @DisplayName("命中率 KPI：按已挂号样本算百分比，附注给环比百分点与样本量")
     void kpiRateAndComparison() {
-        // 调用顺序：① 挂错 id 粗筛 → ②本期计 ③上期计 ④趋势 ⑤⑥待审核 ⑦⑧盲区 → ⑨根因分布
+        // root_cause 只读一次（排除集与分布共用）→ 本期计 → 上期计 → 趋势 → 待审核 ×2 → 盲区 ×2
         when(rootCauseMapper.selectList(any())).thenReturn(List.of());
         when(guideRecordMapper.selectMaps(any()))
                 .thenReturn(List.of(hitsRow(10, 7, 9)))
@@ -197,12 +206,12 @@ class DashboardServiceTest {
     @Test
     @DisplayName("根因分布：库里是小写 key、下发中文名；按标注项计数降序；坏 JSON 跳过")
     void rootCauseDistribution() {
-        when(rootCauseMapper.selectList(any())).thenReturn(List.of(
+        List<RootCause> rows = List.of(
                 rootCause("r1", "[\"retrieval_fail\",\"chunk_broken\"]"),
                 rootCause("r2", "[\"retrieval_fail\"]"),
-                rootCause("r3", "这不是 JSON")));
+                rootCause("r3", "这不是 JSON"));
 
-        List<DashboardDTO.CauseVO> causes = service.rootCauses();
+        List<DashboardDTO.CauseVO> causes = service.rootCauses(rows);
 
         assertThat(causes).hasSize(2);
         assertThat(causes.get(0).getName()).isEqualTo("检索失败");
@@ -215,25 +224,36 @@ class DashboardServiceTest {
     @Test
     @DisplayName("字典外的 key 原样显示，不丢弃（统计可以少一行解释，不能把数据藏起来）")
     void unknownCauseKeyIsShownAsIs() {
-        when(rootCauseMapper.selectList(any())).thenReturn(List.of(
+        List<RootCause> rows = List.of(
                 rootCause("r1", "[\"legacy_cause\"]"),
-                rootCause("r2", "[\"retrieval_fail\"]")));
+                rootCause("r2", "[\"retrieval_fail\"]"));
 
-        List<DashboardDTO.CauseVO> causes = service.rootCauses();
+        List<DashboardDTO.CauseVO> causes = service.rootCauses(rows);
 
         assertThat(causes).extracting(DashboardDTO.CauseVO::getName)
                 .containsExactlyInAnyOrder("legacy_cause", "检索失败");
     }
 
     @Test
-    @DisplayName("「患者挂错」按数组元素精确判定：LIKE 粗筛误命中的不算")
+    @DisplayName("「患者挂错」按数组元素精确判定：子串相近的 key 不算")
     void wrongPatientExclusionIsExact() {
-        when(rootCauseMapper.selectList(any())).thenReturn(List.of(
+        List<RootCause> rows = List.of(
                 rootCause("r1", "[\"patient_wrong\"]"),
-                // LIKE `patient_wrong` 会命中这条，但数组元素并不等于它——不能算进去
-                rootCause("r2", "[\"patient_wrong_pending\"]")));
+                // 文本上包含 patient_wrong，但数组元素并不等于它——不能算进去
+                rootCause("r2", "[\"patient_wrong_pending\"]"));
 
-        assertThat(service.wrongPatientRecordIds()).containsExactly("r1");
+        assertThat(service.wrongPatientRecordIds(rows)).containsExactly("r1");
+    }
+
+    @Test
+    @DisplayName("overview 对 root_cause 只读一次：排除集与根因分布共用同一份归因行")
+    void overviewReadsRootCauseOnce() {
+        stubEmptyOverview();
+
+        service.overview(7);
+
+        // 两处消费者若各自扫一遍全表，这里会变成 2——那正是本次改掉的东西
+        verify(rootCauseMapper, times(1)).selectList(any());
     }
 
     @Test
