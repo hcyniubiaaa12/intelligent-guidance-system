@@ -152,6 +152,21 @@
   color: var(--alert);
   border-color: var(--alert);
 }
+/* 游客态顶栏与左栏用户区同一口径：一句身份 + 唯一的「去登录」。
+   身份行是**文字不是入口**（它不指向任何地方，做成按钮就是个点不动的假控件）。 */
+.p-topbar__who {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+}
+/* 上下文修饰：这个位置已登录时是「退出」（危险色 hover），游客态是「去登录」——
+   同一形状、不同语义，不能沿用危险色的 hover。 */
+.p-topbar__logout--guest { color: var(--leaf-deep); }
+.p-topbar__logout--guest:hover { color: var(--leaf-deep); border-color: var(--leaf); }
 
 /* ---------- §3.1 消息气泡与消息流 ---------- */
 .p-thread {
