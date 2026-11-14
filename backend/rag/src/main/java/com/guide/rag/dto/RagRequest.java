@@ -13,11 +13,9 @@ import java.util.List;
  * @param topK            单路召回条数（向量 / ES 各取 topK）
  * @param topN            精排后进入 Prompt 的片段数
  * @param profileText     患者健康档案的**待注入文本**（可选背景，非检索语料）；为空即无档案。
- *                        它是患者自述，**不是医学证据**，不进注号体系、不参与排序——
- *                        由 chat 读档组装好传进来，rag 不感知业务状态（单据 02）
- * @param profileQuery    患者健康档案的**检索用串**（性别 + 年龄段 + 命中词表的标签与词）；为空即无档案。
- *                        <b>只用于扩容召回</b>：非空时多开两路召回（向量 + 关键词），与主诉两路一起进 RRF，
- *                        精排 query 仍是主诉改写串——档案没有排序话语权（单据 03）
+ *                        它是患者自述，**不是医学证据**，不进注号体系、<b>不参与检索</b>——
+ *                        由 chat 读档组装好传进来，rag 不感知业务状态。档案已退出检索层：
+ *                        这里只进生成提示词，不产生任何召回通道。
  * @param parts           患者在**人体图**上标明的部位（部位声明，如 {@code ["左腹部"]}）；为空即未声明。
  *                        只服务<b>新会话的首条输入</b>，进模型上下文让模型知道位置已确认、不必再追问部位；
  *                        <b>不参与检索</b>——检索只用 query，患者那句话里已经含部位词。
@@ -34,7 +32,6 @@ public record RagRequest(
         int topK,
         int topN,
         String profileText,
-        String profileQuery,
         List<String> parts) {
 
     public static final int DEFAULT_TOP_K = 20;
