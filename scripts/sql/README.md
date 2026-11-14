@@ -47,6 +47,18 @@ ALTER TABLE medical_term ADD COLUMN doc_id VARCHAR(32) NULL
 
 若某条索引在库里不存在，`DROP INDEX` 会报 `Can't DROP ... check that column/key exists`——把该子句去掉再执行即可。
 
+### 长期记忆（memory）存量迁移
+
+2026-11-14 起新增 `memory` 模块，老库要单独执行一次：
+
+```bash
+mysql -uroot -p --default-character-set=utf8mb4 < scripts/sql/memory_migration.sql
+```
+
+脚本可重复执行：补列先查 `information_schema`（MySQL 8 不支持 `ADD COLUMN IF NOT EXISTS`），
+建表用 `CREATE TABLE IF NOT EXISTS`，配置用 `INSERT IGNORE`。只补结构，不删数据、不改旧列——
+旧档案由 `MemoryMigrationRunner` 在应用启动后幂等迁移成长期记忆。
+
 ## PostgreSQL + pgvector（后执行）
 
 ```bash
@@ -61,6 +73,15 @@ psql -U postgres -d guide_vec -f pgvector_init.sql
 脚本即最终形态：`doc_id` / `title` / `content` / `chunk_type` 都已并入本文件，不再单发迁移脚本。
 
 同样受 `CREATE TABLE IF NOT EXISTS` 保护——**旧库不会因为重跑本文件而补上新列**。2026-09-29 已用 JDBC 探针（无 psql 客户端）核对过本机实库：两张表的列、HNSW 索引、`vector` 扩展与 `chunk_type` 默认值都与本文件一致，无需补 ALTER。
+
+长期记忆的向量表 `user_memory_vec` 另有一份独立迁移脚本，老库执行一次即可：
+
+```bash
+psql -U postgres -d guide_vec -f scripts/sql/pgvector_memory_migration.sql
+```
+
+没有 psql 客户端时用 `scripts/sql/PgExec.java`（JDBC 单文件运行器，连接参数只从
+`PGVECTOR_URL` / `PGVECTOR_USER` / `PGVECTOR_PASSWORD` 环境变量读）。
 
 ## 语料与科室（可挂号范围）
 
