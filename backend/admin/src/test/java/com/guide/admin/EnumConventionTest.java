@@ -21,6 +21,8 @@ import com.guide.kb.enums.DocStatus;
 import com.guide.kb.enums.MappingSource;
 import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
+import com.guide.memory.enums.CandidateField;
+import com.guide.memory.enums.CandidateStatus;
 import com.guide.memory.enums.MemoryActor;
 import com.guide.memory.enums.MemoryOp;
 import com.guide.memory.enums.MemoryStatus;
@@ -55,7 +57,9 @@ class EnumConventionTest {
             // 也必须遵守"编码值 = 常量名小写"这条约定，否则库里会出现两套写法的同一个类型
             LayoutBlock.BlockType.class,
             // 长期记忆：类型 / 状态 / 操作 / 操作者四个入库枚举
-            MemoryType.class, MemoryStatus.class, MemoryOp.class, MemoryActor.class
+            MemoryType.class, MemoryStatus.class, MemoryOp.class, MemoryActor.class,
+            // 档案候选：目标字段 / 状态（profile_candidate.field / status）
+            CandidateField.class, CandidateStatus.class
     );
 
     @Test

@@ -34,6 +34,7 @@ class MemoryQueryServiceTest {
     private MemoryMapper memoryMapper;
     private MemorySettingService memorySettingService;
     private SysConfigService sysConfigService;
+    private ProfileCandidateService profileCandidateService;
     private MemoryQueryService service;
 
     @BeforeEach
@@ -41,8 +42,11 @@ class MemoryQueryServiceTest {
         memoryMapper = mock(MemoryMapper.class);
         memorySettingService = mock(MemorySettingService.class);
         sysConfigService = mock(SysConfigService.class);
-        service = new MemoryQueryService(memoryMapper, memorySettingService, sysConfigService);
+        profileCandidateService = mock(ProfileCandidateService.class);
+        service = new MemoryQueryService(memoryMapper, memorySettingService, sysConfigService,
+                profileCandidateService);
 
+        when(profileCandidateService.list(USER)).thenReturn(List.of());
         when(memorySettingService.isEnabled(USER)).thenReturn(true);
         when(sysConfigService.getInt(SysConfigService.KEY_MEMORY_PREFERENCE_MAX,
                 SysConfigService.DEFAULT_MEMORY_PREFERENCE_MAX)).thenReturn(5);
@@ -181,6 +185,26 @@ class MemoryQueryServiceTest {
         assertThat(item.getSourceQuote()).isEqualTo("我希望你讲慢一点、温柔一点");
         assertThat(item.getObservedAt()).isEqualTo(day(2));
         assertThat(item.getStatus()).isEqualTo("active");
+    }
+
+    @Test
+    @DisplayName("待确认候选单独下发：绝不混进偏好/背景列表（未确认的不进注入路径）")
+    void candidatesAreSeparateFromInjectedMemories() {
+        MemoryDTO.CandidateItemVO candidate = new MemoryDTO.CandidateItemVO();
+        candidate.setId("c1");
+        candidate.setField("allergy");
+        candidate.setValue("青霉素");
+        candidate.setStatus("pending");
+        when(profileCandidateService.list(USER)).thenReturn(List.of(candidate));
+        when(memoryMapper.selectList(any())).thenReturn(List.of(
+                memory("m1", USER, MemoryType.PREFERENCE, "语气", "慢一点", day(1))));
+
+        MemoryDTO.MemoryVO vo = service.getMemory(USER);
+
+        assertThat(vo.getCandidates()).extracting(MemoryDTO.CandidateItemVO::getId).containsExactly("c1");
+        assertThat(vo.getPreferences()).extracting(MemoryDTO.MemoryItemVO::getValue)
+                .doesNotContain("青霉素");
+        assertThat(vo.getBackgrounds()).isEmpty();
     }
 
     // ---------- 夹具 ----------

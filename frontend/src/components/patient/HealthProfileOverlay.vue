@@ -187,6 +187,10 @@
                先说患者确认过的，再说系统自动记下的，顺序本身就是两层信息的优先级。 -->
           <MemorySection />
 
+          <!-- 第三段「待确认」：档案候选。接受后才写进上面的「您填写的」；
+               接受事件要并回表单缓存，否则随后「保存档案」会用旧表单覆盖刚确认的值。 -->
+          <CandidateSection @accepted="onCandidateAccepted" />
+
           <p v-if="error" class="p-prof__err">{{ error }}</p>
         </div>
 
@@ -203,6 +207,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getHealthProfile, saveHealthProfile, listHealthTags } from '../../api/profile'
+import CandidateSection from './CandidateSection.vue'
 import MemorySection from './MemorySection.vue'
 import PatientSelect from './PatientSelect.vue'
 
@@ -282,6 +287,47 @@ watch(
 
 function close() {
   emit('update:open', false)
+}
+
+/**
+ * 候选接受后把事实并回「您填写的」表单缓存。
+ *
+ * <p>为什么必须并回：接受是后端直接写档案，而本表单是**整份覆盖写**——如果表单不知道
+ * 刚写进去的值，患者随后点「保存档案」就会把它覆盖掉。这里只做本地合并、不重拉表单，
+ * 以免冲掉患者正在填写但尚未保存的其它内容。
+ *
+ * <p>落点与后端同一口径：过敏值在启用词表里进标签、否则进自由文本；用药/手术进条目。
+ */
+function onCandidateAccepted(fact) {
+  const value = String(fact?.value || '').trim()
+  if (!value) return
+  if (fact.field === 'allergy') {
+    if (allergyOptions.value.some((t) => t.term === value)) {
+      if (!form.value.allergyTags.includes(value)) form.value.allergyTags.push(value)
+    } else {
+      appendOther('allergyOther', value)
+    }
+    return
+  }
+  if (fact.field === 'medication') {
+    if (!form.value.medicationEntries.some((e) => (e.value || '').trim() === value)) {
+      form.value.medicationEntries.push({ value, startedOn: fact.occurredOn || '', endedOn: '' })
+    }
+    return
+  }
+  if (fact.field === 'surgery') {
+    if (!form.value.surgeryEntries.some((e) => (e.value || '').trim() === value)) {
+      form.value.surgeryEntries.push({ value, occurredOn: fact.occurredOn || '' })
+    }
+  }
+}
+
+/** 自由文本追加：按顿号/逗号/分号判重，与后端 appendProfileFact 的幂等口径一致 */
+function appendOther(key, value) {
+  const current = String(form.value[key] || '').trim()
+  const parts = current ? current.split(/[、,，;；]/).map((part) => part.trim()) : []
+  if (parts.includes(value)) return
+  form.value[key] = current ? `${current}、${value}` : value
 }
 
 async function load() {

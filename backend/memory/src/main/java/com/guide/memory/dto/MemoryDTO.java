@@ -12,7 +12,8 @@ import java.util.List;
  * <p>一次请求拿到「开关 + 偏好 + 背景 + 待确认候选 + 上限」：页面不需要自己拼口径，
  * 也不会出现「按旧上限拦人、被后端按新上限拒绝」的错位。
  *
- * <p>{@code candidates} 本工单固定为空列表（候选由工单 09 接），先占位是为了固定契约形状。
+ * <p>{@code candidates} 是**另一层信息**（档案候选，未确认的二手事实）：它不进偏好/背景，
+ * 也不参与注入与预警；只在页面「待确认」段出现，接受后才写进健康档案。
  */
 public final class MemoryDTO {
 
@@ -28,8 +29,8 @@ public final class MemoryDTO {
         private List<MemoryItemVO> preferences = List.of();
         /** 稳定背景：按需召回，按 observedAt 降序 */
         private List<MemoryItemVO> backgrounds = List.of();
-        /** 待确认候选：本工单固定为空（工单 09 接） */
-        private List<Object> candidates = List.of();
+        /** 待确认候选：冲突项置顶、其余按创建时间降序；未确认的不进任何注入路径 */
+        private List<CandidateItemVO> candidates = List.of();
         private Limits limits;
         /** 背景条数达到上限：页面提示患者整理 */
         private boolean needsCleanup;
@@ -49,6 +50,35 @@ public final class MemoryDTO {
         private LocalDateTime observedAt;
         /** 状态编码（active / expired） */
         private String status;
+    }
+
+    /** 档案候选（待确认）：未确认前不进 prompt、不产生预警，只在这里出现 */
+    @Getter
+    @Setter
+    public static class CandidateItemVO {
+        private String id;
+        /** 目标档案字段编码：allergy / medication / surgery */
+        private String field;
+        /** 目标字段展示名：过敏史 / 用药 / 手术（后端唯一定义源） */
+        private String fieldLabel;
+        /** 候选值（患者可在接受前修改） */
+        private String value;
+        /** 发生月份 YYYY-MM，空 = 未填 */
+        private String occurredOn;
+        /** 患者原话出处 */
+        private String sourceQuote;
+        /** pending（列表只下发待确认项；保留字段以固定契约） */
+        private String status;
+        /** 与档案里同类别的明确否定冲突：true 时页面标「待确认 · 冲突」并置顶 */
+        private boolean conflict;
+    }
+
+    /** 接受候选请求（{@code POST /api/memory/candidates/{id}/accept}）：value 可选，先改再收 */
+    @Getter
+    @Setter
+    public static class CandidateAcceptReq {
+        /** 空 / 缺省 = 按原候选值接受；非空 = 用患者改后的值 */
+        private String value;
     }
 
     /** 编辑期上限（来自 sys_config 受管参数，前端不写死） */

@@ -9,6 +9,8 @@ import com.guide.llm.client.ChatMsg;
 import com.guide.memory.dto.MemoryExtractionResult;
 import com.guide.memory.dto.MemoryExtractionResult.BackgroundDraft;
 import com.guide.memory.dto.MemoryExtractionResult.PreferenceDraft;
+import com.guide.memory.dto.MemoryExtractionResult.ProfileCandidateDraft;
+import com.guide.memory.support.CandidateValidator;
 import com.guide.memory.support.MemoryExtractValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +44,7 @@ public class MemoryExtractor {
     private final SysConfigService sysConfigService;
 
     /**
-     * 从一段对话里抽取偏好与稳定背景。
+     * 从一段对话里抽取偏好、稳定背景与档案候选。
      *
      * @param dialogue 已拼好的对话文本（患者 / 助手逐行）
      * @return 校验后的结果；模型异常、坏 JSON、空输出都返回 {@link MemoryExtractionResult#empty()}
@@ -63,6 +65,7 @@ public class MemoryExtractor {
             JsonNode root = parseObject(output);
             List<PreferenceDraft> preferences = parsePreferences(root);
             List<BackgroundDraft> backgrounds = parseBackgrounds(root);
+            List<ProfileCandidateDraft> candidates = parseCandidates(root);
             double minConfidence = sysConfigService.getDouble(
                     SysConfigService.KEY_MEMORY_EXTRACT_CONFIDENCE_MIN,
                     SysConfigService.DEFAULT_MEMORY_EXTRACT_CONFIDENCE_MIN);
@@ -70,9 +73,13 @@ public class MemoryExtractor {
                     MemoryExtractValidator.validPreferences(preferences, minConfidence);
             List<BackgroundDraft> validBackgrounds =
                     MemoryExtractValidator.validBackgrounds(backgrounds, minConfidence);
-            log.info("记忆抽取完成：模型给出偏好 {} 条 / 背景 {} 条，校验后保留 {} 条 / {} 条",
-                    preferences.size(), backgrounds.size(), validPreferences.size(), validBackgrounds.size());
-            return new MemoryExtractionResult(validPreferences, validBackgrounds);
+            List<ProfileCandidateDraft> validCandidates =
+                    CandidateValidator.validCandidates(candidates, minConfidence);
+            log.info("记忆抽取完成：模型给出偏好 {} 条 / 背景 {} 条 / 档案候选 {} 条，"
+                            + "校验后保留 {} 条 / {} 条 / {} 条",
+                    preferences.size(), backgrounds.size(), candidates.size(),
+                    validPreferences.size(), validBackgrounds.size(), validCandidates.size());
+            return new MemoryExtractionResult(validPreferences, validBackgrounds, validCandidates);
         } catch (RuntimeException e) {
             log.warn("记忆抽取输出不可解析（本轮不记任何东西）：{}｜原始输出：{}",
                     e.getMessage(), abbreviate(output, 300));
@@ -145,6 +152,19 @@ public class MemoryExtractor {
             drafts.add(new BackgroundDraft(text(node, "key"), text(node, "value"),
                     text(node, "type"), text(node, "quote"), decimal(node, "confidence"),
                     date(node, "validTo")));
+        }
+        return drafts;
+    }
+
+    /**
+     * 档案候选：{@code profile_candidates} 缺失 / 不是数组时按空处理（老提示词、模型漏字段都不崩）。
+     * 字段白名单、月份、否定句等判定统一交给 {@link CandidateValidator}。
+     */
+    private List<ProfileCandidateDraft> parseCandidates(JsonNode root) {
+        List<ProfileCandidateDraft> drafts = new ArrayList<>();
+        for (JsonNode node : root.path("profile_candidates")) {
+            drafts.add(new ProfileCandidateDraft(text(node, "field"), text(node, "value"),
+                    text(node, "occurredOn"), text(node, "quote"), decimal(node, "confidence")));
         }
         return drafts;
     }

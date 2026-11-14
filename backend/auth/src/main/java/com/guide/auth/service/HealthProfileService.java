@@ -179,6 +179,162 @@ public class HealthProfileService {
     }
 
     /**
+     * 追加一条已确认的档案事实（工单 09：档案候选接受后调用）。
+     *
+     * <p><b>只改对应那一列，其它字段原样保留</b>——与整份覆盖写相反：候选接受是「补一条」，
+     * 不是在表单里改完提交，绝不能把患者其它字段顺手清空。没有档案行时建行（只写这一列）。
+     *
+     * <p>落点规则：
+     * <ul>
+     *   <li>过敏：值在**启用**的 {@code health_tag(allergy)} 词表里就并入 {@code allergy_tags}，
+     *       否则追加到 {@code allergy_other}——停用词不会在多选里渲染，写进标签会变成看不见的值。</li>
+     *   <li>用药：追加 {@link MedicationEntry}，候选月份即开始月份、尚未停药。</li>
+     *   <li>手术：追加 {@link SurgeryEntry}，候选月份即发生月份。</li>
+     * </ul>
+     *
+     * <p>同值已在对应列里 ⇒ 视为已存在、不重复写（同一事实只存一处）。
+     * 条数 / 字数上限沿用档案自己的受管参数，超限**拒绝并返回可展示错误**，不静默裁剪。
+     *
+     * @param field      目标字段：只接受过敏 / 用药 / 手术（慢病字段已退出档案）
+     * @param value      事实值（去首尾空白后不得为空）
+     * @param occurredOn 发生月份 {@code YYYY-MM}（过敏忽略；空 = 未填）
+     */
+    @Transactional
+    public void appendProfileFact(String userId, HealthTagType field, String value, String occurredOn) {
+        if (field != HealthTagType.ALLERGY && field != HealthTagType.MEDICATION
+                && field != HealthTagType.SURGERY) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "不支持追加该档案字段");
+        }
+        String fact = value == null ? "" : value.trim();
+        if (fact.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "档案内容不能为空");
+        }
+
+        UserHealthProfile row = loadPhysicalRow(userId);
+        if (row == null) {
+            UserHealthProfile created = new UserHealthProfile();
+            created.setUserId(userId);
+            applyFactToEntity(created, field, fact, occurredOn);
+            profileMapper.insert(created);
+            return;
+        }
+        applyFactToRow(userId, row, field, fact, occurredOn);
+    }
+
+    /** 把一条事实写进新档案行（首次接受候选时建行）：只设目标列，其余留 null */
+    private void applyFactToEntity(UserHealthProfile row, HealthTagType field, String fact, String occurredOn) {
+        switch (field) {
+            case ALLERGY -> {
+                if (isEnabledAllergyTag(fact)) {
+                    row.setAllergyTags(toJson(List.of(fact)));
+                } else {
+                    row.setAllergyOther(appendIntoText(null, fact, "过敏史补充"));
+                }
+            }
+            case MEDICATION -> row.setMedicationTags(toJson(
+                    List.of(new MedicationEntry(fact, normalizeMonth(occurredOn, "用药开始时间"), null))));
+            case SURGERY -> row.setSurgeryTags(toJson(
+                    List.of(new SurgeryEntry(fact, normalizeMonth(occurredOn, "手术发生时间")))));
+            default -> throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "不支持追加该档案字段");
+        }
+    }
+
+    /** 把一条事实追加到已有档案行的目标列（其它列一律不动） */
+    private void applyFactToRow(String userId, UserHealthProfile row, HealthTagType field,
+                                String fact, String occurredOn) {
+        switch (field) {
+            case ALLERGY -> {
+                if (isEnabledAllergyTag(fact)) {
+                    List<String> tags = new ArrayList<>(parseTags(row.getAllergyTags()));
+                    if (tags.stream().anyMatch(fact::equals)) {
+                        return;
+                    }
+                    tags.add(fact);
+                    checkEntryCount(tags.size(), "过敏史", tagMax());
+                    profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                            .set(UserHealthProfile::getAllergyTags, toJson(tags))
+                            .eq(UserHealthProfile::getUserId, userId));
+                } else {
+                    String updated = appendIntoText(row.getAllergyOther(), fact, "过敏史补充");
+                    if (updated.equals(row.getAllergyOther())) {
+                        return;
+                    }
+                    profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                            .set(UserHealthProfile::getAllergyOther, updated)
+                            .eq(UserHealthProfile::getUserId, userId));
+                }
+            }
+            case MEDICATION -> {
+                List<MedicationEntry> entries = new ArrayList<>(parseMedicationEntries(row.getMedicationTags()));
+                if (entries.stream().anyMatch(entry -> fact.equals(entry.value()))) {
+                    return;
+                }
+                entries.add(new MedicationEntry(fact, normalizeMonth(occurredOn, "用药开始时间"), null));
+                checkEntryCount(entries.size(), "用药", tagMax());
+                profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                        .set(UserHealthProfile::getMedicationTags, toJson(entries))
+                        .eq(UserHealthProfile::getUserId, userId));
+            }
+            case SURGERY -> {
+                List<SurgeryEntry> entries = new ArrayList<>(parseSurgeryEntries(row.getSurgeryTags()));
+                if (entries.stream().anyMatch(entry -> fact.equals(entry.value()))) {
+                    return;
+                }
+                entries.add(new SurgeryEntry(fact, normalizeMonth(occurredOn, "手术发生时间")));
+                checkEntryCount(entries.size(), "手术", tagMax());
+                profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                        .set(UserHealthProfile::getSurgeryTags, toJson(entries))
+                        .eq(UserHealthProfile::getUserId, userId));
+            }
+            default -> throw new BizException(ErrorCode.PARAM_INVALID.getCode(), "不支持追加该档案字段");
+        }
+    }
+
+    /** 词表命中判定只认**启用项**：停用词不参与多选渲染，写进标签会变成看不见的值 */
+    private boolean isEnabledAllergyTag(String term) {
+        HealthTag tag = healthTagMapper.selectOne(Wrappers.<HealthTag>lambdaQuery()
+                .eq(HealthTag::getTerm, term)
+                .eq(HealthTag::getType, HealthTagType.ALLERGY)
+                .eq(HealthTag::getEnabled, 1)
+                .last("LIMIT 1"));
+        return tag != null;
+    }
+
+    /**
+     * 自由文本追加：空则直接取值；已按顿号/逗号/分号分词存在同值则原样返回（幂等）；
+     * 合并后超单框上限直接拒绝——与表单保存同一道闸，不静默裁剪。
+     */
+    private String appendIntoText(String current, String value, String label) {
+        String merged;
+        if (current == null || current.isBlank()) {
+            merged = value;
+        } else {
+            for (String part : current.split("[、,，;；]")) {
+                if (part.trim().equals(value)) {
+                    return current;
+                }
+            }
+            merged = current.trim() + "、" + value;
+        }
+        int max = textMax();
+        if (merged.length() > max) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    label + "最多 " + max + " 字（当前 " + merged.length() + " 字）");
+        }
+        return merged;
+    }
+
+    /** 读物理行（存在但被逻辑删除时先复活）：唯一键认物理行，见《数据库设计.md》§0.1 */
+    private UserHealthProfile loadPhysicalRow(String userId) {
+        if (profileMapper.countIncludingDeleted(userId) == 0) {
+            return null;
+        }
+        profileMapper.revive(userId);
+        return profileMapper.selectOne(Wrappers.<UserHealthProfile>lambdaQuery()
+                .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
+    }
+
+    /**
      * 标签词表只读列表（**仅启用项**）：患者端选项加载用。
      *
      * <p>「停用只作用在入口」的入口就是这里——停用项不再出现在患者端多选列表里。

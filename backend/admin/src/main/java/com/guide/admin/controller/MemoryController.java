@@ -9,10 +9,12 @@ import com.guide.common.exception.BizException;
 import com.guide.memory.dto.MemoryDTO;
 import com.guide.memory.service.MemoryManageService;
 import com.guide.memory.service.MemoryQueryService;
+import com.guide.memory.service.ProfileCandidateService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,7 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 患者端「长期记忆」控制面（{@code /api/memory}）。
  *
- * <p>读列表、改开关、改一条值、删一条、清空全部。候选的接受 / 拒绝由工单 09 补。
+ * <p>读列表、改开关、改一条值、删一条、清空全部；候选的接受 / 拒绝也在这里
+ * （候选**不是记忆**，但控制面同属患者对「系统记住了什么」的处置）。
  * 路径不在 {@code /api/admin/**} 下，按 SecurityConfig 只需登录、不要 ROLE_ADMIN。
  *
  * <p>越权防护天然成立：{@code userId} 只从登录态取（{@link LoginUserHolder}），
@@ -35,8 +38,9 @@ public class MemoryController {
     private final MemoryQueryService memoryQueryService;
     private final MemoryManageService memoryManageService;
     private final MemorySettingService memorySettingService;
+    private final ProfileCandidateService profileCandidateService;
 
-    /** 读自己的记忆：开关 + 偏好 + 背景 + 候选（工单 09 接）+ 上限 */
+    /** 读自己的记忆：开关 + 偏好 + 背景 + 待确认候选 + 上限 */
     @GetMapping
     public Result<MemoryDTO.MemoryVO> get() {
         return Result.ok(memoryQueryService.getMemory(currentUserId()));
@@ -73,6 +77,24 @@ public class MemoryController {
     @DeleteMapping
     public Result<Integer> clearAll() {
         return Result.ok(memoryManageService.clearAll(currentUserId()));
+    }
+
+    /**
+     * 接受一条档案候选：可选先改值再收。写档案 + 标 accepted + 审计（op=promote）。
+     * 空 body 也接受（按原候选值）。
+     */
+    @PostMapping("/candidates/{id}/accept")
+    public Result<Void> acceptCandidate(@PathVariable String id,
+                                        @RequestBody(required = false) MemoryDTO.CandidateAcceptReq request) {
+        profileCandidateService.accept(currentUserId(), id, request == null ? null : request.getValue());
+        return Result.ok();
+    }
+
+    /** 拒绝一条档案候选：只标 rejected，不写档案；同一值以后不再提议 */
+    @PostMapping("/candidates/{id}/reject")
+    public Result<Void> rejectCandidate(@PathVariable String id) {
+        profileCandidateService.reject(currentUserId(), id);
+        return Result.ok();
     }
 
     private String currentUserId() {

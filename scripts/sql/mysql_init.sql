@@ -375,6 +375,24 @@ CREATE TABLE IF NOT EXISTS `user_memory` (
     KEY `idx_um_user_type` (`user_id`, `type`, `status`)
 ) ENGINE=InnoDB COMMENT='长期记忆：偏好与稳定背景（用户级、跨会话；带原话出处，可查可改可删）';
 
+-- 档案候选：抽取出的、能落进档案字段的健康事实（过敏 / 用药 / 手术）。
+-- **不是记忆**：不写 user_memory、不进 prompt、不产生预警；患者接受后才写 user_health_profile。
+CREATE TABLE IF NOT EXISTS `profile_candidate` (
+    `id`           VARCHAR(32)  NOT NULL,
+    `user_id`      VARCHAR(32)  NOT NULL COMMENT '归属用户',
+    `field`        VARCHAR(32)  NOT NULL COMMENT '枚举：allergy / medication / surgery',
+    `value`        VARCHAR(128) NOT NULL COMMENT '候选值（≤60 字）',
+    `occurred_on`  VARCHAR(7)   NULL COMMENT '发生月份 YYYY-MM（用药=开始、手术=发生；过敏不用）',
+    `source_quote` VARCHAR(512) NULL COMMENT '患者原话出处',
+    `confidence`   DECIMAL(4,3) NULL COMMENT '抽取置信度 0–1',
+    `status`       VARCHAR(32)  NOT NULL DEFAULT 'pending' COMMENT '枚举：pending/accepted/rejected/expired',
+    `deleted`      TINYINT      NOT NULL DEFAULT 0,
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_pc_user_status` (`user_id`, `status`)
+) ENGINE=InnoDB COMMENT='档案候选：二手健康事实，患者确认后才写档案；未确认不注入、不预警';
+
 -- 只追加的审计日志：刻意不带 deleted/updated_at（没有更新语义，也没有软删除需求）
 CREATE TABLE IF NOT EXISTS `user_memory_log` (
     `id`         VARCHAR(32)  NOT NULL,
