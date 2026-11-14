@@ -60,4 +60,19 @@ public final class MemoryDTO {
         /** 稳定背景最多条数 */
         private int backgroundMax;
     }
+
+    /** 自动记忆开关请求（{@code PUT /api/memory/setting}） */
+    @Getter
+    @Setter
+    public static class SettingReq {
+        /** 必填：缺省视为参数错误，不猜测患者意图 */
+        private Boolean memoryEnabled;
+    }
+
+    /** 编辑记忆值请求（{@code PUT /api/memory/{id}}）：只提交值，键/出处/时间由后端保留 */
+    @Getter
+    @Setter
+    public static class ValueReq {
+        private String value;
+    }
 }
