@@ -30,6 +30,8 @@ public class PromptProperties {
     public static final String PLACEHOLDER_EXTRA = "{extra}";
     /** 患者健康档案（待注入背景，可选；为空时整段不出现） */
     public static final String PLACEHOLDER_PROFILE = "{profile}";
+    /** 长期记忆（偏好 + 按需召回的稳定背景，可选；为空时整段不出现） */
+    public static final String PLACEHOLDER_MEMORY = "{memory}";
     /** 患者在人体图上标明的部位（部位声明，可选；为空时整段不出现） */
     public static final String PLACEHOLDER_PARTS = "{parts}";
     public static final String PLACEHOLDER_DIALOGUE = "{dialogue}";
@@ -73,7 +75,7 @@ public class PromptProperties {
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
     public static class Diagnosis {
-        /** 必含 {knowledge} {profile} {parts} {depts} {marker} {extra} */
+        /** 必含 {knowledge} {profile} {memory} {parts} {depts} {marker} {extra} */
         private String systemTemplate;
     }
 
@@ -170,8 +172,8 @@ public class PromptProperties {
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
-                List.of(PLACEHOLDER_KNOWLEDGE, PLACEHOLDER_PROFILE, PLACEHOLDER_PARTS, PLACEHOLDER_DEPTS,
-                        PLACEHOLDER_MARKER, PLACEHOLDER_EXTRA));
+                List.of(PLACEHOLDER_KNOWLEDGE, PLACEHOLDER_PROFILE, PLACEHOLDER_MEMORY, PLACEHOLDER_PARTS,
+                        PLACEHOLDER_DEPTS, PLACEHOLDER_MARKER, PLACEHOLDER_EXTRA));
         require(rewrite.getSystem(), "prompts.rewrite.system", List.of());
         require(rewrite.getUserTemplate(), "prompts.rewrite.user-template", List.of(PLACEHOLDER_DIALOGUE));
         require(chat.getTemplateQuestion(), "prompts.chat.template-question", List.of());

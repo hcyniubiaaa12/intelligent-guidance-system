@@ -21,6 +21,7 @@ import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.MedicalTermService;
+import com.guide.memory.service.MemoryInjectionService;
 import com.guide.rag.RagService;
 import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagAnswer;
@@ -77,6 +78,7 @@ public class ChatService {
     private final RecommendableDepts recommendableDepts;
     private final SysConfigService sysConfigService;
     private final HealthProfileService healthProfileService;
+    private final MemoryInjectionService memoryInjectionService;
     private final ObjectMapper objectMapper;
     private final ThreadPoolTaskExecutor chatSseExecutor;
     private final ApplicationEventPublisher eventPublisher;
@@ -87,7 +89,8 @@ public class ChatService {
                        SufficiencyRule sufficiencyRule, DeptService deptService,
                        MedicalTermService medicalTermService,
                        RecommendableDepts recommendableDepts, SysConfigService sysConfigService,
-                       HealthProfileService healthProfileService, ObjectMapper objectMapper,
+                       HealthProfileService healthProfileService,
+                       MemoryInjectionService memoryInjectionService, ObjectMapper objectMapper,
                        @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor,
                        ApplicationEventPublisher eventPublisher) {
         this.sessionMapper = sessionMapper;
@@ -102,6 +105,7 @@ public class ChatService {
         this.recommendableDepts = recommendableDepts;
         this.sysConfigService = sysConfigService;
         this.healthProfileService = healthProfileService;
+        this.memoryInjectionService = memoryInjectionService;
         this.objectMapper = objectMapper;
         this.chatSseExecutor = chatSseExecutor;
         this.eventPublisher = eventPublisher;
@@ -279,18 +283,22 @@ public class ChatService {
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
+            // 长期记忆（偏好 + 背景召回端口）：关掉自动记忆时两者都为空/空端口，档案完全不受影响
+            MemoryInjectionService.Injection memory = memoryInjectionService.forTurn(userId, sessionId);
             // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
             RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}｜部位声明 {}",
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）"
+                            + "｜健康档案 {}｜记忆偏好 {} 条（背景召回 {}）｜部位声明 {}",
                     askRound, askMaxRounds, forceConclusion, depts.recommendableCount(),
                     depts.enabledCount(), depts.recommendableCount(), depts.filtered(),
                     profileText == null ? "无" : profileText.length() + " 字",
+                    memory.preferences().size(), memory.recallPort() == null ? "关" : "开",
                     parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
                     forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText, parts);
+                    profileText, parts, memory.preferences(), memory.recallPort());
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析

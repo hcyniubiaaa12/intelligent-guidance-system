@@ -1,6 +1,8 @@
 package com.guide.rag.dto;
 
 
+import com.guide.common.port.MemoryRecallPort;
+
 import java.util.List;
 
 /**
@@ -20,6 +22,10 @@ import java.util.List;
  *                        只服务<b>新会话的首条输入</b>，进模型上下文让模型知道位置已确认、不必再追问部位；
  *                        <b>不参与检索</b>——检索只用 query，患者那句话里已经含部位词。
  *                        它<b>不产生结论权</b>：患者标的位置只是范围信息，推荐哪个科室仍由知识片段与候选清单决定
+ * @param preferences     患者偏好（跨会话、全量注入，最多 5 条）；为空即没有偏好段。
+ *                        由 chat 从 memory 读取后传入，rag 不感知 userId。
+ * @param memoryRecallPort 稳定背景的召回端口（可为 null / 返回空）；rag 用**已算好的 query 向量**回调它，
+ *                        不额外 embedding、不直连向量库，也不感知用户。
  *
  * <p>注意：追问轮次（{@code ask_round}）**不再是入参**——rag 从无任何消费者读它，曾经传进来是死字段
  * （2026-10-14 工单 05 核实后删除）。rag 侧"该不该追问"只由 {@code forceConclusion} 一个开关决定。
@@ -32,7 +38,9 @@ public record RagRequest(
         int topK,
         int topN,
         String profileText,
-        List<String> parts) {
+        List<String> parts,
+        List<String> preferences,
+        MemoryRecallPort memoryRecallPort) {
 
     public static final int DEFAULT_TOP_K = 20;
     public static final int DEFAULT_TOP_N = 5;
@@ -43,6 +51,10 @@ public record RagRequest(
         // 声明词只做"去空白 + 丢空项"：这是**模型上下文**，不是判据，
         // 在这里做筛选会让 rag 层开始替前端校验入参（职责漂移），真正要丢弃的是"整条为空"。
         parts = parts == null ? List.of() : parts.stream()
+                .filter(java.util.Objects::nonNull).map(String::strip)
+                .filter(s -> !s.isEmpty()).toList();
+        // 偏好同 parts：只去 null / 空白，不在 rag 层做条数与字数裁剪（那是 PromptBuilder 的注入上限）
+        preferences = preferences == null ? List.of() : preferences.stream()
                 .filter(java.util.Objects::nonNull).map(String::strip)
                 .filter(s -> !s.isEmpty()).toList();
         topK = topK <= 0 ? DEFAULT_TOP_K : topK;

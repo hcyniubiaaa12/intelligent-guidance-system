@@ -3,6 +3,8 @@ package com.guide.rag;
 import com.guide.common.config.PromptProperties;
 import com.guide.common.exception.BizException;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
+import com.guide.common.port.MemoryRecallPort;
 import com.guide.common.util.EsChunkUtil;
 import com.guide.common.util.PgVectorUtil;
 import com.guide.llm.client.ChatModel;
@@ -86,6 +88,10 @@ public class RagService {
         float[] queryVector = embeddingModel.embed(query);
         long embedMs = System.currentTimeMillis() - embedStart;
 
+        // 记忆召回复用**已算好的 query 向量**（端口签名就是为此设计的）：不额外 embedding，
+        // 也仍然不知道 userId。记忆是旁路——端口异常只 WARN，检索照常往下走。
+        List<MemoryHit> memoryHits = recallMemory(request.memoryRecallPort(), query, queryVector);
+
         long recallStart = System.currentTimeMillis();
         List<ChunkHit> vectorHits = pgVectorUtil.searchChunks(queryVector, request.topK());
         List<ChunkHit> esHits = esChunkUtil.searchChunks(query, request.topK());
@@ -104,7 +110,7 @@ public class RagService {
         if (fused.isEmpty()) {
             log.info("检索结束：无命中（检查知识库是否有切片 / 索引是否建好）｜总耗时 {} ms",
                     System.currentTimeMillis() - start);
-            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size());
+            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size(), memoryHits);
         }
         log.info("RRF 融合：{} 个排名列表 → 候选 {} 条（主诉双路同时命中 {} 条）｜Top3 {}",
                 rankedLists.size(), fused.size(), bothPathCount(vectorHits, esHits), rrfSummary(fused, 3));
@@ -122,7 +128,28 @@ public class RagService {
             log.info("  精排 #{} score={} chunkId={} 《{}》", i + 1, format(hit.score()), hit.chunkId(), hit.title());
             log.debug("  精排 #{} 正文：{}", i + 1, abbreviate(hit.content(), 200));
         }
-        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size());
+        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size(), memoryHits);
+    }
+
+    /**
+     * 稳定背景召回（可选）。端口由 chat 按「用户 + 会话」构造，rag 只把 query 与**已算好的向量**交给它。
+     * 返回 null / 空 / 抛异常一律按「无命中」处理——记忆是增强，不是检索的前置条件。
+     */
+    private List<MemoryHit> recallMemory(MemoryRecallPort port, String query, float[] queryVector) {
+        if (port == null) {
+            return List.of();
+        }
+        try {
+            List<MemoryHit> hits = port.recall(query, queryVector);
+            if (hits == null || hits.isEmpty()) {
+                return List.of();
+            }
+            log.info("记忆召回：{} 条命中｜最高分 {}", hits.size(), format(hits.get(0).score()));
+            return hits;
+        } catch (RuntimeException e) {
+            log.warn("记忆召回失败，本轮按无命中处理（不影响检索主流程）：{}", e.getMessage());
+            return List.of();
+        }
     }
 
     /** 召回最高分：向量路是余弦相似度，关键词路是 BM25 分（量纲不同，只作观测） */
