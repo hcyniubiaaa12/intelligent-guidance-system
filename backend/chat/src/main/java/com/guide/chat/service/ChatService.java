@@ -16,6 +16,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.chat.support.StreamGate;
 import com.guide.common.api.ErrorCode;
+import com.guide.common.event.TurnCompletedEvent;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
@@ -30,6 +31,7 @@ import com.guide.rag.support.AnswerParser;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -77,6 +79,7 @@ public class ChatService {
     private final HealthProfileService healthProfileService;
     private final ObjectMapper objectMapper;
     private final ThreadPoolTaskExecutor chatSseExecutor;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ChatService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
                        GuideService guideService, RagService ragService,
@@ -85,7 +88,8 @@ public class ChatService {
                        MedicalTermService medicalTermService,
                        RecommendableDepts recommendableDepts, SysConfigService sysConfigService,
                        HealthProfileService healthProfileService, ObjectMapper objectMapper,
-                       @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor) {
+                       @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor,
+                       ApplicationEventPublisher eventPublisher) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.guideService = guideService;
@@ -100,6 +104,7 @@ public class ChatService {
         this.healthProfileService = healthProfileService;
         this.objectMapper = objectMapper;
         this.chatSseExecutor = chatSseExecutor;
+        this.eventPublisher = eventPublisher;
     }
 
     /** 建立 SSE 流：立即返回 emitter，编排在线程池中执行（与离线入库线程隔离） */
@@ -170,6 +175,16 @@ public class ChatService {
             emitError(emitter, sessionId, "系统繁忙，请稍后重试；您也可以重新描述一次症状。");
         } finally {
             log.info("本轮结束：总耗时 {} ms", System.currentTimeMillis() - start);
+            // 轮次完成是**旁路信号**（memory 的抽取入口）：发布失败绝不能影响本轮的 SSE 与落库。
+            // 放在 MDC.remove 之前，让监听器日志也带得上本轮标记；sessionId 为空说明会话都没落定，
+            // 没有可抽取的对象，不发。
+            try {
+                if (sessionId != null) {
+                    eventPublisher.publishEvent(new TurnCompletedEvent(userId, sessionId));
+                }
+            } catch (Exception e) {
+                log.warn("轮次完成事件发布失败（不影响本轮对话）：sessionId={} 原因={}", sessionId, e.getMessage());
+            }
             MDC.remove(TURN_KEY);
             safeComplete(emitter);
         }
