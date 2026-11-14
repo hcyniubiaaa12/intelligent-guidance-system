@@ -1,5 +1,6 @@
 package com.guide.auth.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,6 +15,7 @@ import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
 import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.auth.support.HealthTagView;
+import com.guide.auth.support.LegacyProfile;
 import com.guide.auth.support.MedicationEntry;
 import com.guide.auth.support.SurgeryEntry;
 import com.guide.common.api.ErrorCode;
@@ -29,8 +31,10 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -351,6 +355,110 @@ public class HealthProfileService {
                 .eq(HealthTag::getEnabled, 1)
                 .orderByAsc(HealthTag::getType)
                 .orderByAsc(HealthTag::getTerm));
+    }
+
+    /**
+     * 存量迁移读取（第一页）：见 {@link #listLegacyProfiles(int, String)}。
+     *
+     * <p>只读、不分页游标；迁移任务应优先用带游标的版本，否则每次重启只处理同前 N 个用户。
+     */
+    public List<LegacyProfile> listLegacyProfiles(int limit) {
+        return listLegacyProfiles(limit, null);
+    }
+
+    /**
+     * 存量迁移读取（按 {@code user_id} 游标分页）。
+     *
+     * <p><b>为什么提供这个入口</b>：{@code user_health_profile} 归 auth，memory 不该直接读这张表
+     * （依赖方向与字段属主都要求如此）。迁移只拿旧慢病字段与用药/过敏原始 JSON，看不到其它列。
+     *
+     * <p>空档案也要返回：用药/过敏的字符串数组格式转换与"有没有旧慢病"无关。
+     * 只读 {@code deleted=0} 的活跃行——逻辑删除的档案不该被迁回记忆。
+     *
+     * @param limit       本批上限（≤0 直接返回空，不发查询）
+     * @param afterUserId 游标（只取 {@code user_id > afterUserId}）；null / 空串 = 第一页
+     */
+    public List<LegacyProfile> listLegacyProfiles(int limit, String afterUserId) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        LambdaQueryWrapper<UserHealthProfile> query = Wrappers.<UserHealthProfile>lambdaQuery()
+                .select(UserHealthProfile::getUserId,
+                        UserHealthProfile::getHistoryTags,
+                        UserHealthProfile::getHistoryOther,
+                        UserHealthProfile::getMedicationTags,
+                        UserHealthProfile::getAllergyTags)
+                .orderByAsc(UserHealthProfile::getUserId)
+                // limit 是内部常量，不来自请求；MyBatis-Plus 的 last 不支持占位符
+                .last("LIMIT " + limit);
+        if (afterUserId != null && !afterUserId.isBlank()) {
+            query.gt(UserHealthProfile::getUserId, afterUserId);
+        }
+        List<UserHealthProfile> rows = profileMapper.selectList(query);
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<LegacyProfile> result = new ArrayList<>(rows.size());
+        for (UserHealthProfile row : rows) {
+            result.add(new LegacyProfile(row.getUserId(), parseTags(row.getHistoryTags()),
+                    row.getHistoryOther(), row.getMedicationTags(), row.getAllergyTags()));
+        }
+        return result;
+    }
+
+    /**
+     * 用药列格式迁移：老字符串数组 {@code ["二甲双胍"]} → 对象数组
+     * {@code [{"value":"二甲双胍","startedOn":null,"endedOn":null}]}。
+     *
+     * <p><b>已是对象数组则不动</b>：迁移必须幂等，每次启动都跑也不会产生无意义的写。
+     * 混合数组里的对象原样保留、字符串逐个转换；空 / 坏 JSON 不写库（读路径能容错，迁移不猜数据）。
+     *
+     * <p><b>过敏列刻意不动</b>：过敏没有时间语义（现设计是纯字符串数组），强行改成对象
+     * 只会让读路径与前端多一层无用的兼容。
+     *
+     * @return true = 本次确实改写了用药列
+     */
+    @Transactional
+    public boolean rewriteMedicationTagsAsObjects(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return false;
+        }
+        UserHealthProfile row = loadRow(userId);
+        if (row == null) {
+            return false;
+        }
+        JsonNode array = readArray(row.getMedicationTags(), "用药");
+        if (array == null || array.isEmpty()) {
+            return false;
+        }
+        List<Object> rewritten = new ArrayList<>(array.size());
+        boolean changed = false;
+        for (JsonNode node : array) {
+            if (node.isTextual()) {
+                String value = node.asText().trim();
+                // 空白字符串不是业务数据；跳过但标记改动，借这次迁移把脏值一并清掉
+                if (!value.isEmpty()) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("value", value);
+                    entry.put("startedOn", null);
+                    entry.put("endedOn", null);
+                    rewritten.add(entry);
+                }
+                changed = true;
+            } else if (node.isObject()) {
+                rewritten.add(OBJECT_MAPPER.convertValue(node, Map.class));
+            } else {
+                // 结构外的节点原样带回，迁移不丢数据
+                rewritten.add(OBJECT_MAPPER.convertValue(node, Object.class));
+            }
+        }
+        if (!changed) {
+            return false;
+        }
+        profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                .set(UserHealthProfile::getMedicationTags, toJson(rewritten))
+                .eq(UserHealthProfile::getUserId, userId));
+        return true;
     }
 
     /**

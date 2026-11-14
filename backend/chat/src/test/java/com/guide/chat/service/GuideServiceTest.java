@@ -6,6 +6,7 @@ import com.guide.auth.service.SysConfigService;
 import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.auth.support.MedicationEntry;
 import com.guide.auth.support.SurgeryEntry;
+import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
@@ -186,7 +187,120 @@ class GuideServiceTest {
         assertThat(asked.getAskRound()).isZero();
     }
 
+    // —— 档案硬警报（工单 10）——
+
+    @Test
+    @DisplayName("规则警报随 result 下发，并原样写进证据快照 alerts 节点")
+    void ruleAlertIsPublishedAndSnapshotted() {
+        GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
+                "男、过敏：青霉素类", profileWithAllergy("青霉素类"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWith("青霉素皮试阳性者禁用阿莫西林。"), "raw-output", snapshot);
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(1);
+        ChatDTO.AlertVO alert = alerts.get(0);
+        assertThat(alert.level()).isEqualTo("hard");
+        assertThat(alert.source()).isEqualTo("rule");
+        assertThat(alert.anchor()).isEqualTo("field:allergy");
+        assertThat(alert.text()).contains("过敏史").contains("青霉素类").contains("青霉素");
+
+        JsonNode snapshotAlerts = capturedEvidence(1).path("alerts");
+        assertThat(snapshotAlerts.isArray()).as("快照必须有 alerts 节点（空也写空数组）").isTrue();
+        assertThat(snapshotAlerts.get(0).path("text").asText()).isEqualTo(alert.text());
+        assertThat(snapshotAlerts.get(0).path("level").asText()).isEqualTo("hard");
+        assertThat(snapshotAlerts.get(0).path("anchor").asText()).isEqualTo("field:allergy");
+    }
+
+    @Test
+    @DisplayName("无冲突：结果体与快照都不出警报，前端不渲染空警示条")
+    void noConflictYieldsEmptyAlerts() {
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot("过敏：青霉素类", profileWithAllergy("青霉素类")));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+        JsonNode snapshotAlerts = capturedEvidence(1).path("alerts");
+        assertThat(snapshotAlerts.isArray()).isTrue();
+        assertThat(snapshotAlerts).isEmpty();
+    }
+
+    @Test
+    @DisplayName("模型警报注号越界：丢弃（解析层看不到召回条数，范围校验在 chat 层）")
+    void modelAlertWithOutOfRangeCiteIsDropped() {
+        RagAnswer answer = answerWithAlerts(new RagAnswer.Alert("片段提示与过敏史冲突", 9, null));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("模型警报带档案字段锚点：保留并转成 field 锚点，来源标 model")
+    void modelAlertWithFieldAnchorIsKept() {
+        RagAnswer answer = answerWithAlerts(
+                new RagAnswer.Alert("片段提到的手术与您的近期手术相关", null, "surgery"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).hasSize(1);
+        ChatDTO.AlertVO alert = conclusion.payload().alerts().get(0);
+        assertThat(alert.level()).isEqualTo("hard");
+        assertThat(alert.source()).isEqualTo("model");
+        assertThat(alert.anchor()).isEqualTo("field:surgery");
+        assertThat(alert.text()).contains("近期手术");
+    }
+
+    @Test
+    @DisplayName("合并：规则警报优先；模型与规则同文案去重；模型补充排后；总上限 3 条")
+    void ruleAlertsFirstDedupedAndCapped() {
+        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null, List.of(), null,
+                List.of("青霉素类", "磺胺类"), null, List.of(), null);
+        RagAnswer answer = answerWithAlerts(
+                // 与规则第 1 条逐字相同 ⇒ 必须去重，不能出现两条一样的警报
+                new RagAnswer.Alert("与您的过敏史「青霉素类」相关：知识片段提到青霉素，请务必向医生说明过敏史。", 1, null),
+                new RagAnswer.Alert("模型补充：片段还提到磺胺类", null, "allergy"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("青霉素、磺胺都在这一段里。"), "raw-output",
+                new GuideService.ProfileSnapshot("过敏：青霉素类、磺胺类", profile));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source)
+                .as("两条规则在前，模型补充在后")
+                .containsExactly("rule", "rule", "model");
+        assertThat(alerts.get(0).text()).contains("青霉素类");
+        assertThat(alerts.get(1).text()).contains("磺胺类");
+        assertThat(alerts.get(2).text()).contains("模型补充");
+    }
+
     // ---------------------------------------------------------------- 夹具
+
+    private HealthProfileAssembler.Profile profileWithAllergy(String... allergyTags) {
+        return new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null,
+                List.of(), null,
+                List.of(allergyTags), null,
+                List.of(), null);
+    }
+
+    private RagAnswer answerWithAlerts(RagAnswer.Alert... alerts) {
+        return new RagAnswer(RagAnswer.Verdict.RECOMMEND, "建议先到心血管内科。",
+                List.of(new RagAnswer.DeptCandidate("心血管内科", 0.82)),
+                "结合既往史优先排查心血管来源", List.of(), 0.82, true, List.of(alerts));
+    }
+
+    private RagContext contextWith(String content) {
+        return new RagContext("胸口闷", "胸口闷",
+                List.of(new ChunkHit("c1", "d-cardio", "胸痛鉴别", content, 0.9)), 1, 1);
+    }
 
     private HealthProfileAssembler.Profile structure(String historyTag) {
         return new HealthProfileAssembler.Profile(

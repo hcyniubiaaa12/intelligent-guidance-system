@@ -37,6 +37,10 @@ public class AnswerParser {
 
     private static final int MAX_TOP3 = 3;
 
+    /** 模型警报允许锚定的档案字段（与健康档案的三类硬警报一致）；不在此列一律丢弃 */
+    private static final java.util.Set<String> ALERT_FIELDS =
+            java.util.Set.of("allergy", "medication", "surgery");
+
     private final ObjectMapper objectMapper;
 
     public AnswerParser(ObjectMapper objectMapper) {
@@ -101,7 +105,45 @@ public class AnswerParser {
         List<RagAnswer.DeptCandidate> top3 = normalizeTop3(raw.dept().trim(), raw.confidence(), raw.top3());
         String note = raw.note() == null ? "" : raw.note().trim();
         return new RagAnswer(RagAnswer.Verdict.RECOMMEND, reply, top3, note,
-                parseCites(raw.cites()), firstConfidence(top3), confidenceValid(top3));
+                parseCites(raw.cites()), firstConfidence(top3), confidenceValid(top3),
+                parseAlerts(raw.alerts()));
+    }
+
+    /**
+     * 模型补充警报解析（工单 10）：**没有可用锚点的一律丢弃**。
+     *
+     * <p>锚点有两种：{@code cite} 注号，或 {@code field} 档案字段（白名单见 {@link #ALERT_FIELDS}）。
+     * 为什么必须有锚点：警报是患者会当真的风险提示，模型不能凭一句话凭空加一条——
+     * 要么指得出它是从哪条知识片段来的（注号），要么指得出它与哪类档案项相关。
+     * 两样都没有，患者无从核对，系统也无法复核。
+     *
+     * <p>{@code cite} 这里只校验「是正整数」；是否越界（超过实际召回条数）由 chat 层按真实
+     * {@code chunks.size()} 再判——解析层根本不知道这一轮召回了多少条。
+     *
+     * @return 保序的合法警报（文案已 trim）；无合法项返回空列表
+     */
+    private List<RagAnswer.Alert> parseAlerts(List<RawAlert> rawAlerts) {
+        List<RagAnswer.Alert> alerts = new ArrayList<>();
+        if (rawAlerts == null) {
+            return alerts;
+        }
+        for (RawAlert raw : rawAlerts) {
+            if (raw == null || !StringUtils.hasText(raw.text())) {
+                continue;
+            }
+            Integer cite = raw.cite() != null && raw.cite() >= 1 ? raw.cite() : null;
+            String field = raw.field() == null ? null
+                    : raw.field().trim().toLowerCase(java.util.Locale.ROOT);
+            if (field != null && !ALERT_FIELDS.contains(field)) {
+                field = null;
+            }
+            if (cite == null && field == null) {
+                log.debug("模型警报无可用锚点，已丢弃：{}", abbreviate(raw.text()));
+                continue;
+            }
+            alerts.add(new RagAnswer.Alert(raw.text().trim(), cite, field));
+        }
+        return alerts;
     }
 
     /**
@@ -299,10 +341,15 @@ public class AnswerParser {
     /** 模型结论原始结构（宽松映射：多余字段忽略、缺失字段置 null） */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record RawResult(String verdict, String dept, Double confidence, List<RawDept> top3,
-                             String note, JsonNode cites) {
+                             String note, JsonNode cites, List<RawAlert> alerts) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record RawDept(String dept, Double confidence) {
+    }
+
+    /** 模型警报原始结构（老输出没有该字段时 Jackson 置 null） */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RawAlert(String text, Integer cite, String field) {
     }
 }

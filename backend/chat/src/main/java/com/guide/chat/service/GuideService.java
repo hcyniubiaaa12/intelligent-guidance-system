@@ -14,6 +14,7 @@ import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
+import com.guide.chat.support.ProfileAlertDetector;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
@@ -29,9 +30,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -111,6 +114,10 @@ public class GuideService {
         double threshold = sysConfigService.getDouble(SysConfigService.KEY_LOW_CONFIDENCE, 0.5);
         boolean lowConfidence = confidence == null || confidence < threshold;
 
+        // 顶部警报：规则（档案词面命中召回正文）优先，模型补充在后，合并去重、总量受上限约束。
+        // 只算一次，下发与证据快照共用同一份——两处不一致等于"患者看到的"和"事后回放的"不是一回事。
+        List<ChatDTO.AlertVO> alerts = mergeAlerts(answer, context, profile);
+
         GuideRecord record = new GuideRecord();
         record.setSessionId(session.getId());
         record.setRecDeptId(kept.get(0).dept().getId());
@@ -118,7 +125,7 @@ public class GuideService {
         record.setRecTop3(top3Json(kept));
         record.setLowConfidence(lowConfidence ? 1 : 0);
         record.setAggregated(0);
-        record.setEvidence(evidenceJson(context, answer, rawOutput, profile));
+        record.setEvidence(evidenceJson(context, answer, rawOutput, profile, alerts));
         guideRecordMapper.insert(record);
 
         // 出卡即归零追问预算，并标记"这条会话已经出过结论"（同一次 updateById，两个事实一起落）。
@@ -141,7 +148,78 @@ public class GuideService {
             log.info("低置信度分流：该记录进盲区榜，不参与准确率统计");
         }
         return new Conclusion(record, resultPayload(session.getId(), record, kept, answer, context,
-                lowConfidence, profile));
+                lowConfidence, profile, alerts));
+    }
+
+    /** 模型警报允许锚定的档案字段（与 {@code AnswerParser} 的白名单同源；此处再兜一层防御） */
+    private static final Set<String> MODEL_ALERT_FIELDS = Set.of("allergy", "medication", "surgery");
+
+    /**
+     * 合并两类警报（工单 10）。
+     *
+     * <p><b>规则优先且不可被模型否定</b>：规则警报先全部入列，模型输出只能在其后补充，
+     * 既不能挤掉、也不能覆盖它们。合并顺序固定为「规则 → 模型」，总量上限
+     * {@link ProfileAlertDetector#MAX_ALERTS}——规则占满名额时模型警报整体丢弃。
+     *
+     * <p><b>去重口径</b>：同一文案（trim 后逐字相同）只留一条。规则侧已按「档案值」去重，
+     * 这里再按文案去一次，是为了防止模型把规则那条换个来源重写一遍。
+     *
+     * <p><b>锚点校验</b>：模型警报的注号必须落在本轮实际召回条数内；越界且没有档案字段锚点的，
+     * 丢弃并记 WARN——患者不能收到一条点不到依据的风险提示。
+     */
+    private List<ChatDTO.AlertVO> mergeAlerts(RagAnswer answer, RagContext context,
+                                              ProfileSnapshot profile) {
+        List<ChatDTO.AlertVO> merged = new ArrayList<>();
+        Set<String> texts = new HashSet<>();
+
+        List<ProfileAlertDetector.Alert> ruleAlerts = ProfileAlertDetector.detect(
+                profile == null ? null : profile.structure(), context.chunks());
+        for (ProfileAlertDetector.Alert alert : ruleAlerts) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            if (texts.add(alert.text().trim())) {
+                merged.add(new ChatDTO.AlertVO(alert.level(), alert.text(), alert.anchor(), alert.source()));
+            }
+        }
+
+        int chunkCount = context.chunks() == null ? 0 : context.chunks().size();
+        List<RagAnswer.Alert> modelAlerts = answer.alerts() == null ? List.of() : answer.alerts();
+        for (RagAnswer.Alert alert : modelAlerts) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            String anchor = modelAlertAnchor(alert, chunkCount);
+            if (anchor == null) {
+                log.warn("模型警报锚点不可用已丢弃（注号越界且无档案字段）：{}", TextUtil.abbreviate(alert.text(), 80));
+                continue;
+            }
+            if (texts.add(alert.text().trim())) {
+                merged.add(new ChatDTO.AlertVO("hard", alert.text(), anchor, "model"));
+            }
+        }
+
+        if (!merged.isEmpty()) {
+            log.info("结论警报：规则 {} 条、模型补充 {} 条，合并下发 {} 条（上限 {}）｜锚点 {}",
+                    ruleAlerts.size(), modelAlerts.size(), merged.size(),
+                    ProfileAlertDetector.MAX_ALERTS,
+                    merged.stream().map(ChatDTO.AlertVO::anchor).toList());
+        }
+        return merged;
+    }
+
+    /**
+     * 模型警报的锚点：注号在本轮召回范围内优先用 {@code cite:N}，否则回落合法档案字段
+     * {@code field:X}；两者都没有返回 null（丢弃）。
+     */
+    private String modelAlertAnchor(RagAnswer.Alert alert, int chunkCount) {
+        if (alert.cite() != null && alert.cite() >= 1 && alert.cite() <= chunkCount) {
+            return "cite:" + alert.cite();
+        }
+        if (alert.field() != null && MODEL_ALERT_FIELDS.contains(alert.field())) {
+            return "field:" + alert.field();
+        }
+        return null;
     }
 
     /**
@@ -211,7 +289,7 @@ public class GuideService {
 
     /** 证据快照（只写）：系统当时看到了什么、怎么答的，供审核回放与根因归因 */
     private String evidenceJson(RagContext context, RagAnswer answer, String rawOutput,
-                                ProfileSnapshot profile) {
+                                ProfileSnapshot profile, List<ChatDTO.AlertVO> alerts) {
         ObjectNode evidence = objectMapper.createObjectNode();
         ArrayNode retrieved = evidence.putArray("retrieved");
         int rank = 1;
@@ -236,6 +314,16 @@ public class GuideService {
             evidence.putNull("profile");
         } else {
             evidence.set("profile", profileNode(profile));
+        }
+        // 警报节点与下发内容逐条一致（含锚点与来源）：事后回放要能还原患者当时看到了什么。
+        // 无警报也写空数组——「空」和「没有这个节点」在回放侧是两件事。
+        ArrayNode alertArray = evidence.putArray("alerts");
+        for (ChatDTO.AlertVO alert : alerts) {
+            ObjectNode node = alertArray.addObject();
+            node.put("level", alert.level());
+            node.put("text", alert.text());
+            node.put("anchor", alert.anchor());
+            node.put("source", alert.source());
         }
         evidence.put("prompt_snippet", TextUtil.abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
         evidence.put("model_output_raw", TextUtil.abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
@@ -339,7 +427,7 @@ public class GuideService {
 
     private ChatDTO.ResultVO resultPayload(String sessionId, GuideRecord record, List<Candidate> kept,
                                            RagAnswer answer, RagContext context, boolean lowConfidence,
-                                           ProfileSnapshot profile) {
+                                           ProfileSnapshot profile, List<ChatDTO.AlertVO> alerts) {
         List<ChatDTO.Top3Item> top3 = kept.stream()
                 .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getId(),
                         candidate.dept().getName(), percent(candidate.confidence())))
@@ -354,7 +442,8 @@ public class GuideService {
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
-                cites, lowConfidence, blankToNull(profile == null ? null : profile.profileText()));
+                cites, lowConfidence, blankToNull(profile == null ? null : profile.profileText()),
+                alerts == null ? List.of() : alerts);
     }
 
     /** 空白档案文本归一为 null：前端据此判断"无档案行"，不渲染一个空标签 */
