@@ -29,6 +29,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -349,16 +351,16 @@ class MemoryGoldSetEvalTest {
             }
             Map<String, Object> llm = map(map(yaml.get("llm")).get("deepseek"));
             if (apiKey.isBlank()) {
-                apiKey = string(llm.get("api-key")).trim();
+                apiKey = resolvePlaceholder(string(llm.get("api-key")));
             }
             if (System.getenv("MEMORY_EVAL_BASE_URL") == null) {
-                String configured = string(llm.get("base-url")).trim();
+                String configured = resolvePlaceholder(string(llm.get("base-url")));
                 if (!configured.isEmpty()) {
                     baseUrl = configured;
                 }
             }
             if (System.getenv("MEMORY_EVAL_MODEL") == null) {
-                String configured = string(llm.get("model")).trim();
+                String configured = resolvePlaceholder(string(llm.get("model")));
                 if (!configured.isEmpty()) {
                     model = configured;
                 }
@@ -375,6 +377,29 @@ class MemoryGoldSetEvalTest {
         properties.getDeepseek().setModel(model);
         properties.getDeepseek().setTemperature(0.3);
         return properties;
+    }
+
+    /**
+     * 解析 {@code ${ENV:default}} 形式：环境变量优先，否则取默认值。
+     *
+     * <p>application-local.yml 里的 Key 常写成 {@code ${DEEPSEEK_API_KEY:sk-...}}（占位符 + 本地默认值），
+     * 直接把原串当 Key 会被判定为「未配置」。这里按 Spring 的解析顺序取真实值；
+     * 默认值只在本机测试进程里使用，不会写进任何输出。
+     */
+    private static String resolvePlaceholder(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String value = raw.trim();
+        Matcher matcher = Pattern.compile("^\\$\\{([^:}]+)(?::([^}]*))?}$").matcher(value);
+        if (!matcher.matches()) {
+            return value;
+        }
+        String env = System.getenv(matcher.group(1));
+        if (env != null && !env.isBlank()) {
+            return env.trim();
+        }
+        return matcher.group(2) == null ? "" : matcher.group(2).trim();
     }
 
     private Path configPath(Path root) {
