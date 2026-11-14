@@ -67,6 +67,7 @@ public class MemoryExtractionService {
     private final MemoryMapper memoryMapper;
     private final MemoryLogService memoryLogService;
     private final SysConfigService sysConfigService;
+    private final MemoryVectorIndexer vectorIndexer;
 
     /** 轮次完成入口（由 {@code MemoryExtractionListener} 在线程池里调用） */
     public void onTurnCompleted(TurnCompletedEvent event) {
@@ -250,6 +251,9 @@ public class MemoryExtractionService {
                 Memory saved = insert(userId, type, draft.key(), draft.value(), draft.quote(),
                         draft.confidence(), draft.validTo());
                 audit(saved, userId, MemoryOp.ADD, null, draft.value());
+                // 稳定背景需要向量才能被按需召回；写入失败由 indexer 降级（WARN + 回填任务补），
+                // 抽取本身已在线程池里，这里同步调用即可，不再多包一层异步。
+                vectorIndexer.index(saved);
             }
             log.info("稳定背景已写入 {} 条：userId={}", fresh.size(), userId);
         } catch (RuntimeException e) {

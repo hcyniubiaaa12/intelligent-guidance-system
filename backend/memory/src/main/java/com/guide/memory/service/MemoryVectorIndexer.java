@@ -1,0 +1,85 @@
+package com.guide.memory.service;
+
+import com.guide.llm.client.EmbeddingModel;
+import com.guide.memory.entity.Memory;
+import com.guide.memory.enums.MemoryStatus;
+import com.guide.memory.enums.MemoryType;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+/**
+ * 记忆向量写入：只把**稳定背景**送进 embedding，偏好不向量化（偏好永远全量注入，无需按需召回）。
+ *
+ * <p><b>失败是旁路</b>：embedding 或 pgvector 写失败只记 WARN、返回 false，**绝不上抛**——
+ * 记忆抽取/患者编辑不能因为向量库抖动而失败。缺向量的行由 {@code MemoryVectorBackfillJob}
+ * 周期性补上，MySQL 与向量库不会长期不一致。
+ *
+ * <p><b>embedding 文本</b>：优先 {@code retrievalText}（抽取时给出的扩展文本），为空回退 {@code mvalue}。
+ * 因此患者编辑记忆时必须同步刷新 {@code retrievalText}，否则重算出来的还是旧文本的向量。
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class MemoryVectorIndexer {
+
+    private final EmbeddingModel embeddingModel;
+    private final MemoryVectorStore vectorStore;
+
+    /**
+     * 生成/刷新一条记忆的向量。
+     *
+     * @return true = 已写入向量表；false = 跳过（非背景/非生效/空文本）或失败
+     */
+    public boolean index(Memory memory) {
+        if (memory == null || memory.getId() == null || memory.getUserId() == null) {
+            return false;
+        }
+        if (!isBackground(memory.getType()) || memory.getStatus() != MemoryStatus.ACTIVE) {
+            return false;
+        }
+        String text = embeddingText(memory);
+        if (text == null) {
+            log.warn("记忆没有可向量化的文本，跳过：memoryId={}", memory.getId());
+            return false;
+        }
+        try {
+            float[] embedding = embeddingModel.embed(text);
+            if (embedding == null || embedding.length == 0) {
+                log.warn("记忆向量为空，跳过写入（回填任务会重试）：memoryId={}", memory.getId());
+                return false;
+            }
+            vectorStore.upsert(memory.getId(), memory.getUserId(), memory.getType().getCode(), embedding);
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("记忆向量写入失败（不回滚记忆本身，回填任务会补）：memoryId={}｜原因={}",
+                    memory.getId(), e.getMessage());
+            return false;
+        }
+    }
+
+    /** 删除向量；失败只记 WARN（记忆已经在 MySQL 逻辑删除，残留向量召回时会被回表校验过滤）。 */
+    public void delete(String memoryId) {
+        if (memoryId == null || memoryId.isBlank()) {
+            return;
+        }
+        try {
+            vectorStore.delete(memoryId);
+        } catch (RuntimeException e) {
+            log.warn("记忆向量删除失败（回表校验会拦住，不阻塞删除）：memoryId={}｜原因={}",
+                    memoryId, e.getMessage());
+        }
+    }
+
+    private boolean isBackground(MemoryType type) {
+        return type == MemoryType.BACKGROUND_HEALTH || type == MemoryType.BACKGROUND_OTHER;
+    }
+
+    private String embeddingText(Memory memory) {
+        String text = memory.getRetrievalText();
+        if (text == null || text.isBlank()) {
+            text = memory.getMvalue();
+        }
+        return text == null || text.isBlank() ? null : text.strip();
+    }
+}
