@@ -1,7 +1,7 @@
 import http from './http'
 
-// 患者端「长期记忆」（memory 域）：只读控制面。
-// 本工单只有列表；编辑 / 删除 / 开关 / 候选接受拒绝由后续工单补。
+// 患者端「长期记忆」（memory 域）控制面。
+// 列表 + 开关 + 编辑 + 删除 + 清空；候选接受拒绝由工单 09 补。
 
 /**
  * 读自己的长期记忆。
@@ -18,4 +18,27 @@ import http from './http'
  */
 export function getMemory() {
   return http.get('/memory')
+}
+
+/**
+ * 自动记忆开关。关闭只停抽取与注入，旧记忆仍在列表里可见（页面标「已暂停」）。
+ * resolve = undefined（Result.ok()）
+ */
+export function setMemoryEnabled(memoryEnabled) {
+  return http.put('/memory/setting', { memoryEnabled })
+}
+
+/** 改一条记忆的值（后端只改 mvalue，出处与观察时间保留） */
+export function updateMemory(id, value) {
+  return http.put(`/memory/${encodeURIComponent(id)}`, { value })
+}
+
+/** 删除一条记忆（后端逻辑删除 + 审计留痕） */
+export function deleteMemory(id) {
+  return http.delete(`/memory/${encodeURIComponent(id)}`)
+}
+
+/** 清空当前用户的全部生效记忆；resolve = 删除条数 */
+export function clearMemories() {
+  return http.delete('/memory')
 }
