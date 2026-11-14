@@ -27,16 +27,14 @@
             />
           </div>
           <div class="p-prof__row">
-            <label class="p-prof__label" for="p-prof-birth">出生年</label>
-            <input
+            <label id="p-prof-l-birth" class="p-prof__label">出生日期</label>
+            <PatientDatePicker
               id="p-prof-birth"
-              v-model="form.birthYear"
-              class="p-prof__input"
-              type="number"
-              inputmode="numeric"
-              min="1900"
-              :max="currentYear"
-              placeholder="如 1980（选填）"
+              label-id="p-prof-l-birth"
+              v-model="form.birthDate"
+              :year-only="!form.birthDateExact"
+              placeholder="选择出生日期（选填）"
+              @update:model-value="onBirthDate"
             />
           </div>
           <!-- 只读兜底：出生年缺失时展示旧档案年龄段，并说清补出生年后就改用它 -->
@@ -210,6 +208,8 @@ import { getHealthProfile, saveHealthProfile, listHealthTags } from '../../api/p
 import CandidateSection from './CandidateSection.vue'
 import MemorySection from './MemorySection.vue'
 import PatientSelect from './PatientSelect.vue'
+import PatientDatePicker from './PatientDatePicker.vue'
+import { fromBirthYear, parseDate } from '../../utils/datePicker'
 
 /**
  * 健康档案（选填浮层）。
@@ -252,7 +252,10 @@ const OTHER_FIELDS = ['allergyOther', 'medicationOther', 'surgeryOther']
 function emptyProfile() {
   return {
     gender: '',
+    // 服务端只存 birth_year；birthDate 是日历的完整值，birthDateExact 表示「本次选了完整日期」
     birthYear: '',
+    birthDate: '',
+    birthDateExact: false,
     allergyTags: [],
     allergyOther: '',
     medicationEntries: [],
@@ -346,6 +349,8 @@ async function load() {
     form.value = {
       gender: data.gender || '',
       birthYear: data.birthYear ?? '',
+      birthDate: fromBirthYear(data.birthYear),
+      birthDateExact: false,
       allergyTags: data.allergyTags || [],
       allergyOther: data.allergyOther || '',
       medicationEntries: (data.medicationEntries || []).map((e) => ({
@@ -439,6 +444,19 @@ function textFieldMax(field) {
 /** 本框还剩多少字（同时反映单框与三框合计两条额度） */
 function textFieldRemaining(field) {
   return Math.max(0, textFieldMax(field) - (form.value[field]?.length || 0))
+}
+
+/** 日历选值 → 只把年份写进表单；清除时两处一起清空 */
+function onBirthDate(value) {
+  const parsed = parseDate(value)
+  if (!parsed) {
+    form.value.birthYear = ''
+    form.value.birthDate = ''
+    form.value.birthDateExact = false
+    return
+  }
+  form.value.birthYear = String(parsed.year)
+  form.value.birthDateExact = true
 }
 
 /** 出生年：空 = 未填；填了就必须是 1900–当前年（后端还会二次校验） */

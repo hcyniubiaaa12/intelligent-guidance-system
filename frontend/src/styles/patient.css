@@ -1069,6 +1069,139 @@
 .p-sel__panel--up.p-sel-rise-enter-from,
 .p-sel__panel--up.p-sel-rise-leave-to { transform: translateY(4px); }
 
+/* ---------- §3.10 表单控件：出生日期选择器（`components/patient/PatientDatePicker.vue`）----------
+   与 PatientSelect 同一套语言：触发按钮是控件，面板是浮层；焦点留在触发按钮。
+   日期格 44px 是触控底线：日历本身密，但误点会选错生日，不能按"密集面板"豁免。 */
+.p-dp { position: relative; flex: 1; min-width: 0; }
+.p-dp__btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.p-dp__btn:hover:not(:disabled) { border-color: var(--line-2); }
+.p-dp__btn.is-open { border-color: var(--leaf); box-shadow: 0 0 0 4px var(--leaf-glow); }
+.p-dp__btn.is-empty { color: var(--ink-3); }
+.p-dp__btn:disabled { background: var(--line); color: var(--ink-3); cursor: not-allowed; }
+.p-dp__icon, .p-dp__caret { flex: none; color: var(--ink-3); }
+.p-dp__btn.is-open .p-dp__caret { transform: rotate(180deg); }
+.p-dp__val { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.p-dp__panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 332px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--sh-overlay);
+  animation: p-dp-fade .18s ease;
+}
+.p-dp__panel.is-up { top: auto; bottom: calc(100% + 6px); }
+.p-dp__hd { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
+.p-dp__nav {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 15px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.p-dp__nav:hover { background: var(--hover-soft); color: var(--ink); }
+.p-dp__title {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.p-dp__title:hover { background: var(--hover-soft); }
+.p-dp__sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.p-dp__grid { display: grid; gap: 2px; }
+.p-dp__grid--day { grid-template-columns: repeat(7, 1fr); }
+.p-dp__grid--month, .p-dp__grid--year { grid-template-columns: repeat(3, 1fr); }
+.p-dp__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin: 4px 0 2px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.p-dp__cell {
+  min-height: 44px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.p-dp__cell:hover:not(:disabled) { background: var(--hover-soft); }
+.p-dp__cell.is-on { background: var(--leaf); color: var(--on-accent); font-weight: 600; }
+.p-dp__cell.is-today:not(.is-on) { box-shadow: inset 0 0 0 1px var(--leaf-line); }
+.p-dp__cell:disabled { color: var(--ink-3); cursor: default; opacity: .45; }
+.p-dp__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.p-dp__clear {
+  min-height: 36px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--leaf-deep);
+  cursor: pointer;
+}
+.p-dp__clear:hover:not(:disabled) { background: var(--leaf-soft); }
+.p-dp__clear:disabled { color: var(--ink-3); cursor: default; }
+.p-dp__hint { font-family: var(--sans); font-size: 10.5px; color: var(--ink-3); }
+@keyframes p-dp-fade { from { opacity: 0; } to { opacity: 1; } }
+
 /* ---------- 动效降级 ---------- */
 @media (prefers-reduced-motion: reduce) {
   .patient-root *,

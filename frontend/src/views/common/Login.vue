@@ -56,17 +56,12 @@
       </div>
 
       <div v-if="mode === 'register'" class="p-login__field">
-        <label class="p-eyebrow" for="by">出生年（选填）</label>
-        <input
-          id="by"
-          v-model="form.birthYear"
-          class="p-login__input"
-          type="number"
-          inputmode="numeric"
-          min="1900"
-          :max="currentYear"
-          placeholder="如 1980"
-          @keydown.enter="submit"
+        <label id="p-login-l-birth" class="p-eyebrow">出生日期（选填）</label>
+        <PatientDatePicker
+          id="p-login-birth"
+          label-id="p-login-l-birth"
+          v-model="form.birthDate"
+          placeholder="选择出生日期（选填）"
         />
       </div>
 
@@ -90,6 +85,8 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { login, register } from '../../api/auth'
+import { toBirthYear } from '../../utils/datePicker'
+import PatientDatePicker from '../../components/patient/PatientDatePicker.vue'
 import PatientSelect from '../../components/patient/PatientSelect.vue'
 import '../../styles/patient.css'
 
@@ -97,11 +94,9 @@ const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
 
-const currentYear = new Date().getFullYear()
-
 const mode = ref('login') // login / register（注册默认患者角色，链路 D）
 const loading = ref(false)
-const form = ref({ username: '', password: '', nickname: '', gender: '', birthYear: '' })
+const form = ref({ username: '', password: '', nickname: '', gender: '', birthDate: '' })
 
 // 注册页未登录，取不到 `/api/profile` 的 options；性别只有两个固定值，就地列出。
 // 档案浮层（已登录）仍从后端读回体拿，不在前端重复定义。
@@ -148,11 +143,12 @@ async function submit() {
     error.value = '密码长度需在 6-64 位之间'
     return
   }
+  // 日历选的是完整日期；服务端只保存年份（`birth_year`），这里换算后再提交
   let birthYear = null
-  if (mode.value === 'register' && String(form.value.birthYear ?? '').trim()) {
-    birthYear = Number(form.value.birthYear)
-    if (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > currentYear) {
-      error.value = `出生年需在 1900 到 ${currentYear} 之间`
+  if (mode.value === 'register' && form.value.birthDate) {
+    birthYear = toBirthYear(form.value.birthDate)
+    if (birthYear == null) {
+      error.value = '请选择 1900 年到今天的出生日期'
       return
     }
   }
