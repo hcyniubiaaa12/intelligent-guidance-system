@@ -1113,6 +1113,8 @@
   animation: p-dp-fade .18s ease;
 }
 .p-dp__panel.is-up { top: auto; bottom: calc(100% + 6px); }
+/* 年月模式只有 12 格：面板不必占日历的宽度，窄一点才不会把条目行挤乱 */
+.p-dp__panel--month { width: 248px; }
 .p-dp__hd { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
 .p-dp__nav {
   flex: none;

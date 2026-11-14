@@ -50,8 +50,7 @@
           label-id="p-login-l-gender"
           v-model="form.gender"
           :options="genderOptions"
-          none-label="不填"
-          placeholder="选填"
+          placeholder="选填，可不选"
         />
       </div>
 

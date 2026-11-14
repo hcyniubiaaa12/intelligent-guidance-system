@@ -7,11 +7,16 @@ import {
   daysInMonth,
   formatDate,
   formatDisplay,
+  formatMonth,
+  formatMonthDisplay,
   fromBirthYear,
   isLeapYear,
+  monthInRange,
   parseDate,
+  parseMonth,
   shiftMonth,
   toBirthYear,
+  todayMonth,
   yearPageStart
 } from '../src/utils/datePicker.js'
 
@@ -91,4 +96,32 @@ check('年份网格分页：12 年一页、页起点向下取整', () => {
   assert.equal(yearPageStart(1979), 1968)
 })
 
-console.log(`\n✓ 出生日期选择器纯规则 ${count} 组断言全部通过`)
+check('年月解析与格式化：YYYY-MM、非法值一律 null 或空串', () => {
+  assert.deepEqual(parseMonth('2024-03'), { year: 2024, month: 3 })
+  assert.equal(parseMonth('2024-3'), null)
+  assert.equal(parseMonth('2024-13'), null)
+  assert.equal(parseMonth('2024-03-01'), null)
+  assert.equal(parseMonth(''), null)
+  assert.equal(formatMonth(2024, 3), '2024-03')
+  assert.equal(formatMonth(2024, 13), '')
+  assert.equal(formatMonthDisplay('2024-03'), '2024 年 3 月')
+  assert.equal(formatMonthDisplay('2024-3'), '')
+})
+
+check('年月范围：两端含、空 min/max 不设限、非法值永远在范围外', () => {
+  assert.equal(monthInRange('2024-03', '2024-01', '2024-06'), true)
+  assert.equal(monthInRange('2024-01', '2024-01', '2024-06'), true)
+  assert.equal(monthInRange('2024-06', '2024-01', '2024-06'), true)
+  assert.equal(monthInRange('2023-12', '2024-01', '2024-06'), false)
+  assert.equal(monthInRange('2024-07', '2024-01', '2024-06'), false)
+  assert.equal(monthInRange('2024-07'), true)
+  assert.equal(monthInRange('2024-03', '2024-04'), false)
+  assert.equal(monthInRange('', '', '2026-11'), false)
+  assert.equal(monthInRange('2024-3', '', '2026-11'), false)
+})
+
+check('今天所在月份', () => {
+  assert.equal(todayMonth(NOW), '2026-11')
+})
+
+console.log(`\n✓ 日期/年月选择器纯规则 ${count} 组断言全部通过`)

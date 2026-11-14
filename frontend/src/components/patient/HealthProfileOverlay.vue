@@ -14,7 +14,8 @@
 
         <div v-else class="p-overlay__body">
           <!-- 性别 / 出生年：性别选项由读回体的 options 下发，**前端不写死**；
-               出生年是数字输入（1900–当前年），不再编辑旧年龄段 -->
+               性别是选填，但不提供「不填」选项——没选过就是空，选了以后不靠这里清空。
+               出生日期用日历（服务端只存年份），不再编辑旧年龄段 -->
           <div class="p-prof__row">
             <label id="p-prof-l-gender" class="p-prof__label">性别</label>
             <PatientSelect
@@ -22,8 +23,7 @@
               label-id="p-prof-l-gender"
               v-model="form.gender"
               :options="options.genders"
-              none-label="不填"
-              placeholder="暂无可选项"
+              placeholder="请选择"
             />
           </div>
           <div class="p-prof__row">
@@ -72,7 +72,9 @@
             </div>
           </section>
 
-          <!-- 用药 / 手术：条目行 = 值 + 时间（YYYY-MM），可增删；点标签把该词加为一条 -->
+          <!-- 用药 / 手术：条目行 = 值 + 年月（YYYY-MM），可增删；点标签把该词加为一条。
+               时间用年月选择器（§3.10 month 粒度），手打四位数字与连字符最容易错；
+               用药「仍在用」= 结束时间选「至今」（后端本来就按 endedOn 为空算至今）。 -->
           <section class="p-prof__group">
             <div class="p-prof__ghead">
               <span class="p-prof__glabel">近期用药</span>
@@ -97,27 +99,44 @@
                   type="text"
                   placeholder="药名"
                 />
-                <div class="p-prof__times">
-                  <input
-                    v-model="entry.startedOn"
-                    class="p-prof__input p-prof__time"
-                    type="text"
-                    maxlength="7"
-                    placeholder="开始 YYYY-MM"
-                  />
-                  <span class="p-prof__dash">—</span>
-                  <input
-                    v-model="entry.endedOn"
-                    class="p-prof__input p-prof__time"
-                    type="text"
-                    maxlength="7"
-                    placeholder="结束 YYYY-MM"
-                  />
-                </div>
                 <button type="button" class="p-prof__del" @click="form.medicationEntries.splice(i, 1)">删除</button>
+                <div class="p-prof__times">
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">开始</span>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.startedOn"
+                      :max="entry.endedOn || currentMonth"
+                      placeholder="选月份"
+                      hint="只填到月份"
+                      @update:model-value="(v) => (entry.startedOn = v)"
+                    />
+                  </div>
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">结束</span>
+                    <button
+                      type="button"
+                      class="p-prof__ongoing"
+                      :class="{ 'is-on': !entry.endedOn }"
+                      :aria-pressed="!entry.endedOn"
+                      @click="entry.endedOn = ''"
+                    >至今</button>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.endedOn"
+                      :min="entry.startedOn"
+                      :max="currentMonth"
+                      placeholder="选月份"
+                      hint="「至今」= 仍在使用"
+                      @update:model-value="(v) => (entry.endedOn = v)"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-            <p v-if="form.medicationEntries.length" class="p-prof__hint">结束时间留空表示仍在使用，会算「近期用药」。</p>
+            <p v-if="form.medicationEntries.length" class="p-prof__hint">结束选「至今」表示仍在使用，会算「近期用药」；时间只填到月份就行。</p>
             <button type="button" class="p-prof__add" @click="addEntry('medicationEntries', medicationEntry)">＋ 添加一条用药</button>
             <div class="p-prof__other">
               <input
@@ -155,16 +174,20 @@
                   type="text"
                   placeholder="手术名称"
                 />
-                <div class="p-prof__times">
-                  <input
-                    v-model="entry.occurredOn"
-                    class="p-prof__input p-prof__time"
-                    type="text"
-                    maxlength="7"
-                    placeholder="发生 YYYY-MM"
-                  />
-                </div>
                 <button type="button" class="p-prof__del" @click="form.surgeryEntries.splice(i, 1)">删除</button>
+                <div class="p-prof__times">
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">发生</span>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.occurredOn"
+                      placeholder="选月份"
+                      hint="只填到月份"
+                      @update:model-value="(v) => (entry.occurredOn = v)"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
             <p v-if="form.surgeryEntries.length" class="p-prof__hint">超过 12 个月的手术会自动算「既往手术」，不再写成近期。</p>
@@ -209,7 +232,7 @@ import CandidateSection from './CandidateSection.vue'
 import MemorySection from './MemorySection.vue'
 import PatientSelect from './PatientSelect.vue'
 import PatientDatePicker from './PatientDatePicker.vue'
-import { fromBirthYear, parseDate } from '../../utils/datePicker'
+import { fromBirthYear, parseDate, todayMonth } from '../../utils/datePicker'
 
 /**
  * 健康档案（选填浮层）。
@@ -220,8 +243,9 @@ import { fromBirthYear, parseDate } from '../../utils/datePicker'
  *
  * 时间语义（工单 03）：用药条目 = 药名 + 开始/结束月份，结束月份留空表示仍在使用；
  * 手术条目 = 名称 + 发生月份，超过 12 个月由后端组装成「既往手术」。时间一律用
- * **两个小文本输入（YYYY-MM）**，不用原生 month/date 控件——后者的长相由浏览器决定，
- * 同一套界面换台机器就变了（§3.9 同一理由）。
+ * **年月选择器**（`PatientDatePicker` 的 month 粒度，只到 `YYYY-MM`），不用原生
+ * month/date 控件——后者的长相由浏览器决定，同一套界面换台机器就变了（§3.9 同一理由）。
+ * 「仍在用」不是一个额外字段：结束时间选「至今」就是把 `endedOn` 置空，与后端口径一致。
  *
  * 浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）走共享件 `.p-overlay*` 与
  * `.p-fade-*`——见设计文档患者端 §3.8；本页只管表单本身。
@@ -235,6 +259,8 @@ const props = defineProps({
 const emit = defineEmits(['update:open'])
 
 const currentYear = new Date().getFullYear()
+/** 现在的月份（`YYYY-MM`）：用药/手术都不允许选未来 */
+const currentMonth = todayMonth()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -657,7 +683,8 @@ async function save() {
   font-size: 12px;
   color: var(--ink-3);
 }
-/* 条目行：值 + 时间 + 删除；窄屏自动换行，但每个控件仍 ≥44px */
+/* 条目行 = 一张小卡：名称 + 删除在上，年月选择在下。
+   两个年月选择器并排会挤，`.p-prof__times` 允许换行，各控件仍 ≥44px。 */
 .p-prof__entries {
   display: flex;
   flex-direction: column;
@@ -665,22 +692,59 @@ async function save() {
   margin-top: 12px;
 }
 .p-prof__entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.p-prof__input.p-prof__entry-name { grid-column: 1; min-width: 0; }
+.p-prof__times {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 16px;
 }
-.p-prof__input.p-prof__entry-name { flex: 1 1 140px; min-width: 120px; }
-.p-prof__times { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; }
-.p-prof__input.p-prof__time { flex: 0 0 104px; width: 104px; }
-.p-prof__dash {
+.p-prof__tf { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.p-prof__tfl {
   flex: none;
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: 11.5px;
+  letter-spacing: .08em;
   color: var(--ink-3);
+}
+/* 年月选择器在条目里按内容收窄（共享件 `.p-dp` 默认填满一行）。
+   176px = 图标/箭头 42 + 内边距 24 + 「2024 年 12 月」约 110——再窄就会截成「2024 年…」 */
+.p-prof__month { flex: 0 0 176px; width: 176px; }
+/* 「至今」= endedOn 为空：与年月选择器互斥的两个状态，靠选中态区分 */
+.p-prof__ongoing {
+  flex: none;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+.p-prof__ongoing:hover { border-color: var(--line-2); }
+.p-prof__ongoing.is-on {
+  border-color: var(--leaf);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
+  font-weight: 600;
 }
 .p-prof__del {
   flex: none;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
   min-height: 44px; /* 触控目标 ≥ 44px */
   padding: 0 12px;
   border: 1px solid var(--line);

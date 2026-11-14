@@ -30,6 +30,47 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
+/** 年月字符串 → { year, month }；非法返回 null。month 为 1–12。 */
+export function parseMonth(value) {
+  if (typeof value !== 'string') return null
+  const m = /^(\d{4})-(\d{2})$/.exec(value.trim())
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2])
+  if (month < 1 || month > 12) return null
+  return { year, month }
+}
+
+/** { year, month } → `YYYY-MM`；非法返回空串 */
+export function formatMonth(year, month) {
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return ''
+  if (month < 1 || month > 12) return ''
+  return `${year}-${pad2(month)}`
+}
+
+/** 今天所在月份的 `YYYY-MM` */
+export function todayMonth(now = new Date()) {
+  return formatMonth(now.getFullYear(), now.getMonth() + 1)
+}
+
+/** 年月展示文案：「2024 年 3 月」；非法返回空串 */
+export function formatMonthDisplay(value) {
+  const parsed = parseMonth(value)
+  if (!parsed) return ''
+  return `${parsed.year} 年 ${parsed.month} 月`
+}
+
+/**
+ * 年月是否落在可选范围内（两端含）。`YYYY-MM` 零填充，字符串比较即时间顺序。
+ * 空 = 未填，永远算范围外；min/max 为空表示那一端不设限。
+ */
+export function monthInRange(value, min = '', max = '') {
+  if (!parseMonth(value)) return false
+  if (max && value > max) return false
+  if (min && value < min) return false
+  return true
+}
+
 /** { year, month, day } → `YYYY-MM-DD`；非法返回空串 */
 export function formatDate(year, month, day) {
   if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return ''
