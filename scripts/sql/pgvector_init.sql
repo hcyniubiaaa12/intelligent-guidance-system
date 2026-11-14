@@ -1,6 +1,6 @@
 -- ============================================================
 -- 智能导诊系统 PostgreSQL + pgvector 初始化脚本（管语义）
--- 对应《数据库设计.md》4.1 节；仅两张向量表
+-- 对应《数据库设计.md》4.1 节；三张向量表（chunk / 聚类锚点 / 长期记忆背景）
 -- 前置：目标库需已安装 pgvector 扩展
 -- ============================================================
 
@@ -52,3 +52,23 @@ CREATE INDEX IF NOT EXISTS idx_cbv_direction
     ON cluster_bucket_vec (rec_dept_id, actual_dept_id);
 
 COMMENT ON TABLE cluster_bucket_vec IS '聚类锚点向量；语义归桶按 direction 过滤 + 余弦检索（feedback 直写）';
+
+-- ------------------------------------------------------------
+-- user_memory_vec（memory 模块直写，第三处向量库写入例外）
+-- 稳定背景的按需召回：回答前用已算好的 query 向量做 top-K
+-- 只写 background_*（偏好永远全量注入，不向量化）
+-- 刻意不建 HNSW：每用户 ≤10 行，按 (user_id, type) 过滤后顺序扫描足够
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS user_memory_vec (
+    memory_id  VARCHAR(32) PRIMARY KEY,              -- 对应 MySQL user_memory.id
+    user_id    VARCHAR(32) NOT NULL,                 -- 召回按用户隔离
+    type       VARCHAR(32) NOT NULL,                 -- background_health / background_other
+    embedding  VECTOR(1024) NOT NULL,
+    updated_at TIMESTAMP NOT NULL                    -- 向量写入时间：回填任务据此识别「比记忆旧」
+);
+
+CREATE INDEX IF NOT EXISTS idx_umv_user_type
+    ON user_memory_vec (user_id, type);
+
+COMMENT ON TABLE user_memory_vec IS '长期记忆稳定背景向量（memory 直写）；只写 background_*，不建 HNSW，召回后回 MySQL 校验用户/状态/有效期';

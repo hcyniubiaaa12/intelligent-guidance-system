@@ -7,6 +7,7 @@ import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryActor;
 import com.guide.memory.enums.MemoryOp;
 import com.guide.memory.enums.MemoryStatus;
+import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class MemoryManageService {
 
     private final MemoryMapper memoryMapper;
     private final MemoryLogService memoryLogService;
+    private final MemoryVectorIndexer vectorIndexer;
 
     /**
      * 改一条记忆的值。
@@ -59,18 +61,34 @@ public class MemoryManageService {
         }
 
         Memory row = requireEditable(userId, id);
+        boolean background = row.getType() == MemoryType.BACKGROUND_HEALTH
+                || row.getType() == MemoryType.BACKGROUND_OTHER;
+        LocalDateTime now = LocalDateTime.now();
 
         // 内容列只写 mvalue：source_quote / observed_at / type / valid_* 一概不动。
         // updated_at 是书签（不是内容）：背景记忆靠它被向量回填任务识别为「需要重算」，
         // 否则编辑后的值还在用旧文本的向量做召回。update(null, wrapper) 不会自动填充它。
-        memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
+        // retrieval_text 是 mvalue 的 embedding 派生列：不同步刷新会让重算出来的向量仍指向旧值。
+        var update = Wrappers.<Memory>lambdaUpdate()
                 .set(Memory::getMvalue, trimmed)
-                .set(Memory::getUpdatedAt, LocalDateTime.now())
+                .set(Memory::getUpdatedAt, now)
                 .eq(Memory::getId, id)
                 .eq(Memory::getUserId, userId)
-                .eq(Memory::getStatus, MemoryStatus.ACTIVE));
+                .eq(Memory::getStatus, MemoryStatus.ACTIVE);
+        if (background) {
+            update.set(Memory::getRetrievalText, trimmed);
+        }
+        memoryMapper.update(null, update);
 
         memoryLogService.append(id, userId, MemoryOp.UPDATE, row.getMvalue(), trimmed, MemoryActor.USER);
+
+        // 背景值变了就立刻重算向量；失败由 indexer 降级（WARN），回填任务会按 updated_at 再补。
+        if (background) {
+            row.setMvalue(trimmed);
+            row.setRetrievalText(trimmed);
+            row.setUpdatedAt(now);
+            vectorIndexer.index(row);
+        }
     }
 
     /**
@@ -85,6 +103,9 @@ public class MemoryManageService {
         // @TableLogic：deleteById 落成 deleted=1，不物理删除
         memoryMapper.deleteById(id);
         memoryLogService.append(id, userId, MemoryOp.DELETE, row.getMvalue(), null, MemoryActor.USER);
+        // 向量不在 MySQL 事务里：删失败只留下一条「回表即被过滤」的孤儿行，
+        // 召回仍以 MySQL 为准；反过来若事务回滚，回填任务会把缺的向量补回来。
+        vectorIndexer.delete(id);
     }
 
     /**
@@ -110,6 +131,7 @@ public class MemoryManageService {
             memoryMapper.deleteById(row.getId());
             memoryLogService.append(row.getId(), userId, MemoryOp.DELETE,
                     row.getMvalue(), null, MemoryActor.USER);
+            vectorIndexer.delete(row.getId());
             removed++;
         }
         return removed;

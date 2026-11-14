@@ -8,6 +8,7 @@ import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
+import com.guide.memory.support.StickyTracker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -22,9 +23,9 @@ import java.util.List;
  * 两者口径不同、生命周期也不同（一个随页面打开，一个随每轮对话）。混在一起会让控制面
  * 的字段悄悄变成对话热路径的负担。
  *
- * <p>07 只接偏好：稳定背景的向量召回在 08，这里先给一个**返回 null 的端口占位**
- * （rag 侧把 null 当「无命中」，不影响检索）。
- * {@code sessionId} 现在不参与读取，但签名先带上——08 的 sticky 2 轮状态按会话落在 memory 侧。
+ * <p>偏好全量注入（{@link #loadPreferences}），稳定背景只给一个**按需召回端口**——
+ * 端口实例捕获「用户 + 会话」，由 rag 在算出 query 向量后回调；
+ * sticky 的 2 轮状态随之落在 memory 侧，rag 仍然不感知 userId。
  */
 @Service
 @RequiredArgsConstructor
@@ -33,12 +34,14 @@ public class MemoryInjectionService {
     private final MemoryMapper memoryMapper;
     private final MemorySettingService memorySettingService;
     private final SysConfigService sysConfigService;
+    private final MemoryVectorStore vectorStore;
+    private final StickyTracker stickyTracker;
 
     /**
      * 本轮要注入的记忆。
      *
      * @param preferences 偏好值（按 observedAt 降序、最多 {@code memory.preference.max} 条）；空列表即无偏好段
-     * @param recallPort  背景召回端口；开关关闭时为 {@code null}，开启时 07 为空实现（返回 null）
+     * @param recallPort  背景召回端口；开关关闭时为 {@code null}
      */
     public record Injection(List<String> preferences, MemoryRecallPort recallPort) {
     }
@@ -48,7 +51,9 @@ public class MemoryInjectionService {
         if (!memorySettingService.isEnabled(userId)) {
             return new Injection(List.of(), null);
         }
-        return new Injection(loadPreferences(userId), emptyRecallPort());
+        return new Injection(loadPreferences(userId), new MemoryRecallService(
+                userId, sessionId, memoryMapper, vectorStore, memorySettingService,
+                sysConfigService, stickyTracker));
     }
 
     /**
@@ -88,11 +93,4 @@ public class MemoryInjectionService {
                 && !row.getMvalue().isBlank();
     }
 
-    /**
-     * 07 占位：稳定背景召回在 08。返回 null 而不是空列表是刻意的——
-     * 它把「还没有实现」与「实现了但本轮没命中」在调试时区分开，rag 两者都按无命中处理。
-     */
-    private MemoryRecallPort emptyRecallPort() {
-        return (query, queryVector) -> null;
-    }
 }
