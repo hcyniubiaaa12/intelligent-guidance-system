@@ -2,15 +2,19 @@ package com.guide.rag.support;
 
 import com.guide.common.config.PromptProperties;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
 import com.guide.llm.client.ChatMsg;
 import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagContext;
 import com.guide.rag.dto.RagRequest;
 import com.guide.rag.dto.RagTurn;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Prompt 拼装（链路 A 第 ④ 步末）：模板取自 prompts.yml（{@link PromptProperties}），
@@ -18,8 +22,16 @@ import java.util.List;
  * 知识片段带注号与精排分数（分数作为模型自报置信度的客观锚点），
  * 结论输出协议见 {@link AnswerParser}；判定与生成合并为一次 LLM 调用，零额外成本。
  */
+@Slf4j
 @Component
 public class PromptBuilder {
+
+    /** 记忆总块上限（档案 350 字另计）；超限按条停止加入，不切半句 */
+    private static final int MEMORY_MAX_CHARS = 500;
+    private static final int BACKGROUND_MAX_ITEMS = 3;
+    private static final int BACKGROUND_MAX_CHARS = 300;
+    private static final int PREFERENCE_MAX_ITEMS = 5;
+    private static final int PREFERENCE_MAX_CHARS = 200;
 
     private final PromptProperties prompts;
 
@@ -41,6 +53,7 @@ public class PromptBuilder {
         String prompt = PromptProperties.render(prompts.getDiagnosis().getSystemTemplate(),
                 PromptProperties.PLACEHOLDER_KNOWLEDGE, knowledgeBlock(context));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PROFILE, profileBlock(request));
+        prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MEMORY, memoryBlock(request, context));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PARTS, partsBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_DEPTS, deptBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MARKER, AnswerParser.MARKER);
@@ -82,6 +95,73 @@ public class PromptBuilder {
             return "";
         }
         return "\n\n【患者健康档案】\n" + profileText;
+    }
+
+    /**
+     * 长期记忆（可选）：**标题 + 内容 + 前后换行作为一个整体块**，与 {@link #profileBlock} 同构——
+     * 没有偏好也没有背景命中时返回空串，模板里那条空行与标题随之一并消失，不留连续空行。
+     *
+     * <p>块内顺序固定：**稳定背景在前、偏好其后**。背景只来自本轮召回命中（按相似度降序，
+     * 相似度本身不写进 prompt——它只是注入取舍依据，不是给模型看的数字）；偏好全量注入。
+     *
+     * <p>上限按条累加、超限停止加入后续条目并 WARN——**保留完整条目，不切半句**：
+     * 半句话的偏好会让模型误读患者意图，比少注入一条更糟。上限是配置异常的信号，不是裁剪手段。
+     */
+    private String memoryBlock(RagRequest request, RagContext context) {
+        List<String> lines = new ArrayList<>();
+        int totalChars = 0;
+
+        List<MemoryHit> backgrounds = context.memoryHits().stream()
+                .filter(Objects::nonNull)
+                .filter(hit -> hit.type() != null && hit.type().startsWith("background"))
+                .filter(hit -> hit.value() != null && !hit.value().isBlank())
+                .sorted(Comparator.comparingDouble(MemoryHit::score).reversed())
+                .toList();
+        int backgroundChars = 0;
+        int backgroundCount = 0;
+        boolean truncated = false;
+        for (MemoryHit hit : backgrounds) {
+            String value = hit.value().strip();
+            if (backgroundCount >= BACKGROUND_MAX_ITEMS
+                    || backgroundChars + value.length() > BACKGROUND_MAX_CHARS
+                    || totalChars + value.length() > MEMORY_MAX_CHARS) {
+                truncated = true;
+                break;
+            }
+            lines.add("- 患者长期背景：" + value);
+            backgroundChars += value.length();
+            totalChars += value.length();
+            backgroundCount++;
+        }
+
+        int preferenceChars = 0;
+        int preferenceCount = 0;
+        for (String preference : request.preferences()) {
+            String value = preference == null ? "" : preference.strip();
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (preferenceCount >= PREFERENCE_MAX_ITEMS
+                    || preferenceChars + value.length() > PREFERENCE_MAX_CHARS
+                    || totalChars + value.length() > MEMORY_MAX_CHARS) {
+                truncated = true;
+                break;
+            }
+            lines.add("- 患者偏好：" + value);
+            preferenceChars += value.length();
+            totalChars += value.length();
+            preferenceCount++;
+        }
+
+        if (truncated) {
+            log.warn("长期记忆注入达到上限，已停止加入后续条目（保留完整条目、不切半句）："
+                            + "背景 {} 条 / {} 字，偏好 {} 条 / {} 字，合计 {} 字",
+                    backgroundCount, backgroundChars, preferenceCount, preferenceChars, totalChars);
+        }
+        if (lines.isEmpty()) {
+            return "";
+        }
+        return "\n\n【长期记忆】\n" + String.join("\n", lines);
     }
 
     /**

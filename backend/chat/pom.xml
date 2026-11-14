@@ -36,6 +36,11 @@
             <groupId>com.guide</groupId>
             <artifactId>kb</artifactId>
         </dependency>
+        <!-- 每轮读取长期记忆（偏好 + 背景召回端口）：chat → memory，方向单向 -->
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>memory</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

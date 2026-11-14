@@ -14,7 +14,9 @@ import com.guide.chat.mapper.ChatMessageMapper;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.event.TurnCompletedEvent;
+import com.guide.common.port.MemoryRecallPort;
 import com.guide.kb.entity.Dept;
+import com.guide.memory.service.MemoryInjectionService;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.MedicalTermService;
 import com.guide.rag.RagService;
@@ -35,6 +37,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -89,6 +92,7 @@ class ChatServiceTest {
     private DeptService deptService;
     private MedicalTermService medicalTermService;
     private RecommendableDepts recommendableDepts;
+    private MemoryInjectionService memoryInjectionService;
     private ApplicationEventPublisher eventPublisher;
     private ChatService chatService;
 
@@ -105,6 +109,7 @@ class ChatServiceTest {
         recommendableDepts = mock(RecommendableDepts.class);
         sysConfigService = mock(SysConfigService.class);
         healthProfileService = mock(HealthProfileService.class);
+        memoryInjectionService = mock(MemoryInjectionService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
 
@@ -125,6 +130,9 @@ class ChatServiceTest {
                 .thenReturn(new HealthProfileService.ChatProfile(
                         new HealthProfileAssembler.Assembly("", false), null));
         when(ragService.retrieve(any())).thenAnswer(invocation -> new RagContext("q", "q", List.of(), 0, 0));
+        // 默认：自动记忆开启但无偏好、端口为空实现（07 的占位）
+        when(memoryInjectionService.forTurn(anyString(), any()))
+                .thenReturn(new MemoryInjectionService.Injection(List.of(), null));
         // 线程池 mock 成同步执行：编排在调用线程里跑完，断言不必等
         doAnswer(invocation -> {
             invocation.getArgument(0, Runnable.class).run();
@@ -134,7 +142,7 @@ class ChatServiceTest {
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
                 medicalTermService, recommendableDepts, sysConfigService, healthProfileService,
-                new ObjectMapper(), executor, eventPublisher);
+                memoryInjectionService, new ObjectMapper(), executor, eventPublisher);
     }
 
     @Test
@@ -306,6 +314,41 @@ class ChatServiceTest {
         ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
         verify(ragService).retrieve(ragCaptor.capture());
         assertNull(ragCaptor.getValue().profileText());
+    }
+
+    @Test
+    @DisplayName("自动记忆开启：偏好与召回端口原样进 RagRequest（每次对话都读当前生效记忆）")
+    void memoryPreferencesAndPortReachRag() {
+        MemoryRecallPort port = (query, vector) -> List.of();
+        when(memoryInjectionService.forTurn("u1", "s1234567890"))
+                .thenReturn(new MemoryInjectionService.Injection(List.of("讲慢一点", "先说结论"), port));
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals(List.of("讲慢一点", "先说结论"), ragCaptor.getValue().preferences());
+        assertSame(port, ragCaptor.getValue().memoryRecallPort(), "端口原样交给 rag（由它用已算好的向量回调）");
+    }
+
+    @Test
+    @DisplayName("关闭自动记忆：偏好为空、端口为 null，档案仍进 RagRequest（关记忆不关档案）")
+    void disabledMemoryStillPassesProfile() {
+        when(memoryInjectionService.forTurn(anyString(), any()))
+                .thenReturn(new MemoryInjectionService.Injection(List.of(), null));
+        when(healthProfileService.assembleForChat("u1"))
+                .thenReturn(new HealthProfileService.ChatProfile(
+                        new HealthProfileAssembler.Assembly("男、45-59岁、2型糖尿病", false), null));
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals("男、45-59岁、2型糖尿病", ragCaptor.getValue().profileText());
+        assertTrue(ragCaptor.getValue().preferences().isEmpty());
+        assertNull(ragCaptor.getValue().memoryRecallPort());
     }
 
     @Test
