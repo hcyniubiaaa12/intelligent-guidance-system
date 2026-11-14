@@ -17,6 +17,7 @@ import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
 import com.guide.memory.service.MemoryExtractor.MergedPreference;
+import com.guide.memory.support.MemoryNegation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -98,13 +99,16 @@ public class MemoryExtractionService {
         if (userId == null || userId.isBlank() || sessionId == null || sessionId.isBlank()) {
             return;
         }
-        // 开关关闭：不读对话、不调模型（关的是自动记忆，档案与旧记忆都不受影响）
-        if (!memorySettingService.isEnabled(userId)) {
-            log.debug("自动记忆已关闭，跳过抽取：userId={} sessionId={}", userId, sessionId);
-            return;
-        }
         List<DialogueTurn> turns = sessionActivityPort.recentDialogue(sessionId, DIALOGUE_LIMIT);
         if (turns == null || turns.isEmpty()) {
+            return;
+        }
+        // 患者更正先处理：这是收回既有记忆，不是"自动记忆"的产出，不调模型、不占抽取配额；
+        // 开关关闭时也要执行——否则患者说了"我没有糖尿病"，重新开启记忆后旧结论又活了。
+        retractCorrectedBackgrounds(userId, turns);
+        // 开关关闭：不调模型（关的是自动记忆，档案与旧记忆都不受影响）
+        if (!memorySettingService.isEnabled(userId)) {
+            log.debug("自动记忆已关闭，跳过抽取：userId={} sessionId={}", userId, sessionId);
             return;
         }
         if (applyPrefilter && !shouldExtract(turns)) {
@@ -139,6 +143,50 @@ public class MemoryExtractionService {
             }
         }
         return false;
+    }
+
+    /**
+     * 患者明确更正/否认一条已有背景时，把那条标记失效。
+     *
+     * <p>为什么必须做：抽取侧的否定句过滤只会"不记这句"，**不会收回之前记对的那条**——
+     * 患者说「说错了我没有2型糖尿病」之后，旧记忆仍然 active，换个会话继续拿它当背景。
+     *
+     * <p>落点是 **expired + validTo=今天**，不物理删除：控制面不再显示、召回不再注入，
+     * 但审计行还在（`user_memory_log` 记一笔 delete），出了问题能查"当初从哪句记的"。
+     */
+    private void retractCorrectedBackgrounds(String userId, List<DialogueTurn> turns) {
+        String message = lastUserMessage(turns);
+        if (message == null) {
+            return;
+        }
+        try {
+            for (Memory row : activeMemories(userId,
+                    MemoryType.BACKGROUND_HEALTH, MemoryType.BACKGROUND_OTHER)) {
+                if (row.getMvalue() == null || !MemoryNegation.retracted(message, row.getMvalue())) {
+                    continue;
+                }
+                row.setStatus(MemoryStatus.EXPIRED);
+                row.setValidTo(LocalDate.now());
+                memoryMapper.updateById(row);
+                vectorIndexer.delete(row.getId());
+                memoryLogService.append(row.getId(), userId, MemoryOp.DELETE,
+                        row.getMvalue(), null, MemoryActor.EXTRACT);
+                log.info("患者更正了长期背景，已标记失效：userId={} memoryId={} value={}",
+                        userId, row.getId(), row.getMvalue());
+            }
+        } catch (RuntimeException e) {
+            log.warn("背景更正处理失败（不影响对话）：userId={}｜原因={}", userId, e.getMessage());
+        }
+    }
+
+    private String lastUserMessage(List<DialogueTurn> turns) {
+        for (int i = turns.size() - 1; i >= 0; i--) {
+            DialogueTurn turn = turns.get(i);
+            if ("user".equals(turn.role()) && turn.content() != null && !turn.content().isBlank()) {
+                return turn.content();
+            }
+        }
+        return null;
     }
 
     // ---------------- 偏好 ----------------

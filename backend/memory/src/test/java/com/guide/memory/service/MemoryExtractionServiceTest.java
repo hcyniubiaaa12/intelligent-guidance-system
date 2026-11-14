@@ -96,15 +96,41 @@ class MemoryExtractionServiceTest {
     }
 
     @Test
-    @DisplayName("开关关闭：不读对话、不申领配额、不调模型（关的是自动记忆，不是档案）")
-    void switchOffSkipsEverything() {
+    @DisplayName("开关关闭：不申领配额、不调模型（仍读对话以处理患者更正，那不是自动记忆）")
+    void switchOffSkipsExtraction() {
         when(memorySettingService.isEnabled(USER)).thenReturn(false);
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
 
-        verify(sessionActivityPort, never()).recentDialogue(any(), anyInt());
+        verify(sessionActivityPort).recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT);
         verify(sessionActivityPort, never()).tryIncrementExtractCount(any(), anyInt());
         verify(memoryExtractor, never()).extract(any());
+    }
+
+    @Test
+    @DisplayName("患者更正「说错了我没有2型糖尿病」：旧背景标记失效、删向量、写审计")
+    void retractsCorrectedBackground() {
+        Memory row = new Memory();
+        row.setId("m9");
+        row.setUserId(USER);
+        row.setType(MemoryType.BACKGROUND_HEALTH);
+        row.setMkey("慢病");
+        row.setMvalue("2型糖尿病");
+        row.setStatus(MemoryStatus.ACTIVE);
+        when(memoryMapper.selectList(any())).thenReturn(List.of(row));
+        when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
+                .thenReturn(List.of(new DialogueTurn("user", "说错了我没有2型糖尿病", LocalDateTime.now())));
+        when(memoryExtractor.extract(any()))
+                .thenReturn(new MemoryExtractionResult(List.of(), List.of(), List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        assertThat(row.getStatus()).isEqualTo(MemoryStatus.EXPIRED);
+        assertThat(row.getValidTo()).isEqualTo(LocalDate.now());
+        verify(memoryMapper).updateById(row);
+        verify(vectorIndexer).delete("m9");
+        verify(memoryLogService).append("m9", USER, MemoryOp.DELETE,
+                "2型糖尿病", null, MemoryActor.EXTRACT);
     }
 
     @Test

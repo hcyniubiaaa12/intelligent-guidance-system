@@ -225,6 +225,44 @@ class MemoryRecallServiceTest {
         verify(sysConfigService).getInt(eq(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_TOP_K), anyInt());
     }
 
+    @Test
+    @DisplayName("词面补召回：向量分低于阈值，但问句明说「糖尿病」也算命中（值是「2型糖尿病」）")
+    void lexicalMentionBelowThresholdStillRecalls() {
+        Memory row = memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", null);
+        when(vectorStore.search(USER, QUERY_VECTOR, 3))
+                .thenReturn(List.of(new ScoredMemory("m1", 0.42)));
+        when(memoryMapper.selectList(any())).thenReturn(List.of(row));
+        when(memoryMapper.selectBatchIds(any())).thenReturn(List.of(row));
+
+        List<MemoryHit> hits = service.recall("是不是和我的糖尿病有关", QUERY_VECTOR);
+
+        assertThat(hits).hasSize(1);
+        assertThat(hits.get(0).value()).isEqualTo("2型糖尿病");
+        assertThat(hits.get(0).score()).isEqualTo(0.70);
+    }
+
+    @Test
+    @DisplayName("词面补召回不放松相关度：无关问句仍然不注入")
+    void lexicalDoesNotInjectUnrelatedBackground() {
+        when(vectorStore.search(USER, QUERY_VECTOR, 3))
+                .thenReturn(List.of(new ScoredMemory("m1", 0.42)));
+        when(memoryMapper.selectList(any())).thenReturn(List.of(
+                memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", null)));
+
+        assertThat(service.recall("最近腰疼得厉害", QUERY_VECTOR)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("词面命中也受否定句拦截：「我没有糖尿病」不注入")
+    void lexicalHitStillHonoursNegation() {
+        Memory row = memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", null);
+        when(vectorStore.search(USER, QUERY_VECTOR, 3))
+                .thenReturn(List.of(new ScoredMemory("m1", 0.42)));
+        when(memoryMapper.selectList(any())).thenReturn(List.of(row));
+
+        assertThat(service.recall("我没有糖尿病", QUERY_VECTOR)).isEmpty();
+    }
+
     private Memory memory(String id, String userId, MemoryType type, String key, String value,
                           LocalDate validTo) {
         Memory memory = new Memory();
