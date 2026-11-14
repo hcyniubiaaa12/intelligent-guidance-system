@@ -107,8 +107,7 @@ mvn -o -B -Dstdout.encoding=UTF-8 -pl memory -am test \
 ## 6. 当前结果（2026-11-14，已执行）
 
 **执行环境**：真实 DeepSeek `deepseek-chat`（`application-local.yml` 的 `${DEEPSEEK_API_KEY:...}` 默认值），
-82 条全量，单次非流式调用；执行命令见 §5，结果日志见
-`.scratch/health-profile-memory/_notes/eval-full.log`（规划目录，不入基线）。
+82 条全量，单次非流式调用；执行命令见 §5；完整日志留在本地规划目录、不入基线。
 
 **总体：TP=60 FP=13 FN=16｜P=0.822 R=0.789 F1=0.805（82 条）**
 
