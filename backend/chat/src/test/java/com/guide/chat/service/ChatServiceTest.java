@@ -13,6 +13,7 @@ import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatMessageMapper;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
+import com.guide.common.event.TurnCompletedEvent;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.MedicalTermService;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.List;
@@ -39,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -86,6 +89,7 @@ class ChatServiceTest {
     private DeptService deptService;
     private MedicalTermService medicalTermService;
     private RecommendableDepts recommendableDepts;
+    private ApplicationEventPublisher eventPublisher;
     private ChatService chatService;
 
     @BeforeEach
@@ -101,6 +105,7 @@ class ChatServiceTest {
         recommendableDepts = mock(RecommendableDepts.class);
         sysConfigService = mock(SysConfigService.class);
         healthProfileService = mock(HealthProfileService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
 
         // 新会话：insert 时补 id（真实环境由 MyBatis-Plus 生成；turnTag 要读它，null 会 NPE）
@@ -129,7 +134,7 @@ class ChatServiceTest {
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
                 medicalTermService, recommendableDepts, sysConfigService, healthProfileService,
-                new ObjectMapper(), executor);
+                new ObjectMapper(), executor, eventPublisher);
     }
 
     @Test
@@ -504,6 +509,33 @@ class ChatServiceTest {
         verify(ragService).retrieve(any());
         assertFalse(questions().contains(TEMPLATE), "带声明的正常主诉不应收到模板追问");
         assertFalse(questions().contains(TEMPLATE_REPEAT), "也不应是第二档模板话术");
+    }
+
+    @Test
+    @DisplayName("每轮结束发布 TurnCompletedEvent：userId 与 sessionId 都带对（记忆抽取的唯一触发点）")
+    void publishesTurnCompletedEvent() {
+        modelReturns(RAW_INFO);
+
+        chatService.stream("u1", req("P1事故要记录什么"));
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        TurnCompletedEvent event = (TurnCompletedEvent) captor.getValue();
+        assertEquals("u1", event.userId());
+        assertEquals("s1234567890", event.sessionId());
+    }
+
+    @Test
+    @DisplayName("事件发布失败不影响本轮：SSE 与落库照常完成（旁路信号绝不能反噬主流程）")
+    void eventPublishFailureDoesNotBreakTurn() {
+        doThrow(new IllegalStateException("listener boom"))
+                .when(eventPublisher).publishEvent(any(Object.class));
+        modelReturns(RAW_INFO);
+
+        chatService.stream("u1", req("P1事故要记录什么"));
+
+        // 走到 INFO 分支的落库就是「本轮正常完成」的等价证明
+        assertEquals(MessageRole.INFO, lastMessage().getRole());
     }
 
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */

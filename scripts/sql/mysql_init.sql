@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS `chat_session` (
     `ask_round`  INT         NOT NULL DEFAULT 0 COMMENT '追问轮次 0–3',
     `has_result` TINYINT     NOT NULL DEFAULT 0 COMMENT '0/1 已出导诊结论（新主诉判定双信号之一）',
     `archived`   TINYINT     NOT NULL DEFAULT 0 COMMENT '0/1 患者把这条会话收进「已归档」（只是收纳，非删除；不参与列表主区，可随时取回）',
+    `memory_extract_count` INT NOT NULL DEFAULT 0 COMMENT '本会话已被长期记忆抽取消费的次数（每会话上限 memory.extract.session.max，原子递增）',
     `deleted`    TINYINT     NOT NULL DEFAULT 0,
     `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -351,6 +352,8 @@ CREATE TABLE IF NOT EXISTS `ingest_task` (
 -- 旧库补列（本脚本是 CREATE TABLE IF NOT EXISTS，重跑不会改已存在的表）：
 --   ALTER TABLE `user` ADD COLUMN `memory_enabled` TINYINT NOT NULL DEFAULT 1
 --       COMMENT '自动记忆开关 1/0：关闭只停抽取与注入，档案照常生效、旧记忆仍可见' AFTER `mute_until`;
+--   ALTER TABLE `chat_session` ADD COLUMN `memory_extract_count` INT NOT NULL DEFAULT 0
+--       COMMENT '本会话已被长期记忆抽取消费的次数（每会话上限 memory.extract.session.max，原子递增）' AFTER `archived`;
 
 CREATE TABLE IF NOT EXISTS `user_memory` (
     `id`             VARCHAR(32)  NOT NULL,

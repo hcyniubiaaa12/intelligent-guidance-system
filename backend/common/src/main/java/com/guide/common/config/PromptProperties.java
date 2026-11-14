@@ -49,6 +49,10 @@ public class PromptProperties {
     public static final String PLACEHOLDER_MAIN_DEPT = "{mainDept}";
     /** 回流合成 chunk：交叉科室说明（可为空） */
     public static final String PLACEHOLDER_CROSS_DEPTS = "{crossDepts}";
+    /** 记忆合并：既有偏好清单 */
+    public static final String PLACEHOLDER_EXISTING = "{existing}";
+    /** 记忆合并：本批新偏好清单 */
+    public static final String PLACEHOLDER_INCOMING = "{incoming}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -61,6 +65,10 @@ public class PromptProperties {
     private Feedback feedback = new Feedback();
 
     private TermExtract termExtract = new TermExtract();
+
+    private MemoryExtract memoryExtract = new MemoryExtract();
+
+    private MemoryMerge memoryMerge = new MemoryMerge();
 
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
@@ -138,6 +146,27 @@ public class PromptProperties {
         private String userTemplate;
     }
 
+    /**
+     * 长期记忆抽取（memory 模块）：给一段对话，要它只给**偏好 / 稳定背景**两类原子事实。
+     *
+     * <p>输出协议由 {@code MemoryExtractor} 解析；校验（原话、置信度、否定句、禁止推断）
+     * 在代码侧统一做，提示词只负责说清口径——两边都做，是因为模型不遵守协议时代码要能兜住。
+     */
+    @Data
+    public static class MemoryExtract {
+        private String system;
+        /** 必含 {dialogue} */
+        private String userTemplate;
+    }
+
+    /** 偏好满额时的合并去重提示词：输入既有与新抽到的偏好，只要合并后的清单 */
+    @Data
+    public static class MemoryMerge {
+        private String system;
+        /** 必含 {existing} {incoming} */
+        private String userTemplate;
+    }
+
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
@@ -160,6 +189,12 @@ public class PromptProperties {
         require(feedback.getFallbackTemplate(), "prompts.feedback.fallback-template", feedbackPlaceholders);
         require(termExtract.getSystem(), "prompts.term-extract.system", List.of());
         require(termExtract.getUserTemplate(), "prompts.term-extract.user-template", List.of(PLACEHOLDER_TEXT));
+        require(memoryExtract.getSystem(), "prompts.memory-extract.system", List.of());
+        require(memoryExtract.getUserTemplate(), "prompts.memory-extract.user-template",
+                List.of(PLACEHOLDER_DIALOGUE));
+        require(memoryMerge.getSystem(), "prompts.memory-merge.system", List.of());
+        require(memoryMerge.getUserTemplate(), "prompts.memory-merge.user-template",
+                List.of(PLACEHOLDER_EXISTING, PLACEHOLDER_INCOMING));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 
