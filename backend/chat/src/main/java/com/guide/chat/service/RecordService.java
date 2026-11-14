@@ -304,6 +304,7 @@ public class RecordService {
 
         List<ChatDTO.Top3Item> top3 = new ArrayList<>();
         List<ChatDTO.Cite> cites = new ArrayList<>();
+        List<ChatDTO.AlertVO> alerts = new ArrayList<>();
         String note = null;
         String profileText = null;
         try {
@@ -354,6 +355,21 @@ public class RecordService {
                     String text = profile.path("text").asText("");
                     profileText = text.isBlank() ? null : text;
                 }
+                // 警报同样读**当时那份快照**，不查当前记忆/档案：回放要还原患者当时看到的内容。
+                // 缺节点（工单 10 之前的老记录）或节点为 null 都安全地得到空列表；
+                // 空文案的无意义条目直接跳过，不让卡片出现一条空警示。
+                for (JsonNode node : evidence.path("alerts")) {
+                    String text = node.path("text").asText("");
+                    if (text.isBlank()) {
+                        continue;
+                    }
+                    alerts.add(new ChatDTO.AlertVO(
+                            node.path("level").asText(null),
+                            text,
+                            node.path("anchor").asText(null),
+                            node.path("source").asText(null),
+                            node.path("memoryId").asText(null)));
+                }
             }
         } catch (Exception e) {
             log.warn("结论卡重建失败（记录 {}）：{}", record.getId(), e.getMessage());
@@ -362,7 +378,7 @@ public class RecordService {
                 rec == null ? null : rec.getName(), record.getConfidence(), top3, note, cites,
                 record.getLowConfidence() != null && record.getLowConfidence() == 1,
                 booked, actual == null ? null : actual.getName(),
-                actual == null ? null : actual.getLocation(), profileText);
+                actual == null ? null : actual.getLocation(), profileText, alerts);
     }
 
     /**

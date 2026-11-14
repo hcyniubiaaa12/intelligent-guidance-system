@@ -405,6 +405,63 @@ class RecordServiceTest {
     }
 
     @Test
+    @DisplayName("回放结论卡：alerts 读证据快照，含 memoryId；不回查当前记忆")
+    void cardAlertsReadFromSnapshot() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(19, 17, 0), SessionStatus.CLOSED, 0));
+        when(messageMapper.selectList(any())).thenReturn(List.of());
+
+        GuideRecord record = new GuideRecord();
+        record.setId("r1");
+        record.setSessionId("s1");
+        record.setRecDeptId("d-neuro");
+        record.setConfidence(0.85);
+        record.setLowConfidence(0);
+        record.setEvidence("""
+                {"retrieved":[],
+                 "memory":{"text":"【长期记忆】2型糖尿病","query":"胸闷","threshold":0.7,
+                           "hits":[{"id":"m1","type":"background_health","key":"慢病","value":"2型糖尿病","score":0.86}]},
+                 "alerts":[
+                   {"level":"hard","text":"与您的过敏史「青霉素类」相关","anchor":"field:allergy","source":"rule","memoryId":null},
+                   {"level":"advisory","text":"与您提到的「2型糖尿病」相关","anchor":"memory:m1","source":"memory","memoryId":"m1"}
+                 ]}
+                """);
+        when(recordMapper.selectList(any())).thenReturn(List.of(record));
+
+        List<ChatDTO.AlertVO> alerts = service.sessionDetail(ME, "s1").cards().get(0).alerts();
+
+        assertEquals(2, alerts.size());
+        assertEquals("hard", alerts.get(0).level());
+        assertEquals("rule", alerts.get(0).source());
+        assertNull(alerts.get(0).memoryId(), "档案硬警报没有记忆出处");
+        assertEquals("advisory", alerts.get(1).level());
+        assertEquals("memory", alerts.get(1).source());
+        assertEquals("m1", alerts.get(1).memoryId());
+        assertEquals("memory:m1", alerts.get(1).anchor());
+        assertEquals("与您提到的「2型糖尿病」相关", alerts.get(1).text());
+    }
+
+    @Test
+    @DisplayName("老记录没有 alerts / memory 节点：回放给空列表，不炸")
+    void cardToleratesMissingAlertsAndMemoryNodes() {
+        when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(19, 17, 0), SessionStatus.CLOSED, 0));
+        when(messageMapper.selectList(any())).thenReturn(List.of());
+
+        GuideRecord record = new GuideRecord();
+        record.setId("r1");
+        record.setSessionId("s1");
+        record.setRecDeptId("d-neuro");
+        record.setConfidence(0.85);
+        record.setLowConfidence(0);
+        // 工单 10/11 之前的老快照：既没有 alerts 也没有 memory
+        record.setEvidence("{\"retrieved\":[]}");
+        when(recordMapper.selectList(any())).thenReturn(List.of(record));
+
+        RecordDTO.CardVO card = service.sessionDetail(ME, "s1").cards().get(0);
+
+        assertTrue(card.alerts().isEmpty(), "缺节点 → 空列表，不炸");
+    }
+
+    @Test
     @DisplayName("一条会话出多张卡：回放两张都在、各插在自己那一轮之后（工单 05 ③）")
     void multipleCardsAreReplayedInPosition() {
         when(sessionMapper.selectById("s1")).thenReturn(session("s1", ME, at(20, 9, 0), SessionStatus.CLOSED, 2));

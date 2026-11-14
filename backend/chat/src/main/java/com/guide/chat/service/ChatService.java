@@ -298,7 +298,10 @@ public class ChatService {
                     forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText, parts, memory.preferences(), memory.recallPort());
+                    profileText, parts, memory.preferences(), memory.recallPort(),
+                    // 与 memory 召回判定读同一个键：快照里记的阈值必须是本轮真正用的那个
+                    sysConfigService.getDouble(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_THRESHOLD,
+                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_THRESHOLD));
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析

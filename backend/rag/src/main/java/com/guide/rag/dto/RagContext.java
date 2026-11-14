@@ -14,6 +14,10 @@ import java.util.List;
  * @param vectorHits     向量路召回条数（诊断用）
  * @param esHits         关键词路召回条数（诊断用）
  * @param memoryHits     稳定背景的召回命中（记忆是旁路；无端口/未命中即为空列表）
+ * @param memoryText     **本轮实际注入 Prompt 的长期记忆段文本**（{@link com.guide.rag.support.PromptBuilder#memoryBlock} 的产出）。
+ *                       证据快照直接写它——同一份文本只由一处生成，prompt 与快照不会各算一遍而漂移
+ * @param memoryQuery    稳定背景召回用的查询串（改写后的 query；无召回端口时为 null）
+ * @param memoryThreshold 稳定背景召回阈值（快照取证用，见 {@link RagRequest#memoryThreshold()}）
  */
 public record RagContext(
         String query,
@@ -21,16 +25,26 @@ public record RagContext(
         List<ChunkHit> chunks,
         int vectorHits,
         int esHits,
-        List<MemoryHit> memoryHits) {
+        List<MemoryHit> memoryHits,
+        String memoryText,
+        String memoryQuery,
+        double memoryThreshold) {
 
     public RagContext {
         memoryHits = memoryHits == null ? List.of() : List.copyOf(memoryHits);
     }
 
     /**
-     * 无记忆命中的便捷构造：给不关心记忆的调用方/测试用。
-     * 正常检索路径（{@code RagService}）显式传 memoryHits，不走这里。
+     * 不关心记忆取证字段的便捷构造：记忆段文本为空、查询串为 null、阈值取默认。
+     * 正常检索路径（{@code RagService}）显式传这三项，不走这里。
      */
+    public RagContext(String query, String rewrittenQuery, List<ChunkHit> chunks, int vectorHits, int esHits,
+                      List<MemoryHit> memoryHits) {
+        this(query, rewrittenQuery, chunks, vectorHits, esHits, memoryHits, "", null,
+                RagRequest.DEFAULT_MEMORY_THRESHOLD);
+    }
+
+    /** 无记忆命中的便捷构造：给不关心记忆的调用方/测试用。 */
     public RagContext(String query, String rewrittenQuery, List<ChunkHit> chunks, int vectorHits, int esHits) {
         this(query, rewrittenQuery, chunks, vectorHits, esHits, List.of());
     }

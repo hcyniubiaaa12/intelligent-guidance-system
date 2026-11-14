@@ -123,7 +123,13 @@ public class RecordDTO {
              * 当时的**档案提示文本**（单据 04）：读**证据快照** profile 节点的 text，
              * **不回查当前档案**——患者改档案不回改历史；为空 = 当时无档案 / 老记录无该节点。
              */
-            String profileText) {
+            String profileText,
+            /**
+             * 当时的警报（工单 10/11）：读**证据快照** alerts 节点，与实时结果体逐条一致
+             * （含 memoryId 与 memory: 锚点）。**不回查当前记忆/档案**——历史回放要看到
+             * 患者当时看到的那几条；老记录缺节点 = 空列表。
+             */
+            List<ChatDTO.AlertVO> alerts) {
     }
 
     /**

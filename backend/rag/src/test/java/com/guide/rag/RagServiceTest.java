@@ -95,8 +95,9 @@ class RagServiceTest {
         rewrite.setSystem("改写系统提示词");
         rewrite.setUserTemplate("{dialogue}");
         when(prompts.getRewrite()).thenReturn(rewrite);
+        // PromptBuilder 用真的：记忆段文本由它生成，rag 只是把产出放进上下文（取证口径只有一处实现）
         ragService = new RagService(embeddingModel, rerankModel, chatModel, pgVectorUtil, esChunkUtil,
-                chunkTextProvider, mock(PromptBuilder.class), prompts);
+                chunkTextProvider, new PromptBuilder(prompts), prompts);
     }
 
     @Test
@@ -204,6 +205,24 @@ class RagServiceTest {
 
         assertThat(context.chunks()).isEmpty();
         assertThat(context.memoryHits()).containsExactly(memory);
+    }
+
+    @Test
+    @DisplayName("可取证注入文本：上下文带实际记忆段、召回用串与阈值（快照直接写这三样）")
+    void memoryTextQueryAndThresholdAreCaptured() {
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, "我有糖尿病", null);
+        MemoryRecallPort port = (query, queryVector) -> List.of(memory);
+        // 显式传 0.82：快照里记的必须是本轮真正用的阈值，不是默认值
+        RagRequest request = new RagRequest(MAIN, List.of(),
+                List.of(new DeptOption("d1", "心血管内科", "诊治心脏与血管疾病。")),
+                false, TOP_K, 3, null, List.of(), List.of(), port, 0.82);
+
+        RagContext context = ragService.retrieve(request);
+
+        assertThat(context.memoryText())
+                .isEqualTo("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病");
+        assertThat(context.memoryQuery()).isEqualTo(MAIN);
+        assertThat(context.memoryThreshold()).isEqualTo(0.82);
     }
 
     @Test

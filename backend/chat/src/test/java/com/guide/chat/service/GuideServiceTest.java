@@ -14,6 +14,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
@@ -281,7 +282,135 @@ class GuideServiceTest {
         assertThat(alerts.get(2).text()).contains("模型补充");
     }
 
+    // —— 稳定背景相关提醒（工单 11）——
+
+    @Test
+    @DisplayName("背景命中产出一条「相关」提醒：advisory、带 memoryId 与 memory 锚点，不写禁忌")
+    void memoryHitYieldsAdvisory() {
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, "我有糖尿病", null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70, memory),
+                "raw-output", new GuideService.ProfileSnapshot(null, null));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(1);
+        ChatDTO.AlertVO alert = alerts.get(0);
+        assertThat(alert.level()).isEqualTo("advisory");
+        assertThat(alert.source()).isEqualTo("memory");
+        assertThat(alert.memoryId()).isEqualTo("m1");
+        assertThat(alert.anchor()).isEqualTo("memory:m1");
+        assertThat(alert.text()).contains("相关").contains("2型糖尿病");
+        // 只报「相关」：一句背景不是医学结论，绝不能写成禁忌
+        assertThat(alert.text()).doesNotContain("禁忌").doesNotContain("不能");
+
+        JsonNode snapshotAlert = capturedEvidence(1).path("alerts").get(0);
+        assertThat(snapshotAlert.path("memoryId").asText()).isEqualTo("m1");
+        assertThat(snapshotAlert.path("anchor").asText()).isEqualTo("memory:m1");
+    }
+
+    @Test
+    @DisplayName("指不回具体记忆条目的提醒丢弃：id 为空/空白都不成提醒")
+    void memoryHitWithoutIdIsDropped() {
+        MemoryHit noId = new MemoryHit(null, "background_health", "慢病", "2型糖尿病", 0.9, null, null);
+        MemoryHit blankId = new MemoryHit("  ", "background_health", "慢病", "高血压", 0.8, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        noId, blankId),
+                "raw-output", new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("硬警报优先占名额：规则 3 条已满时，记忆提醒整体丢弃")
+    void hardAlertsTakePrecedenceOverAdvisories() {
+        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null, List.of(), null,
+                List.of("青霉素类", "磺胺类", "头孢类"), null, List.of(), null);
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        "青霉素、磺胺、头孢都在这一段里。", memory),
+                "raw-output", new GuideService.ProfileSnapshot("过敏：青霉素类、磺胺类、头孢类", profile));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source).containsOnly("rule");
+    }
+
+    @Test
+    @DisplayName("合并顺序：规则 → 记忆提醒 → 模型补充；合计 3 条，满了模型也丢")
+    void advisoriesSitBetweenRuleAndModelAlerts() {
+        RagAnswer answer = answerWithAlerts(
+                new RagAnswer.Alert("模型补充：片段提到磺胺类", null, "allergy"));
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        "青霉素皮试阳性者禁用阿莫西林。", memory),
+                "raw-output", new GuideService.ProfileSnapshot("过敏：青霉素类", profileWithAllergy("青霉素类")));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source)
+                .containsExactly("rule", "memory", "model");
+        assertThat(alerts.get(1).memoryId()).isEqualTo("m1");
+        assertThat(alerts.get(1).level()).isEqualTo("advisory");
+        assertThat(alerts.get(2).level()).isEqualTo("hard");
+    }
+
+    @Test
+    @DisplayName("证据快照 memory 节点：注入文本 + 命中条目 + 查询串 + 阈值，只写不读")
+    void memoryNodeRecordsInjectedTextAndHits() {
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86,
+                "我有糖尿病", null);
+        RagContext context = contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病",
+                "胸口闷 心慌", 0.72, memory);
+
+        service.saveConclusion(session("s1"), answer(), context, "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        JsonNode memoryNode = capturedEvidence(1).path("memory");
+        assertThat(memoryNode.isObject()).isTrue();
+        assertThat(memoryNode.path("text").asText())
+                .isEqualTo("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病");
+        assertThat(memoryNode.path("query").asText()).isEqualTo("胸口闷 心慌");
+        assertThat(memoryNode.path("threshold").asDouble()).isEqualTo(0.72);
+        JsonNode hit = memoryNode.path("hits").get(0);
+        assertThat(hit.path("id").asText()).isEqualTo("m1");
+        assertThat(hit.path("type").asText()).isEqualTo("background_health");
+        assertThat(hit.path("key").asText()).isEqualTo("慢病");
+        assertThat(hit.path("value").asText()).isEqualTo("2型糖尿病");
+        assertThat(hit.path("score").asDouble()).isEqualTo(0.86);
+    }
+
+    @Test
+    @DisplayName("无背景命中（含开关关闭 / 无端口）：memory 节点写 null，不写空对象")
+    void noMemoryHitsYieldsNullMemoryNode() {
+        service.saveConclusion(session("s1"), answer(), context(), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        JsonNode memoryNode = capturedEvidence(1).path("memory");
+        assertThat(memoryNode.isNull()).as("空节点是 null，不是一个 {} 占位").isTrue();
+    }
+
     // ---------------------------------------------------------------- 夹具
+
+    private RagContext contextWithMemory(String memoryText, String memoryQuery, double threshold,
+                                         MemoryHit... hits) {
+        return contextWithMemory(memoryText, memoryQuery, threshold, null, hits);
+    }
+
+    private RagContext contextWithMemory(String memoryText, String memoryQuery, double threshold,
+                                         String chunkContent, MemoryHit... hits) {
+        List<ChunkHit> chunks = chunkContent == null ? List.of()
+                : List.of(new ChunkHit("c1", "d-cardio", "胸痛鉴别", chunkContent, 0.9));
+        return new RagContext("胸口闷", "胸口闷", chunks, chunks.size(), 0,
+                List.of(hits), memoryText, memoryQuery, threshold);
+    }
 
     private HealthProfileAssembler.Profile profileWithAllergy(String... allergyTags) {
         return new HealthProfileAssembler.Profile(
