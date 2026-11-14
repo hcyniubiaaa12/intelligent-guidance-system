@@ -7,6 +7,7 @@ import com.guide.auth.enums.UserStatus;
 import com.guide.auth.mapper.UserMapper;
 import com.guide.auth.properties.JwtProperties;
 import com.guide.auth.service.AuthService;
+import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.util.JwtUtil;
 import com.guide.common.exception.BizException;
 import com.guide.common.util.RedisUtil;
@@ -28,6 +29,7 @@ class AuthServiceTest {
 
     private UserMapper userMapper;
     private RedisUtil redisUtil;
+    private HealthProfileService healthProfileService;
     private AuthService authService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
@@ -35,10 +37,12 @@ class AuthServiceTest {
     void setUp() {
         userMapper = mock(UserMapper.class);
         redisUtil = mock(RedisUtil.class);
+        healthProfileService = mock(HealthProfileService.class);
         JwtProperties props = new JwtProperties();
         props.setSecret("unit-test-secret-key-at-least-32-chars!!");
         props.setExpireHours(24);
-        authService = new AuthService(userMapper, passwordEncoder, new JwtUtil(props), props, redisUtil);
+        authService = new AuthService(userMapper, passwordEncoder, new JwtUtil(props), props,
+                redisUtil, healthProfileService);
     }
 
     private User user(String username, String rawPassword, UserStatus status) {
@@ -92,7 +96,10 @@ class AuthServiceTest {
     @Test
     void registerDefaultsPatientRoleAndWritesLoginState() {
         when(userMapper.selectCount(any())).thenReturn(0L);
-        when(userMapper.insert(any(User.class))).thenReturn(1);
+        when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, User.class).setId("u001");
+            return 1;
+        });
 
         AuthDTO.Register dto = new AuthDTO.Register();
         dto.setUsername("newpatient");
@@ -102,6 +109,46 @@ class AuthServiceTest {
         assertEquals("patient", vo.getRole());
         assertEquals("newpatient", vo.getNickname());
         verify(redisUtil).set(startsWith("auth:token:"), eq("1"), any(Duration.class));
+        // 未填性别/出生年：交给档案服务，由它决定不建档（空档案行没有意义）
+        verify(healthProfileService).createOnRegister("u001", null, null);
+    }
+
+    @Test
+    void registerWritesOptionalGenderAndBirthYearIntoProfile() {
+        when(userMapper.selectCount(any())).thenReturn(0L);
+        when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, User.class).setId("u002");
+            return 1;
+        });
+
+        AuthDTO.Register dto = new AuthDTO.Register();
+        dto.setUsername("newpatient");
+        dto.setPassword("123456");
+        dto.setGender("female");
+        dto.setBirthYear(1990);
+        authService.register(dto);
+
+        verify(healthProfileService).createOnRegister("u002", "female", 1990);
+    }
+
+    @Test
+    void invalidProfileValueAbortsRegistration() {
+        when(userMapper.selectCount(any())).thenReturn(0L);
+        when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
+            invocation.getArgument(0, User.class).setId("u003");
+            return 1;
+        });
+        doThrow(new BizException(1001, "出生年需在 1900 到 2026 之间"))
+                .when(healthProfileService).createOnRegister(anyString(), any(), any());
+
+        AuthDTO.Register dto = new AuthDTO.Register();
+        dto.setUsername("newpatient");
+        dto.setPassword("123456");
+        dto.setBirthYear(1800);
+
+        assertThrows(BizException.class, () -> authService.register(dto));
+        // 注册事务回滚由 @Transactional 保证；单测只断言异常上抛（不吞、不降级放行）
+        verify(redisUtil, never()).set(anyString(), anyString(), any(Duration.class));
     }
 
     @Test

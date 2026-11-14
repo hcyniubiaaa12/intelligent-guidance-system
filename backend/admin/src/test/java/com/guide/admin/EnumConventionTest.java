@@ -43,7 +43,7 @@ class EnumConventionTest {
             DocStatus.class, DocFailType.class, MappingSource.class, TermType.class, TermSource.class,
             TrackStage.class, FilterAction.class, BucketStatus.class, ReviewStatus.class,
             IngestStage.class, IngestStatus.class,
-            // 健康档案：性别入库（male/female）、标签词表类别（chronic/medication/allergy）。
+            // 健康档案：性别入库（male/female）、标签词表类别（chronic/medication/allergy/surgery）。
             // AgeRange 刻意不在列——年龄段编码天然含数字与连字符（0-3 / 60+），不满足本约定的
             // "全小写字母+下划线"，故按受控字符串处理（见 AgeRange 类注释）。
             Gender.class, HealthTagType.class,

@@ -15,10 +15,13 @@ import lombok.Setter;
  * <p><b>为什么是独立表而不是给 {@code user} 加列</b>：档案一人一份、可空、字段还会长，
  * 挂上去会把用户表变成档案表（见 spec《数据模型》）。
  *
- * <p>三个标签数组以 JSON 文本落库（与 {@code guide_record.rec_top3} / {@code evidence} 同惯例），
+ * <p>缩表后只展示「性别 / 出生年 / 过敏 / 近期用药 / 近期手术」。
+ * {@code ageRange} / {@code history_*} **保留列但不再写、不再展示、不再注入**
+ * （{@code ageRange} 仅作出生年缺失时的只读兜底，{@code history_*} 只作迁移与回滚依据）。
+ *
+ * <p>标签数组以 JSON 文本落库（与 {@code guide_record.rec_top3} / {@code evidence} 同惯例），
  * 所以实体字段是 {@code String}，由 Service 负责与 {@code List<String>} 互转。
- * {@code gender} 用枚举直接落编码值；{@code ageRange} 是区间编码（如 {@code 0-3}），
- * 用受控字符串（原因见 {@link com.guide.auth.enums.AgeRange}）。
+ * {@code gender} 用枚举直接落编码值。
  */
 @Getter
 @Setter
@@ -31,19 +34,22 @@ public class UserHealthProfile extends BaseEntity {
     /** 性别（选填，null = 未填） */
     private Gender gender;
 
-    /** 年龄段区间编码：0-3 / 4-6 / 7-14 / 15-44 / 45-59 / 60+（选填） */
+    /** 出生年（1900–当前年；选填，null = 未填） */
+    private Integer birthYear;
+
+    /** 旧年龄段区间编码：0-3 / 4-6 / 7-14 / 15-44 / 45-59 / 60+（保留只读兜底，不再写） */
     private String ageRange;
 
-    /** 既往病史标签数组（JSON 文本） */
+    /** 旧既往病史标签数组（JSON 文本；只作迁移与回滚依据，不再写、不再展示、不再注入） */
     private String historyTags;
 
-    /** 既往病史自由文本补充 */
+    /** 旧既往病史自由文本补充（保留不回写） */
     private String historyOther;
 
-    /** 长期用药标签数组（JSON 文本） */
+    /** 近期用药标签数组（JSON 文本） */
     private String medicationTags;
 
-    /** 长期用药自由文本补充 */
+    /** 近期用药自由文本补充 */
     private String medicationOther;
 
     /** 过敏史标签数组（JSON 文本） */
@@ -51,4 +57,10 @@ public class UserHealthProfile extends BaseEntity {
 
     /** 过敏史自由文本补充（具体药名等） */
     private String allergyOther;
+
+    /** 近期手术标签数组（JSON 文本） */
+    private String surgeryTags;
+
+    /** 近期手术自由文本补充 */
+    private String surgeryOther;
 }

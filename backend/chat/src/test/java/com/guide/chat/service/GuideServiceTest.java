@@ -69,28 +69,32 @@ class GuideServiceTest {
     @DisplayName("profile 节点：待注入文本 + 结构化档案内容；档案退出检索后不再写检索用串")
     void writesProfileNodeWithoutRecallQuery() {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
-                "male", "45-59",
+                "male", 1980, "45-59",
                 List.of("2型糖尿病"), null,
                 List.of(), null,
-                List.of("青霉素类"), "对海鲜过敏");
+                List.of("青霉素类"), "对海鲜过敏",
+                List.of("阑尾切除术"), null);
         GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
-                "男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏", structure);
+                "男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期手术：阑尾切除术", structure);
 
         service.saveConclusion(session("s1"), answer(), context(), "raw-output", snapshot);
 
         JsonNode profile = capturedEvidence(1).path("profile");
         assertThat(profile.isObject()).isTrue();
-        assertThat(profile.path("text").asText()).isEqualTo("男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏");
+        assertThat(profile.path("text").asText())
+                .isEqualTo("男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期手术：阑尾切除术");
         // 新快照不再写 profile.query：档案已退出检索，留一个检索用串只会诱导后人把它重新接回去。
         // 老快照里的 query 仍可安全读取（RecordService 只读 text，见 RecordServiceTest）。
         assertThat(profile.has("query")).isFalse();
 
         JsonNode content = profile.path("content");
         assertThat(content.path("gender").asText()).isEqualTo("male");
+        assertThat(content.path("birthYear").asInt()).isEqualTo(1980);
         assertThat(content.path("ageRange").asText()).isEqualTo("45-59");
         assertThat(content.path("historyTags").get(0).asText()).isEqualTo("2型糖尿病");
         assertThat(content.path("allergyTags").get(0).asText()).isEqualTo("青霉素类");
         assertThat(content.path("allergyOther").asText()).isEqualTo("对海鲜过敏");
+        assertThat(content.path("surgeryTags").get(0).asText()).isEqualTo("阑尾切除术");
         assertThat(content.path("historyOther").isNull()).isTrue();
         assertThat(content.path("medicationTags").isArray()).isTrue();
     }
@@ -178,7 +182,11 @@ class GuideServiceTest {
 
     private HealthProfileAssembler.Profile structure(String historyTag) {
         return new HealthProfileAssembler.Profile(
-                null, null, List.of(historyTag), null, List.of(), null, List.of(), null);
+                null, null, null,
+                List.of(historyTag), null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null);
     }
 
     private Dept dept(String id, String name) {

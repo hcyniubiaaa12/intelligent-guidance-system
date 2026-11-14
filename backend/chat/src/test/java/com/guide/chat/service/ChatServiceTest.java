@@ -265,8 +265,11 @@ class ChatServiceTest {
     @DisplayName("档案进模型上下文 + 结论载荷：待注入文本既进 RagRequest，也随结论回传推荐卡与证据快照")
     void profileTextFlowsIntoRagAndConclusion() {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
-                "male", "45-59", List.of("2型糖尿病"), null,
-                List.of(), null, List.of(), null);
+                "male", null, "45-59",
+                List.of("2型糖尿病"), null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null);
         when(healthProfileService.assembleForChat("u1"))
                 .thenReturn(new HealthProfileService.ChatProfile(
                         new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",

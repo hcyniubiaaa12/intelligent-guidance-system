@@ -20,22 +20,25 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
- * 患者健康档案（auth）：读取自己那份、整份覆盖写、加载标签词表。
+ * 患者健康档案（auth）：读取自己那份、整份覆盖写、加载标签词表、注册时采集性别与出生年。
+ *
+ * <p>缩表后只保留「性别 / 出生年 / 过敏 / 近期用药 / 近期手术」。旧字段
+ * {@code ageRange} / {@code history_*} **保留列但不再写**——整份覆盖写若把这三列一并写空，
+ * 迁移与回滚的依据就没了；{@code ageRange} 仅作出生年缺失时的只读兜底。
  *
  * <p>三个口径：
  * <ul>
- *   <li><b>选填、无副作用</b>：未建档读回空档案（不写库）；一个字都不填时档案层不产生任何行为，
- *       导诊链路与今天完全一致。</li>
+ *   <li><b>选填、无副作用</b>：未建档读回空档案（不写库）；一个字都不填时档案层不产生任何行为。</li>
  *   <li><b>上限在源头发现</b>：前端控件只是提示，这里按 {@code sys_config} 受管参数**二次校验**，
- *       超限直接拒绝并返回可展示错误——**绝不静默裁剪**（与链路 B「丢字零容忍」同一态度）。</li>
- *   <li><b>整份覆盖写</b>：一次提交全部字段，未填即清空。更新一律走显式的
+ *       超限直接拒绝并返回可展示错误——**绝不静默裁剪**。</li>
+ *   <li><b>整份覆盖写</b>：一次提交全部可编辑字段，未填即清空。更新一律走显式的
  *       {@code LambdaUpdateWrapper.set(...)} 而非 {@code updateById}——后者会跳过实体里的 null
  *       字段（NOT_NULL 策略），想「把某列写空」会静默失败。</li>
  * </ul>
@@ -47,6 +50,9 @@ public class HealthProfileService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /** 出生年下界：再早的出生年在真实患者里不存在，多半是输入错误 */
+    private static final int MIN_BIRTH_YEAR = 1900;
+
     private final UserHealthProfileMapper profileMapper;
     private final HealthTagMapper healthTagMapper;
     private final SysConfigService sysConfigService;
@@ -57,13 +63,15 @@ public class HealthProfileService {
         HealthProfileAssembler.Profile profile = row == null ? emptyProfileInput() : toProfile(row);
         HealthProfileDTO.ProfileVO vo = new HealthProfileDTO.ProfileVO();
         vo.setGender(profile.genderCode());
+        vo.setBirthYear(profile.birthYear());
+        // 只读兜底：出生年缺失时，前端据此展示旧年龄段（不再允许编辑）
         vo.setAgeRange(profile.ageRangeCode());
-        vo.setHistoryTags(profile.historyTags());
-        vo.setHistoryOther(profile.historyOther());
         vo.setMedicationTags(profile.medicationTags());
         vo.setMedicationOther(profile.medicationOther());
         vo.setAllergyTags(profile.allergyTags());
         vo.setAllergyOther(profile.allergyOther());
+        vo.setSurgeryTags(profile.surgeryTags());
+        vo.setSurgeryOther(profile.surgeryOther());
         vo.setLimits(limits());
         vo.setOptions(options());
         return vo;
@@ -71,6 +79,9 @@ public class HealthProfileService {
 
     /**
      * 整份覆盖写：先校验、再落库。超限（标签条数 / 自由文本字数）返回可展示错误，不写库。
+     *
+     * <p><b>刻意不写 {@code age_range} / {@code history_tags} / {@code history_other}</b>：
+     * 这三个旧列只作迁移与回滚依据（spec §2），整份覆盖会把它们清空。
      */
     @Transactional
     public void saveProfile(String userId, HealthProfileDTO.ProfileSaveReq req) {
@@ -78,27 +89,27 @@ public class HealthProfileService {
         int textMax = textMax();
 
         Gender gender = parseGender(req.getGender());
-        String ageRange = parseAgeRange(req.getAgeRange());
-        List<String> historyTags = normalizeTags(req.getHistoryTags(), HealthTagType.CHRONIC.getLabel(), tagMax);
+        Integer birthYear = parseBirthYear(req.getBirthYear());
         List<String> medicationTags = normalizeTags(req.getMedicationTags(), HealthTagType.MEDICATION.getLabel(), tagMax);
         List<String> allergyTags = normalizeTags(req.getAllergyTags(), HealthTagType.ALLERGY.getLabel(), tagMax);
-        String historyOther = normalizeText(req.getHistoryOther(), HealthTagType.CHRONIC.getLabel() + "补充", textMax);
+        List<String> surgeryTags = normalizeTags(req.getSurgeryTags(), HealthTagType.SURGERY.getLabel(), tagMax);
         String medicationOther = normalizeText(req.getMedicationOther(), HealthTagType.MEDICATION.getLabel() + "补充", textMax);
         String allergyOther = normalizeText(req.getAllergyOther(), HealthTagType.ALLERGY.getLabel() + "补充", textMax);
-        checkTextTotal(historyOther, medicationOther, allergyOther);
+        String surgeryOther = normalizeText(req.getSurgeryOther(), HealthTagType.SURGERY.getLabel() + "补充", textMax);
+        checkTextTotal(medicationOther, allergyOther, surgeryOther);
 
         // 判存在按物理行判（唯一键认物理行，不认 deleted）；没建过档就插一行
         if (profileMapper.countIncludingDeleted(userId) == 0) {
             UserHealthProfile row = new UserHealthProfile();
             row.setUserId(userId);
             row.setGender(gender);
-            row.setAgeRange(ageRange);
-            row.setHistoryTags(toJson(historyTags));
-            row.setHistoryOther(historyOther);
+            row.setBirthYear(birthYear);
             row.setMedicationTags(toJson(medicationTags));
             row.setMedicationOther(medicationOther);
             row.setAllergyTags(toJson(allergyTags));
             row.setAllergyOther(allergyOther);
+            row.setSurgeryTags(toJson(surgeryTags));
+            row.setSurgeryOther(surgeryOther);
             profileMapper.insert(row);
             return;
         }
@@ -106,13 +117,47 @@ public class HealthProfileService {
         profileMapper.revive(userId); // 幂等：没被删过时影响 0 行
         profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
                 .set(UserHealthProfile::getGender, gender)
-                .set(UserHealthProfile::getAgeRange, ageRange)
-                .set(UserHealthProfile::getHistoryTags, toJson(historyTags))
-                .set(UserHealthProfile::getHistoryOther, historyOther)
+                .set(UserHealthProfile::getBirthYear, birthYear)
                 .set(UserHealthProfile::getMedicationTags, toJson(medicationTags))
                 .set(UserHealthProfile::getMedicationOther, medicationOther)
                 .set(UserHealthProfile::getAllergyTags, toJson(allergyTags))
                 .set(UserHealthProfile::getAllergyOther, allergyOther)
+                .set(UserHealthProfile::getSurgeryTags, toJson(surgeryTags))
+                .set(UserHealthProfile::getSurgeryOther, surgeryOther)
+                .eq(UserHealthProfile::getUserId, userId));
+    }
+
+    /**
+     * 注册时采集性别与出生年（选填，同一事务内随用户创建写入档案）。
+     *
+     * <p>两个都不填时**不建档**——空档案行没有意义，且会让「未建档」与「填了但全空」变得无法区分。
+     * 用户是新建的，正常情况下不存在旧档案；判存在仍按物理行判（唯一键口径，见《数据库设计.md》§0.1）。
+     *
+     * <p>只写 {@code gender} / {@code birth_year}：档案其余字段留空，患者之后自己补。
+     * 非法性别 / 出生年直接抛 {@code PARAM_INVALID}，让注册整体回滚。
+     */
+    @Transactional
+    public void createOnRegister(String userId, String genderCode, Integer birthYear) {
+        Gender gender = parseGender(genderCode);
+        Integer year = parseBirthYear(birthYear);
+        if (gender == null && year == null) {
+            return;
+        }
+        if (profileMapper.countIncludingDeleted(userId) == 0) {
+            UserHealthProfile row = new UserHealthProfile();
+            row.setUserId(userId);
+            row.setGender(gender);
+            row.setBirthYear(year);
+            row.setMedicationTags(toJson(List.of()));
+            row.setAllergyTags(toJson(List.of()));
+            row.setSurgeryTags(toJson(List.of()));
+            profileMapper.insert(row);
+            return;
+        }
+        profileMapper.revive(userId);
+        profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
+                .set(UserHealthProfile::getGender, gender)
+                .set(UserHealthProfile::getBirthYear, year)
                 .eq(UserHealthProfile::getUserId, userId));
     }
 
@@ -120,8 +165,7 @@ public class HealthProfileService {
      * 标签词表只读列表（**仅启用项**）：患者端选项加载用。
      *
      * <p>「停用只作用在入口」的入口就是这里——停用项不再出现在患者端多选列表里。
-     * 管理端启停见 {@link HealthTagAdminService}；已保存档案里**已勾选的**标签照常进召回串
-     * （标签无条件进召回，与词表无关，见 {@link HealthProfileAssembler#assemble}）。
+     * 管理端启停见 {@link HealthTagAdminService}；已保存档案里**已勾选的**标签照常进注入文本。
      */
     public List<HealthProfileDTO.TagVO> listEnabledTags() {
         List<HealthTag> rows = selectEnabledTags();
@@ -132,7 +176,7 @@ public class HealthProfileService {
         return result;
     }
 
-    /** 启用标签（词表类别序 + 词序）：患者端选项与召回匹配词表的共用查询 */
+    /** 启用标签（词表类别序 + 词序）：患者端选项加载用 */
     private List<HealthTag> selectEnabledTags() {
         return healthTagMapper.selectList(Wrappers.<HealthTag>lambdaQuery()
                 .eq(HealthTag::getEnabled, 1)
@@ -141,25 +185,23 @@ public class HealthProfileService {
     }
 
     /**
-     * 为导诊链路组装档案两段文本（单据 02 接上"待注入文本"、03 接上"检索用串"），
-     * 并把**结构化档案**一并带回，供证据快照存"系统当时看到的档案"（单据 04）。
+     * 为导诊链路组装档案待注入文本，并把**结构化档案**一并带回，供证据快照存
+     * "系统当时看到的档案"。
      *
-     * <p>读档案 + 启用词表 → 纯函数 {@link HealthProfileAssembler#assemble}。档案不存在 / 全空 ⇒
-     * 两段均为空串、结构化档案为 null（上层据此不拼 prompt 段、不加推荐卡行、快照节点写空，
-     * 链路行为与无档案时完全一致）。
+     * <p>档案不存在 / 全空 ⇒ 文本为空串、结构化档案为 null（上层据此不拼 prompt 段、
+     * 不加推荐卡行、快照节点写空，链路行为与无档案时完全一致）。
      *
      * <p>待注入文本超 350 字天花板时**记 WARN 告警、不裁剪**——超出不是患者的问题，
-     * 是配置或词表出了问题，要能在源头被发现（与链路 B「丢字零容忍」同一态度）。
+     * 是配置或词表出了问题，要能在源头被发现。
      */
     public ChatProfile assembleForChat(String userId) {
         UserHealthProfile row = loadRow(userId);
         if (row == null) {
-            // 无档案（大多数用户）：直接给空组装结果，连词表都不查
-            return new ChatProfile(HealthProfileAssembler.assemble(emptyProfileInput(), Set.of()), null);
+            // 无档案（大多数用户）：直接给空组装结果
+            return new ChatProfile(HealthProfileAssembler.assemble(emptyProfileInput()), null);
         }
         HealthProfileAssembler.Profile profile = toProfile(row);
-        HealthProfileAssembler.Assembly assembly =
-                HealthProfileAssembler.assemble(profile, enabledTagTerms());
+        HealthProfileAssembler.Assembly assembly = HealthProfileAssembler.assemble(profile);
         if (assembly.textOverflow()) {
             log.warn("健康档案提示文本超 {} 字天花板（当前 {} 字）：非患者额度，属配置/词表异常，不裁剪、请检查",
                     HealthProfileAssembler.TEXT_MAX, assembly.profileText().length());
@@ -168,11 +210,11 @@ public class HealthProfileService {
     }
 
     /**
-     * 导诊链路读档结果：两段文本 + 结构化档案（证据快照用）。
+     * 导诊链路读档结果：待注入文本 + 结构化档案（证据快照用）。
      *
      * <p>{@code structure} 是患者**当时填的结构化内容**（编码 + 标签 + 自由文本）——随结论
      * 落进证据快照的 profile 节点，供审核时看清"患者当时到底填了什么"，而不只是模型看到了什么。
-     * 未建档时为 null（快照节点写空、与今天无差异）。
+     * 未建档时为 null。
      */
     public record ChatProfile(HealthProfileAssembler.Assembly assembly,
                               HealthProfileAssembler.Profile structure) {
@@ -184,40 +226,26 @@ public class HealthProfileService {
                 .eq(UserHealthProfile::getUserId, userId).last("LIMIT 1"));
     }
 
-    /** 档案行 → 结构化档案（纯数据）：读接口、导诊链路、召回组装共用，避免各写一遍映射 */
+    /** 档案行 → 结构化档案（纯数据）：读接口、导诊链路、快照共用，避免各写一遍映射 */
     private HealthProfileAssembler.Profile toProfile(UserHealthProfile row) {
         return new HealthProfileAssembler.Profile(
                 row.getGender() == null ? null : row.getGender().getCode(),
+                row.getBirthYear(),
                 row.getAgeRange(),
                 parseTags(row.getHistoryTags()), row.getHistoryOther(),
                 parseTags(row.getMedicationTags()), row.getMedicationOther(),
-                parseTags(row.getAllergyTags()), row.getAllergyOther());
+                parseTags(row.getAllergyTags()), row.getAllergyOther(),
+                parseTags(row.getSurgeryTags()), row.getSurgeryOther());
     }
 
     private HealthProfileAssembler.Profile emptyProfileInput() {
         return new HealthProfileAssembler.Profile(
-                null, null, List.of(), null, List.of(), null, List.of(), null);
+                null, null, null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null);
     }
-
-    /**
-     * **仅启用**词表（启用的慢病 / 用药 / 过敏 term 合集）：组装召回串时**自由文本**命中判定用。
-     *
-     * <p><b>为什么这里要过滤 {@code enabled}</b>：标签"停用"只作用在<b>入口</b>——
-     * 停用后它不再是新命中的依据（停用词不再充当自由文本的召回锚点），与「科室停用只作用在入口」同一口径。
-     * 但**已勾选的标签无条件进召回串**（{@link HealthProfileAssembler#assemble} 里标签不查词表），
-     * 所以已保存档案里选过该标签的患者，其召回串仍含该标签——停用只影响"以后能不能再选"，
-     * 不改动任何已保存档案的内容与召回。
-     */
-    private Set<String> enabledTagTerms() {
-        Set<String> terms = new LinkedHashSet<>();
-        for (HealthTag tag : selectEnabledTags()) {
-            if (tag.getTerm() != null && !tag.getTerm().isBlank()) {
-                terms.add(tag.getTerm().trim());
-            }
-        }
-        return terms;
-    }
-
 
     private HealthProfileDTO.Limits limits() {
         HealthProfileDTO.Limits limits = new HealthProfileDTO.Limits();
@@ -243,8 +271,8 @@ public class HealthProfileService {
     }
 
     /** 三框合计校验：每框都不超时不代表合计不超——总量闸单独一道，超限拒绝、绝不静默裁剪 */
-    private void checkTextTotal(String historyOther, String medicationOther, String allergyOther) {
-        int total = textLength(historyOther) + textLength(medicationOther) + textLength(allergyOther);
+    private void checkTextTotal(String medicationOther, String allergyOther, String surgeryOther) {
+        int total = textLength(medicationOther) + textLength(allergyOther) + textLength(surgeryOther);
         int max = textTotalMax();
         if (total > max) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
@@ -290,17 +318,17 @@ public class HealthProfileService {
                         "性别取值不合法：" + trimmed));
     }
 
-    /** 年龄段编码校验：空 = 未填；非法值直接拒绝 */
-    private String parseAgeRange(String code) {
-        if (code == null || code.isBlank()) {
+    /** 出生年校验：空 = 未填；1900–当前年，越界直接拒绝 */
+    private Integer parseBirthYear(Integer birthYear) {
+        if (birthYear == null) {
             return null;
         }
-        String trimmed = code.trim();
-        if (AgeRange.findByCode(trimmed).isEmpty()) {
+        int current = Year.now().getValue();
+        if (birthYear < MIN_BIRTH_YEAR || birthYear > current) {
             throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
-                    "年龄段取值不合法：" + trimmed);
+                    "出生年需在 " + MIN_BIRTH_YEAR + " 到 " + current + " 之间");
         }
-        return trimmed;
+        return birthYear;
     }
 
     /** 标签清洗：去空白、去空串、去重（保序）；去重后仍超上限即拒绝 */

@@ -43,6 +43,33 @@
         />
       </div>
 
+      <div v-if="mode === 'register'" class="p-login__field">
+        <label id="p-login-l-gender" class="p-eyebrow">性别（选填）</label>
+        <PatientSelect
+          id="p-login-gender"
+          label-id="p-login-l-gender"
+          v-model="form.gender"
+          :options="genderOptions"
+          none-label="不填"
+          placeholder="选填"
+        />
+      </div>
+
+      <div v-if="mode === 'register'" class="p-login__field">
+        <label class="p-eyebrow" for="by">出生年（选填）</label>
+        <input
+          id="by"
+          v-model="form.birthYear"
+          class="p-login__input"
+          type="number"
+          inputmode="numeric"
+          min="1900"
+          :max="currentYear"
+          placeholder="如 1980"
+          @keydown.enter="submit"
+        />
+      </div>
+
       <p v-if="error" class="p-login__err">{{ error }}</p>
 
       <button class="p-btn p-login__submit" :disabled="loading" @click="submit">
@@ -63,15 +90,25 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { login, register } from '../../api/auth'
+import PatientSelect from '../../components/patient/PatientSelect.vue'
 import '../../styles/patient.css'
 
 const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
 
+const currentYear = new Date().getFullYear()
+
 const mode = ref('login') // login / register（注册默认患者角色，链路 D）
 const loading = ref(false)
-const form = ref({ username: '', password: '', nickname: '' })
+const form = ref({ username: '', password: '', nickname: '', gender: '', birthYear: '' })
+
+// 注册页未登录，取不到 `/api/profile` 的 options；性别只有两个固定值，就地列出。
+// 档案浮层（已登录）仍从后端读回体拿，不在前端重复定义。
+const genderOptions = [
+  { value: 'male', label: '男' },
+  { value: 'female', label: '女' }
+]
 
 /**
  * 登录后的落点：**由角色决定，redirect 只在它指向该角色有意义的页面时才算数**。
@@ -111,6 +148,14 @@ async function submit() {
     error.value = '密码长度需在 6-64 位之间'
     return
   }
+  let birthYear = null
+  if (mode.value === 'register' && String(form.value.birthYear ?? '').trim()) {
+    birthYear = Number(form.value.birthYear)
+    if (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > currentYear) {
+      error.value = `出生年需在 1900 到 ${currentYear} 之间`
+      return
+    }
+  }
   loading.value = true
   error.value = ''
   try {
@@ -120,7 +165,10 @@ async function submit() {
       : await register({
           username: form.value.username,
           password: form.value.password,
-          nickname: form.value.nickname || undefined
+          nickname: form.value.nickname || undefined,
+          // 选填：填了就随注册在同一事务里写进健康档案
+          gender: form.value.gender || undefined,
+          birthYear: birthYear ?? undefined
         })
     user.setLogin(vo)
     router.push(landingPath(vo.role))
