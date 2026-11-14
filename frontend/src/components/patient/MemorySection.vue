@@ -39,6 +39,10 @@
 
       <p v-if="actionError" class="p-mem__err" role="alert">{{ actionError }}</p>
 
+      <p v-if="needsCleanup" class="p-mem__cleanup">
+        长期背景已经有 {{ limits.backgroundMax }} 条，满了。删掉一条不再适用的，给新的留位置——系统不会自己替您淘汰。
+      </p>
+
       <p v-if="isEmpty" class="p-mem__empty">
         还没有记住什么。聊几句之后，我会把您的偏好和长期情况记在这里。
       </p>
@@ -169,6 +173,8 @@ const preferences = ref([])
 const backgrounds = ref([])
 // 上限来自后端受管参数；这里的默认值只在响应到达前兜底
 const limits = ref({ preferenceMax: 5, backgroundMax: 10 })
+// 背景满额时后端下发 true：这里必须消费它，否则「满了请整理」只存在于接口里
+const needsCleanup = ref(false)
 
 const toggling = ref(false)
 // 任一写操作进行中：串行执行，避免两次点击互相覆盖
@@ -230,6 +236,7 @@ async function fetchMemory() {
     preferenceMax: data.limits?.preferenceMax ?? 5,
     backgroundMax: data.limits?.backgroundMax ?? 10
   }
+  needsCleanup.value = data.needsCleanup === true
 }
 
 /**
@@ -274,7 +281,11 @@ function startEdit(item) {
   actionError.value = ''
   editingId.value = item.id
   editingValue.value = item.value || ''
-  nextTick(() => editInput.value?.focus())
+  // 模板 ref 在 v-for 内是数组（Vue 3）：直接 `.focus()` 会静默失效，这里取第一个
+  nextTick(() => {
+    const el = Array.isArray(editInput.value) ? editInput.value[0] : editInput.value
+    el?.focus()
+  })
 }
 
 function cancelEdit() {
@@ -475,6 +486,18 @@ function formatTime(raw) {
   border-left: 4px solid var(--line-2);
   border-radius: var(--r-sm);
   background: var(--rail);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+/* 背景满额：满不是错误，是「该您整理了」——用中性浅底，不占杏色（杏色专属读数/推荐） */
+.p-mem__cleanup {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
   font-family: var(--sans);
   font-size: 12px;
   line-height: 1.7;

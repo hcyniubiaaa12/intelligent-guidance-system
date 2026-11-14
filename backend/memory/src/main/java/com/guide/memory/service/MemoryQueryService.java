@@ -11,6 +11,7 @@ import com.guide.memory.mapper.MemoryMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -93,7 +94,9 @@ public class MemoryQueryService {
                 && userId != null
                 && userId.equals(row.getUserId())
                 && (row.getDeleted() == null || row.getDeleted() == 0)
-                && row.getStatus() == MemoryStatus.ACTIVE;
+                && row.getStatus() == MemoryStatus.ACTIVE
+                // 与召回侧同一口径：validTo 已过期的背景不再「生效」，控制面不能把它当成系统现在会用的
+                && (row.getValidTo() == null || !row.getValidTo().isBefore(LocalDate.now()));
     }
 
     private MemoryDTO.MemoryItemVO toItem(Memory row) {

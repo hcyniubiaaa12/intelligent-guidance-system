@@ -44,11 +44,38 @@ public record RagRequest(
         List<String> parts,
         List<String> preferences,
         MemoryRecallPort memoryRecallPort,
-        double memoryThreshold) {
+        double memoryThreshold,
+        int memoryBlockChars,
+        int memoryPreferenceMax,
+        int memoryBackgroundMaxItems) {
 
     public static final int DEFAULT_TOP_K = 20;
     public static final int DEFAULT_TOP_N = 5;
     public static final double DEFAULT_MEMORY_THRESHOLD = 0.70;
+    public static final int DEFAULT_MEMORY_BLOCK_CHARS = 500;
+    public static final int DEFAULT_MEMORY_PREFERENCE_MAX = 5;
+    public static final int DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS = 3;
+
+    /**
+     * 兼容构造：不关心记忆块字数的调用方（测试 / 只读回放）走这里，取默认 500。
+     * 生产路径由 chat 读 {@code memory.block.chars} 后显式传入，改库即生效。
+     */
+    public RagRequest(
+            String query,
+            List<RagTurn> history,
+            List<DeptOption> deptOptions,
+            boolean forceConclusion,
+            int topK,
+            int topN,
+            String profileText,
+            List<String> parts,
+            List<String> preferences,
+            MemoryRecallPort memoryRecallPort,
+            double memoryThreshold) {
+        this(query, history, deptOptions, forceConclusion, topK, topN, profileText, parts,
+                preferences, memoryRecallPort, memoryThreshold, DEFAULT_MEMORY_BLOCK_CHARS,
+                DEFAULT_MEMORY_PREFERENCE_MAX, DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS);
+    }
 
     public RagRequest {
         history = history == null ? List.of() : List.copyOf(history);
@@ -68,6 +95,10 @@ public record RagRequest(
         if (!(memoryThreshold > 0 && memoryThreshold <= 1)) {
             memoryThreshold = DEFAULT_MEMORY_THRESHOLD;
         }
+        memoryBlockChars = memoryBlockChars <= 0 ? DEFAULT_MEMORY_BLOCK_CHARS : memoryBlockChars;
+        memoryPreferenceMax = memoryPreferenceMax <= 0 ? DEFAULT_MEMORY_PREFERENCE_MAX : memoryPreferenceMax;
+        memoryBackgroundMaxItems = memoryBackgroundMaxItems <= 0
+                ? DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS : memoryBackgroundMaxItems;
     }
 
     /**

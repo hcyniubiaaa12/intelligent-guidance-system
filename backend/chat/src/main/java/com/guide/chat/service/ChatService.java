@@ -301,7 +301,14 @@ public class ChatService {
                     profileText, parts, memory.preferences(), memory.recallPort(),
                     // 与 memory 召回判定读同一个键：快照里记的阈值必须是本轮真正用的那个
                     sysConfigService.getDouble(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_THRESHOLD,
-                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_THRESHOLD));
+                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_THRESHOLD),
+                    // 记忆注入上限：rag 不依赖 auth，故由 chat 读配置后传入（改库即生效）
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_BLOCK_CHARS,
+                            SysConfigService.DEFAULT_MEMORY_BLOCK_CHARS),
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_PREFERENCE_MAX,
+                            SysConfigService.DEFAULT_MEMORY_PREFERENCE_MAX),
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_TOP_K,
+                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_TOP_K));
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析

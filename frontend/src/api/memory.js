@@ -17,8 +17,15 @@ import http from './http'
  * observedAt 为后端本地时间（ISO 字符串），页面本地化展示。
  * 服务端每次打开浮层都重拉，前端不缓存——记忆可能刚被抽取写入。
  */
+// 「我记住的」与「待确认」是同一次 GET 的两个消费方，浮层打开时会同时请求。
+// 这里只合并**同一时刻在飞的请求**（响应回来即清），不是缓存：下一次打开仍重新拉，
+// 不会被前端缓存抵消后端的即时生效。失败也清空，让下一次点击「重试」真的重试。
+let pending = null
 export function getMemory() {
-  return http.get('/memory')
+  if (!pending) {
+    pending = http.get('/memory').finally(() => { pending = null })
+  }
+  return pending
 }
 
 /**

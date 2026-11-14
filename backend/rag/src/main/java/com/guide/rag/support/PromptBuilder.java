@@ -26,11 +26,8 @@ import java.util.Objects;
 @Component
 public class PromptBuilder {
 
-    /** 记忆总块上限（档案 350 字另计）；超限按条停止加入，不切半句 */
-    private static final int MEMORY_MAX_CHARS = 500;
-    private static final int BACKGROUND_MAX_ITEMS = 3;
+    /** 背景 / 偏好各自的字数上限（spec §5 的固定口径；总块上限走 {@code memory.block.chars} 配置） */
     private static final int BACKGROUND_MAX_CHARS = 300;
-    private static final int PREFERENCE_MAX_ITEMS = 5;
     private static final int PREFERENCE_MAX_CHARS = 200;
 
     private final PromptProperties prompts;
@@ -129,9 +126,9 @@ public class PromptBuilder {
         boolean truncated = false;
         for (MemoryHit hit : backgrounds) {
             String value = hit.value().strip();
-            if (backgroundCount >= BACKGROUND_MAX_ITEMS
+            if (backgroundCount >= request.memoryBackgroundMaxItems()
                     || backgroundChars + value.length() > BACKGROUND_MAX_CHARS
-                    || totalChars + value.length() > MEMORY_MAX_CHARS) {
+                    || totalChars + value.length() > request.memoryBlockChars()) {
                 truncated = true;
                 break;
             }
@@ -148,9 +145,9 @@ public class PromptBuilder {
             if (value.isEmpty()) {
                 continue;
             }
-            if (preferenceCount >= PREFERENCE_MAX_ITEMS
+            if (preferenceCount >= request.memoryPreferenceMax()
                     || preferenceChars + value.length() > PREFERENCE_MAX_CHARS
-                    || totalChars + value.length() > MEMORY_MAX_CHARS) {
+                    || totalChars + value.length() > request.memoryBlockChars()) {
                 truncated = true;
                 break;
             }

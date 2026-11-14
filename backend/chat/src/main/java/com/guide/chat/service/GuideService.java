@@ -347,9 +347,10 @@ public class GuideService {
             evidence.set("profile", profileNode(profile));
         }
         // 记忆节点同 profile 一样是**只写不读**的当时快照：回放/审核读它，绝不回查当前记忆。
-        // 无命中（含开关关闭、无召回端口）写 null 而不是空对象——「没有发生过」与「发生了但为空」
-        // 在回放侧是两件事，空对象会让人以为当时召回了、只是没记内容。
-        if (context.memoryHits().isEmpty()) {
+        // 判「有没有发生过」看**实际注入文本**而不是只看 hits：偏好是全量注入、不产生命中，
+        // 只看 hits 会让"只有偏好"的轮次把模型看到的记忆段丢掉（快照与 prompt 对不上）。
+        // 两者都空（含开关关闭、无召回端口）才写 null——「没有发生过」与「发生了但为空」是两件事。
+        if (context.memoryHits().isEmpty() && isBlank(context.memoryText())) {
             evidence.putNull("memory");
         } else {
             evidence.set("memory", memoryNode(context));
