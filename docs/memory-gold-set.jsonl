@@ -1,0 +1,82 @@
+{"id":"P01","category":"preference","dialogue":"患者：我希望你讲慢一点，别用太专业的词。\n助手：好的，我会尽量说得通俗一些。","expect":{"preferences":[{"value":"讲慢一点","aliases":["说慢一点","慢一点"]}],"background":[],"candidates":[]},"note":"明确表达回答方式偏好"}
+{"id":"P02","category":"preference","dialogue":"患者：我是老年人，听不懂术语，别用太专业的词。","expect":{"preferences":[{"value":"别用太专业的词","aliases":["不用专业术语","少用专业术语"]}],"background":[],"candidates":[]},"note":"用词偏好，不涉及医学事实"}
+{"id":"P03","category":"preference","dialogue":"患者：叫我老王就行，不用那么客气。","expect":{"preferences":[{"value":"叫我老王","aliases":["称呼我老王"]}],"background":[],"candidates":[]},"note":"称呼偏好"}
+{"id":"P04","category":"preference","dialogue":"患者：我时间不多，你先说结论，再解释原因。","expect":{"preferences":[{"value":"先说结论","aliases":["先给结论"]}],"background":[],"candidates":[]},"note":"信息顺序偏好"}
+{"id":"P05","category":"preference","dialogue":"患者：你可以多讲一些细节，我想了解清楚一点。","expect":{"preferences":[{"value":"多讲一些细节","aliases":["详细一点","讲详细些"]}],"background":[],"candidates":[]},"note":"详略偏好"}
+{"id":"P06","category":"preference","dialogue":"患者：以后回答简短一些，不用写太长。","expect":{"preferences":[{"value":"回答简短一些","aliases":["简短一点","说短一点"]}],"background":[],"candidates":[]},"note":"详略偏好"}
+{"id":"P07","category":"preference","dialogue":"患者：我有点紧张，希望你语气温柔一点。","expect":{"preferences":[{"value":"语气温柔一点","aliases":["温柔一点","温和一点"]}],"background":[],"candidates":[]},"note":"语气偏好"}
+{"id":"P08","category":"preference","dialogue":"患者：请不要重复问同样的问题，我已经说过两遍了。","expect":{"preferences":[{"value":"不要重复问同样的问题","aliases":["别重复问"]}],"background":[],"candidates":[]},"note":"交互偏好"}
+{"id":"P09","category":"preference","dialogue":"患者：请用中文回答我，英文我看不懂。","expect":{"preferences":[{"value":"用中文回答","aliases":["说中文"]}],"background":[],"candidates":[]},"note":"语言偏好"}
+{"id":"P10","category":"preference","dialogue":"患者：有什么注意事项，请一条条列出来。","expect":{"preferences":[{"value":"把注意事项列出来","aliases":["列出注意事项","一条条列出来"]}],"background":[],"candidates":[]},"note":"输出形式偏好"}
+{"id":"P11","category":"preference","dialogue":"患者：我听力不太好，说慢一点。","expect":{"preferences":[{"value":"说慢一点","aliases":["慢一点"]}],"background":[],"candidates":[]},"note":"节奏偏好"}
+{"id":"P12","category":"preference","dialogue":"患者：麻烦用大白话解释，别绕来绕去。","expect":{"preferences":[{"value":"用大白话解释","aliases":["通俗解释","说通俗一点"]}],"background":[],"candidates":[]},"note":"表达方式偏好"}
+{"id":"B01","category":"background","dialogue":"患者：我有2型糖尿病五年了，一直在控制。","expect":{"preferences":[],"background":[{"value":"2型糖尿病","aliases":["糖尿病","二型糖尿病"],"type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B02","category":"background","dialogue":"患者：我有高血压，平时吃药控制。","expect":{"preferences":[],"background":[{"value":"高血压","aliases":["原发性高血压"],"type":"health"}],"candidates":[]},"note":"明确慢病；用药本身不是稳定背景"}
+{"id":"B03","category":"background","dialogue":"患者：我体检说高血脂，已经有几年了。","expect":{"preferences":[],"background":[{"value":"高血脂","aliases":["高脂血症","血脂高"],"type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B04","category":"background","dialogue":"患者：我有冠心病，做过支架。","expect":{"preferences":[],"background":[{"value":"冠心病","aliases":["冠状动脉粥样硬化性心脏病"],"type":"health"}],"candidates":[{"field":"surgery","value":"支架","aliases":["支架植入术","心脏支架"]}]},"note":"明确慢病 + 支架手术候选"}
+{"id":"B05","category":"background","dialogue":"患者：我慢性胃炎很多年了，吃凉的就不舒服。","expect":{"preferences":[],"background":[{"value":"慢性胃炎","type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B06","category":"background","dialogue":"患者：我有哮喘，换季的时候容易发作。","expect":{"preferences":[],"background":[{"value":"哮喘","aliases":["支气管哮喘"],"type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B07","category":"background","dialogue":"患者：我患有类风湿关节炎，一直在复查。","expect":{"preferences":[],"background":[{"value":"类风湿关节炎","aliases":["类风湿"],"type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B08","category":"background","dialogue":"患者：我有慢性肾病，医生让我定期查肾功能。","expect":{"preferences":[],"background":[{"value":"慢性肾病","aliases":["慢性肾脏病"],"type":"health"}],"candidates":[]},"note":"明确慢病"}
+{"id":"B09","category":"background","dialogue":"患者：我长期上夜班，作息比较乱。","expect":{"preferences":[],"background":[{"value":"长期夜班","aliases":["夜班"],"type":"other"}],"candidates":[]},"note":"生活背景，type=other"}
+{"id":"B10","category":"background","dialogue":"患者：我一直独居，平时没人照顾。","expect":{"preferences":[],"background":[{"value":"独居","type":"other"}],"candidates":[]},"note":"生活背景，type=other"}
+{"id":"B11","category":"background","dialogue":"患者：我一直吃素，不吃肉。","expect":{"preferences":[],"background":[{"value":"素食","aliases":["吃素"],"type":"other"}],"candidates":[]},"note":"生活背景；避免「长期吃」被判成档案事实"}
+{"id":"B12","category":"background","dialogue":"患者：我有抑郁症病史，现在情绪还算稳定。","expect":{"preferences":[],"background":[{"value":"抑郁症","aliases":["抑郁症病史","抑郁"],"type":"health"}],"candidates":[]},"note":"明确精神心理病史"}
+{"id":"A01","category":"allergy","dialogue":"患者：我青霉素过敏，上次打针差点出事。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"青霉素"}]},"note":"过敏候选"}
+{"id":"A02","category":"allergy","dialogue":"患者：我对头孢过敏，不能吃这类药。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"头孢","aliases":["头孢类"]}]},"note":"过敏候选"}
+{"id":"A03","category":"allergy","dialogue":"患者：我对磺胺类药物过敏。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"磺胺类","aliases":["磺胺类药物"]}]},"note":"过敏候选"}
+{"id":"A04","category":"allergy","dialogue":"患者：我吃海鲜过敏，身上会起疹子。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"海鲜"}]},"note":"食物过敏候选"}
+{"id":"A05","category":"allergy","dialogue":"患者：我花粉过敏，春天特别难受。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"花粉"}]},"note":"环境过敏候选"}
+{"id":"A06","category":"allergy","dialogue":"患者：我对乳胶过敏，戴手套会痒。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"乳胶"}]},"note":"过敏候选"}
+{"id":"A07","category":"allergy","dialogue":"患者：我吃阿司匹林过敏，会喘不上气。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"阿司匹林"}]},"note":"药物过敏候选"}
+{"id":"A08","category":"negation","dialogue":"患者：我没有青霉素过敏，只是有点花粉过敏。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"花粉"}]},"note":"否定句不得抽成肯定事实；正向后半句仍要抽"}
+{"id":"M01","category":"medication","dialogue":"患者：我长期吃二甲双胍，血糖控制得还可以。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"二甲双胍"}]},"note":"用药候选；不得从用药推断糖尿病"}
+{"id":"M02","category":"medication","dialogue":"患者：我一直在吃氨氯地平，血压比较稳定。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"氨氯地平"}]},"note":"用药候选；不得从用药推断高血压"}
+{"id":"M03","category":"medication","dialogue":"患者：我长期服用阿托伐他汀，用来降血脂。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"阿托伐他汀"}]},"note":"用药候选；不得推断高血脂"}
+{"id":"M04","category":"medication","dialogue":"患者：我从2024年3月开始吃二甲双胍，一直没停。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"二甲双胍","occurredOn":"2024-03"}]},"note":"用药候选带开始月份"}
+{"id":"M05","category":"medication","dialogue":"患者：我每天打胰岛素，已经好几年了。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"胰岛素"}]},"note":"用药候选"}
+{"id":"M06","category":"medication","dialogue":"患者：我长期吃华法林，需要定期查凝血。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"华法林"}]},"note":"用药候选"}
+{"id":"M07","category":"medication","dialogue":"患者：我每天吃一片阿司匹林。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"阿司匹林"}]},"note":"用药候选"}
+{"id":"M08","category":"negation","dialogue":"患者：我没有吃药，也没有做过手术。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"否定用药与手术，应为空"}
+{"id":"S01","category":"surgery","dialogue":"患者：我2023年10月做过阑尾切除术。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"阑尾切除术","occurredOn":"2023-10"}]},"note":"手术候选带发生月份"}
+{"id":"S02","category":"surgery","dialogue":"患者：我做过胆囊切除术，是微创的。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"胆囊切除术"}]},"note":"手术候选"}
+{"id":"S03","category":"surgery","dialogue":"患者：我2022年5月做过剖宫产。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"剖宫产","occurredOn":"2022-05"}]},"note":"手术候选带发生月份"}
+{"id":"S04","category":"surgery","dialogue":"患者：我做过骨折内固定术，钢板还没取。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"骨折内固定术"}]},"note":"手术候选"}
+{"id":"S05","category":"surgery","dialogue":"患者：我做过白内障手术，两只眼睛都做了。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"白内障手术"}]},"note":"手术候选"}
+{"id":"S06","category":"negation","dialogue":"患者：我没做过手术，也没住过院。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"否定手术，应为空"}
+{"id":"I01","category":"inference","dialogue":"患者：我长期吃二甲双胍。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"二甲双胍"}]},"note":"推断陷阱：吃二甲双胍不得抽出糖尿病"}
+{"id":"I02","category":"inference","dialogue":"患者：我每天吃氨氯地平。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"氨氯地平"}]},"note":"推断陷阱：吃降压药不得抽出高血压"}
+{"id":"I03","category":"inference","dialogue":"患者：我每天打胰岛素。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"胰岛素"}]},"note":"推断陷阱：打胰岛素不得抽出糖尿病"}
+{"id":"I04","category":"inference","dialogue":"患者：我长期吃阿托伐他汀。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"阿托伐他汀"}]},"note":"推断陷阱：吃他汀不得抽出高血脂"}
+{"id":"I05","category":"inference","dialogue":"患者：医生给我开了二甲双胍。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"二甲双胍"}]},"note":"推断陷阱：开药不得反推疾病"}
+{"id":"I06","category":"inference","dialogue":"患者：我在吃华法林。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"华法林"}]},"note":"推断陷阱：抗凝药不得反推疾病"}
+{"id":"I07","category":"inference","dialogue":"患者：我吃阿司匹林。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"阿司匹林"}]},"note":"推断陷阱：阿司匹林不得反推心脑血管病"}
+{"id":"I08","category":"inference","dialogue":"患者：我每天都吃硝苯地平。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"硝苯地平"}]},"note":"推断陷阱：钙拮抗剂不得反推高血压"}
+{"id":"C01","category":"current","dialogue":"患者：今天胸口闷，喘不上气。\n助手：这种情况多久了？","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉，不是长期事实"}
+{"id":"C02","category":"current","dialogue":"患者：昨晚开始肚子疼，还拉肚子。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"C03","category":"current","dialogue":"患者：这会儿头疼得厉害。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"C04","category":"current","dialogue":"患者：三天前开始发烧咳嗽。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"C05","category":"current","dialogue":"患者：刚才摔了一跤，膝盖疼。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前事件，不是长期背景"}
+{"id":"C06","category":"current","dialogue":"患者：今天早上起来头晕。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"C07","category":"current","dialogue":"患者：我现在心慌，手也有点抖。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"C08","category":"current","dialogue":"患者：嗓子疼了两天。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"当前主诉"}
+{"id":"U01","category":"unrelated","dialogue":"患者：你好。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"寒暄，应为空"}
+{"id":"U02","category":"unrelated","dialogue":"患者：谢谢。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"寒暄，应为空"}
+{"id":"U03","category":"unrelated","dialogue":"患者：在吗？","expect":{"preferences":[],"background":[],"candidates":[]},"note":"寒暄，应为空"}
+{"id":"U04","category":"unrelated","dialogue":"患者：今天天气不错。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"闲聊，应为空"}
+{"id":"U05","category":"unrelated","dialogue":"患者：再见。","expect":{"preferences":[],"background":[],"candidates":[]},"note":"寒暄，应为空"}
+{"id":"U06","category":"unrelated","dialogue":"患者：你们医院几点上班？","expect":{"preferences":[],"background":[],"candidates":[]},"note":"流程问题，不是长期事实"}
+{"id":"X01","category":"mixed","dialogue":"患者：我有2型糖尿病，希望你讲慢一点。","expect":{"preferences":[{"value":"讲慢一点","aliases":["说慢一点","慢一点"]}],"background":[{"value":"2型糖尿病","aliases":["糖尿病","二型糖尿病"],"type":"health"}],"candidates":[]},"note":"偏好 + 慢病"}
+{"id":"X02","category":"mixed","dialogue":"患者：我有高血压。\n助手：了解，平时控制得怎么样？\n患者：我长期吃氨氯地平。","expect":{"preferences":[],"background":[{"value":"高血压","aliases":["原发性高血压"],"type":"health"}],"candidates":[{"field":"medication","value":"氨氯地平"}]},"note":"慢病 + 用药候选"}
+{"id":"X03","category":"mixed","dialogue":"患者：我青霉素过敏。\n助手：记下了。\n患者：我2023年10月做过阑尾切除术。\n助手：还有别的吗？\n患者：先说结论，别绕弯子。","expect":{"preferences":[{"value":"先说结论","aliases":["先给结论"]}],"background":[],"candidates":[{"field":"allergy","value":"青霉素"},{"field":"surgery","value":"阑尾切除术","occurredOn":"2023-10"}]},"note":"过敏 + 手术 + 偏好"}
+{"id":"X04","category":"mixed","dialogue":"患者：我有高血压。\n助手：平时吃什么药？\n患者：我每天吃氨氯地平。\n助手：今天有什么不舒服？\n患者：今天头晕。","expect":{"preferences":[],"background":[{"value":"高血压","aliases":["原发性高血压"],"type":"health"}],"candidates":[{"field":"medication","value":"氨氯地平"}]},"note":"慢病 + 用药；今天头晕是当前主诉，不进记忆"}
+{"id":"X05","category":"mixed","dialogue":"患者：我做过胆囊切除术。\n助手：好的。\n患者：以后回答简短一些。","expect":{"preferences":[{"value":"回答简短一些","aliases":["简短一点","说短一点"]}],"background":[],"candidates":[{"field":"surgery","value":"胆囊切除术"}]},"note":"手术 + 偏好"}
+{"id":"X06","category":"mixed","dialogue":"患者：我嗓子疼了两天。\n助手：有没有药物过敏？\n患者：我对头孢过敏。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"头孢","aliases":["头孢类"]}]},"note":"当前主诉 + 过敏候选"}
+{"id":"X07","category":"mixed","dialogue":"患者：我一直独居。\n助手：了解。\n患者：你可以多讲一些细节。","expect":{"preferences":[{"value":"多讲一些细节","aliases":["详细一点","讲详细些"]}],"background":[{"value":"独居","type":"other"}],"candidates":[]},"note":"生活背景 + 偏好"}
+{"id":"X08","category":"mixed","dialogue":"患者：我从2024年3月开始吃二甲双胍。\n助手：好的。\n患者：麻烦用大白话解释。","expect":{"preferences":[{"value":"用大白话解释","aliases":["通俗解释","说通俗一点"]}],"background":[],"candidates":[{"field":"medication","value":"二甲双胍","occurredOn":"2024-03"}]},"note":"用药候选带月份 + 偏好；不得推断糖尿病"}
+{"id":"X09","category":"mixed","dialogue":"患者：我有高血压。\n助手：还有别的慢性病吗？\n患者：我还有2型糖尿病。","expect":{"preferences":[],"background":[{"value":"高血压","aliases":["原发性高血压"],"type":"health"},{"value":"2型糖尿病","aliases":["糖尿病","二型糖尿病"],"type":"health"}],"candidates":[]},"note":"两条慢病背景"}
+{"id":"X10","category":"mixed","dialogue":"患者：我没有糖尿病，但有高血压。","expect":{"preferences":[],"background":[{"value":"高血压","aliases":["原发性高血压"],"type":"health"}],"candidates":[]},"note":"否定一条、肯定另一条"}
+{"id":"X11","category":"mixed","dialogue":"患者：我对青霉素不过敏。\n助手：了解。\n患者：但我头孢过敏。","expect":{"preferences":[],"background":[],"candidates":[{"field":"allergy","value":"头孢","aliases":["头孢类"]}]},"note":"否定青霉素、肯定头孢过敏"}
+{"id":"X12","category":"mixed","dialogue":"患者：我没做过阑尾手术，做过胆囊切除术。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"胆囊切除术"}]},"note":"否定一项手术、肯定另一项"}
+{"id":"X13","category":"mixed","dialogue":"患者：我没吃二甲双胍，吃氨氯地平。","expect":{"preferences":[],"background":[],"candidates":[{"field":"medication","value":"氨氯地平"}]},"note":"否定一种药、肯定另一种"}
+{"id":"X14","category":"mixed","dialogue":"患者：我十几年前做过阑尾切除术。","expect":{"preferences":[],"background":[],"candidates":[{"field":"surgery","value":"阑尾切除术"}]},"note":"手术时间不精确到月：值要抽、月份应为空或 null"}
