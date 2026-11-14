@@ -1,20 +1,23 @@
 package com.guide.memory.job;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.guide.memory.config.MemoryExecutorConfig;
 import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
 import com.guide.memory.service.MemoryVectorIndexer;
 import com.guide.memory.service.MemoryVectorStore;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 记忆向量回填：扫描生效中的稳定背景，把**缺向量**或**向量比记忆旧**的行重算一遍。
@@ -31,7 +34,6 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class MemoryVectorBackfillJob {
 
     /** 单次扫描上限：回填是慢活，分批慢慢补，避免一轮把线程/模型配额打满 */
@@ -40,9 +42,29 @@ public class MemoryVectorBackfillJob {
     private final MemoryMapper memoryMapper;
     private final MemoryVectorStore vectorStore;
     private final MemoryVectorIndexer indexer;
+    /** 回填要调 embedding：走独立池，不占调度线程（它还要服务入库轮询） */
+    private final ThreadPoolTaskExecutor memoryExecutor;
+
+    public MemoryVectorBackfillJob(MemoryMapper memoryMapper, MemoryVectorStore vectorStore,
+                                   MemoryVectorIndexer indexer,
+                                   @Qualifier(MemoryExecutorConfig.MEMORY_EXECUTOR)
+                                   ThreadPoolTaskExecutor memoryExecutor) {
+        this.memoryMapper = memoryMapper;
+        this.vectorStore = vectorStore;
+        this.indexer = indexer;
+        this.memoryExecutor = memoryExecutor;
+    }
 
     @Scheduled(fixedDelayString = "${guide.memory.backfill-interval-ms:600000}", initialDelay = 60_000)
-    public void backfill() {
+    public void schedule() {
+        try {
+            memoryExecutor.execute(this::backfill);
+        } catch (RejectedExecutionException e) {
+            log.warn("记忆向量回填线程池已满，本轮跳过：{}", e.getMessage());
+        }
+    }
+
+    void backfill() {
         List<Memory> rows = activeBackgrounds();
         if (rows.isEmpty()) {
             return;

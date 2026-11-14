@@ -7,6 +7,7 @@ import com.guide.memory.service.MemoryExtractionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.List;
 
@@ -33,7 +34,7 @@ class MemoryIdleExtractionJobTest {
         port = mock(SessionActivityPort.class);
         service = mock(MemoryExtractionService.class);
         sysConfigService = mock(SysConfigService.class);
-        job = new MemoryIdleExtractionJob(port, service, sysConfigService);
+        job = new MemoryIdleExtractionJob(port, service, sysConfigService, mock(ThreadPoolTaskExecutor.class));
     }
 
     @Test

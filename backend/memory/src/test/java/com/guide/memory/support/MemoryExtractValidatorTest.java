@@ -148,6 +148,18 @@ class MemoryExtractValidatorTest {
     }
 
     @Test
+    @DisplayName("原话提到用药不等于背景值是药：糖尿病 + 长期吃二甲双胍时保留糖尿病")
+    void keepsDiseaseBackgroundEvenWhenQuoteMentionsMedication() {
+        List<BackgroundDraft> kept = MemoryExtractValidator.validBackgrounds(List.of(
+                new BackgroundDraft("慢病", "糖尿病", "health", "我有糖尿病，一直在吃二甲双胍", OK, null),
+                new BackgroundDraft("生活", "素食", "other", "我一直吃素，不吃肉", OK, null),
+                new BackgroundDraft("用药", "二甲双胍", "health", "我一直在吃二甲双胍", OK, null)), MIN);
+
+        // 前两条是患者明确说出的稳定背景；第三条的值本身就是药名，应走档案候选。
+        assertThat(kept).extracting(BackgroundDraft::value).containsExactly("糖尿病", "素食");
+    }
+
+    @Test
     @DisplayName("空 key / 空 value：丢弃（模型给了空壳也按无效处理）")
     void dropsBlankFields() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(

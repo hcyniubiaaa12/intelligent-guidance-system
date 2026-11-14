@@ -2,15 +2,18 @@ package com.guide.memory.job;
 
 import com.guide.auth.service.SysConfigService;
 import com.guide.common.port.SessionActivityPort;
+import com.guide.memory.config.MemoryExecutorConfig;
 import com.guide.common.port.SessionActivityPort.IdleSession;
 import com.guide.memory.service.MemoryExtractionService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 空闲会话兜底抽取：会话静默 30 分钟后，把还没抽过的对话补抽一次。
@@ -26,7 +29,6 @@ import java.util.List;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class MemoryIdleExtractionJob {
 
     /** 空闲多久算「这一轮结束了」——spec §4 定 30 分钟 */
@@ -37,9 +39,31 @@ public class MemoryIdleExtractionJob {
     private final SessionActivityPort sessionActivityPort;
     private final MemoryExtractionService memoryExtractionService;
     private final SysConfigService sysConfigService;
+    /** 抽取必须走独立池：@Scheduled 的默认单线程还要服务入库轮询，不能在这里跑模型 */
+    private final ThreadPoolTaskExecutor memoryExecutor;
+
+    public MemoryIdleExtractionJob(SessionActivityPort sessionActivityPort,
+                                   MemoryExtractionService memoryExtractionService,
+                                   SysConfigService sysConfigService,
+                                   @Qualifier(MemoryExecutorConfig.MEMORY_EXECUTOR)
+                                   ThreadPoolTaskExecutor memoryExecutor) {
+        this.sessionActivityPort = sessionActivityPort;
+        this.memoryExtractionService = memoryExtractionService;
+        this.sysConfigService = sysConfigService;
+        this.memoryExecutor = memoryExecutor;
+    }
 
     @Scheduled(fixedDelayString = "${guide.memory.idle-scan-interval-ms:300000}", initialDelay = 60_000)
-    public void scan() {
+    public void schedule() {
+        try {
+            memoryExecutor.execute(this::scan);
+        } catch (RejectedExecutionException e) {
+            // 抽取是旁路：线程池满时丢掉这一轮远好过阻塞调度线程（它还服务入库轮询）
+            log.warn("空闲抽取线程池已满，本轮跳过：{}", e.getMessage());
+        }
+    }
+
+    void scan() {
         try {
             int sessionMax = sysConfigService.getInt(SysConfigService.KEY_MEMORY_EXTRACT_SESSION_MAX,
                     SysConfigService.DEFAULT_MEMORY_EXTRACT_SESSION_MAX);

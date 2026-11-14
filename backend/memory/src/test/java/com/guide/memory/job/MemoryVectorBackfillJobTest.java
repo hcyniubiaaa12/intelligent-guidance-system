@@ -9,6 +9,7 @@ import com.guide.memory.service.MemoryVectorStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -39,7 +40,7 @@ class MemoryVectorBackfillJobTest {
         memoryMapper = mock(MemoryMapper.class);
         vectorStore = mock(MemoryVectorStore.class);
         indexer = mock(MemoryVectorIndexer.class);
-        job = new MemoryVectorBackfillJob(memoryMapper, vectorStore, indexer);
+        job = new MemoryVectorBackfillJob(memoryMapper, vectorStore, indexer, mock(ThreadPoolTaskExecutor.class));
     }
 
     @Test

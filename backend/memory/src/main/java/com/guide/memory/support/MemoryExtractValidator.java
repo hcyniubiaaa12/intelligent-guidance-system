@@ -51,13 +51,10 @@ public final class MemoryExtractValidator {
     private static final List<String> SYMPTOM_WORDS = List.of(
             "疼", "痛", "闷", "痒", "晕", "麻", "酸", "胀", "恶心", "呕吐", "发热", "发烧",
             "咳嗽", "咳痰", "腹泻", "便秘", "心慌", "气短", "乏力", "出血", "失眠", "反酸");
-    /**
-     * 档案事实关键词（工单 09 兜底）：这些内容应走 {@code profile_candidates}，不能进背景记忆。
-     * 模型偶尔仍会把「青霉素过敏」「做过阑尾切除术」塞进 background；与其让它以背景身份
-     * 被注入 prompt（未确认就生效），不如直接丢弃并 WARN——**宁可不记，也不写错地方**。
-     */
-    private static final List<String> PROFILE_FACT_MARKERS = List.of(
-            "过敏", "切除术", "手术", "服用", "服药", "吃药", "用药", "长期吃", "一直吃", "正在吃");
+    /** 用药动词：紧挨在背景值前面时，这个值本身就是药名（应走档案候选） */
+    private static final Pattern MEDICATION_VERB = Pattern.compile("(?:吃|服用|服|用|打|注射|输)\\s*$");
+    /** 服药动词在值之前多远的窗口内算「这个值就是药」 */
+    private static final int MEDICATION_VERB_WINDOW = 4;
 
     private MemoryExtractValidator() {
     }
@@ -171,13 +168,32 @@ public final class MemoryExtractValidator {
     }
 
     /**
-     * 背景值/原话里出现档案事实关键词 ⇒ 它不是「稳定背景」，应走档案候选。
-     * 只看 value 与原话，不看 type——模型标成 health 也不能放行。
+     * 背景值像档案事实（过敏 / 手术 / 药名）⇒ 它应走档案候选，不能以背景身份注入。
+     *
+     * <p><b>只按「值 + 值的上下文」判，不因为原话里出现用药词就一刀切</b>：
+     * 「我有糖尿病，一直在吃二甲双胍」里的「糖尿病」是患者明确说出的稳定背景，
+     * 按原话含「吃」就丢会把 User Story 13 的常见句式误杀（spec §4 只禁止无依据的推断）。
+     * 药名靠「吃/服用/打」紧挨在值前面判定，而不是靠原话里任何位置出现用药词。
      */
     static boolean looksLikeProfileFact(String value, String quote) {
-        String text = (value == null ? "" : value) + '\u0000' + (quote == null ? "" : quote);
-        for (String marker : PROFILE_FACT_MARKERS) {
-            if (text.contains(marker)) {
+        String fact = value == null ? "" : value;
+        String said = quote == null ? "" : quote;
+        // 过敏 / 手术：值与原话任一出现即按档案事实处理（疾病背景极少带这两个词）
+        if (fact.contains("过敏") || fact.contains("切除术") || fact.contains("手术")
+                || said.contains("过敏") || said.contains("切除术") || said.contains("手术")) {
+            return true;
+        }
+        // 值本身就是用药描述
+        for (String marker : List.of("服用", "服药", "吃药", "用药")) {
+            if (fact.contains(marker)) {
+                return true;
+            }
+        }
+        // 原话里「吃/服用/打」紧挨在值前面 ⇒ 这个值是药名
+        if (!fact.isEmpty() && said.contains(fact)) {
+            int at = said.indexOf(fact);
+            int from = Math.max(0, at - MEDICATION_VERB_WINDOW);
+            if (MEDICATION_VERB.matcher(said.substring(from, at)).find()) {
                 return true;
             }
         }

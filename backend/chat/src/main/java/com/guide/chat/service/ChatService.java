@@ -218,6 +218,16 @@ public class ChatService {
         return requested;
     }
 
+    /** 记忆注入的旁路兜底：失败按「没有记忆」处理，绝不让记忆库抖动拖垮本轮回答 */
+    private MemoryInjectionService.Injection safeMemoryInjection(String userId, String sessionId) {
+        try {
+            return memoryInjectionService.forTurn(userId, sessionId);
+        } catch (RuntimeException e) {
+            log.warn("长期记忆读取失败，本轮按无记忆处理（档案不受影响）：{}", e.getMessage());
+            return new MemoryInjectionService.Injection(List.of(), null);
+        }
+    }
+
     /** 单轮编排主体：会话落定后执行（sessionId 已确定，异常由外层统一转 SSE error） */
     private void handleTurn(String userId, ChatSession session, boolean firstTurn, String content,
                             List<String> parts, SseEmitter emitter) {
@@ -283,8 +293,9 @@ public class ChatService {
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
-            // 长期记忆（偏好 + 背景召回端口）：关掉自动记忆时两者都为空/空端口，档案完全不受影响
-            MemoryInjectionService.Injection memory = memoryInjectionService.forTurn(userId, sessionId);
+            // 长期记忆（偏好 + 背景召回端口）：关掉自动记忆时两者都为空/空端口，档案完全不受影响。
+            // 记忆是旁路：读库失败不能把本轮导诊变成 error（rag 侧召回已有兜底，注入侧也要有）。
+            MemoryInjectionService.Injection memory = safeMemoryInjection(userId, sessionId);
             // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
             RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
             log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）"
