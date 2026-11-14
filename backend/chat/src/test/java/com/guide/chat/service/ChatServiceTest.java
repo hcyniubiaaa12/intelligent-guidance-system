@@ -280,13 +280,12 @@ class ChatServiceTest {
         verify(ragService).retrieve(ragCaptor.capture());
         assertEquals("男、45-59岁、糖尿病史", ragCaptor.getValue().profileText());
 
-        // 结论回传的是「档案快照输入」：待注入文本 + 检索用串 + 结构化档案三者一起进 saveConclusion，
-        // 由 GuideService 落进证据快照 profile 节点（单据 04）
+        // 结论回传的是「档案快照输入」：待注入文本 + 结构化档案一起进 saveConclusion，
+        // 由 GuideService 落进证据快照 profile 节点。档案已退出检索，快照不再有检索用串
         ArgumentCaptor<GuideService.ProfileSnapshot> snapshot =
                 ArgumentCaptor.forClass(GuideService.ProfileSnapshot.class);
         verify(guideService).saveConclusion(any(), any(), any(), any(), snapshot.capture());
         assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().profileText(), "推荐卡档案行来自后端读到的档案");
-        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().recallQuery(), "检索用串一并进快照");
         assertEquals(structure, snapshot.getValue().structure(), "结构化档案一并进快照");
     }
 
@@ -379,7 +378,7 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("部位声明不参与检索：它只是范围信息，不额外开召回通道（档案才有那个权力）")
+    @DisplayName("部位声明不参与检索：它只是范围信息，不额外开召回通道")
     void partsDoNotEnterRetrieval() {
         modelReturns(RAW_ASK);
 
@@ -390,7 +389,7 @@ class ChatServiceTest {
         verify(ragService).retrieve(ragCaptor.capture());
         assertEquals(3, ragCaptor.getValue().topK());
         assertEquals(3, ragCaptor.getValue().topN());
-        assertNull(ragCaptor.getValue().profileQuery());
+        assertEquals("左腹部疼", ragCaptor.getValue().query(), "检索仍只用患者那句话");
     }
 
     @Test

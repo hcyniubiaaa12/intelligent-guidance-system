@@ -258,26 +258,24 @@ public class ChatService {
             // （高置信度）卡的入口挡掉——前端只有最后一张卡能挂号（Chat.vue 的 can-register）。
             boolean hasResult = session.getHasResult() != null && session.getHasResult() == 1;
             boolean forceConclusion = !hasResult && askRound >= askMaxRounds;
-            // 健康档案由 chat 读档组装成两段文本再传进 rag（rag 不感知业务状态，不查档案）：
-            //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
+            // 健康档案由 chat 读档后只把**待注入文本**传进 rag（rag 不感知业务状态，不查档案）：
+            // 档案已退出检索层，不再有召回串——它只进生成提示词，召回固定两路（主诉向量 + 主诉关键词）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
-            String profileQuery = profile.assembly().recallQuery().isBlank() ? null : profile.assembly().recallQuery();
             // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
             RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}（召回串 {}）｜部位声明 {}",
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}｜部位声明 {}",
                     askRound, askMaxRounds, forceConclusion, depts.recommendableCount(),
                     depts.enabledCount(), depts.recommendableCount(), depts.filtered(),
                     profileText == null ? "无" : profileText.length() + " 字",
-                    profileQuery == null ? "无" : profileQuery.length() + " 字",
                     parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
                     forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText, profileQuery, parts);
+                    profileText, parts);
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
@@ -348,7 +346,7 @@ public class ChatService {
 
             // ⑥ 结论：科室校验 + 导诊记录落库 + result/done
             GuideService.Conclusion conclusion = guideService.saveConclusion(session, answer, context,
-                    rawOutput, new GuideService.ProfileSnapshot(profileText, profileQuery, profile.structure()));
+                    rawOutput, new GuideService.ProfileSnapshot(profileText, profile.structure()));
             saveMessage(sessionId, MessageRole.AI, answer.reply());
             send(emitter, SseEvents.RESULT, conclusion.payload());
             send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, true));

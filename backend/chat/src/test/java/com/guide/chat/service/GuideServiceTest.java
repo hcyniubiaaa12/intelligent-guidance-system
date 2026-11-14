@@ -66,23 +66,24 @@ class GuideServiceTest {
     }
 
     @Test
-    @DisplayName("profile 节点三要素齐全：待注入文本 + 检索用串 + 结构化档案内容")
-    void writesProfileNodeWithAllThree() {
+    @DisplayName("profile 节点：待注入文本 + 结构化档案内容；档案退出检索后不再写检索用串")
+    void writesProfileNodeWithoutRecallQuery() {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
                 "male", "45-59",
                 List.of("2型糖尿病"), null,
                 List.of(), null,
                 List.of("青霉素类"), "对海鲜过敏");
         GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
-                "男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏",
-                "男、45-59岁、2型糖尿病、青霉素类", structure);
+                "男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏", structure);
 
         service.saveConclusion(session("s1"), answer(), context(), "raw-output", snapshot);
 
         JsonNode profile = capturedEvidence(1).path("profile");
         assertThat(profile.isObject()).isTrue();
         assertThat(profile.path("text").asText()).isEqualTo("男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏");
-        assertThat(profile.path("query").asText()).isEqualTo("男、45-59岁、2型糖尿病、青霉素类");
+        // 新快照不再写 profile.query：档案已退出检索，留一个检索用串只会诱导后人把它重新接回去。
+        // 老快照里的 query 仍可安全读取（RecordService 只读 text，见 RecordServiceTest）。
+        assertThat(profile.has("query")).isFalse();
 
         JsonNode content = profile.path("content");
         assertThat(content.path("gender").asText()).isEqualTo("male");
@@ -98,7 +99,7 @@ class GuideServiceTest {
     @DisplayName("无档案：profile 节点为 null（回归——快照除多一个空节点外与今天一致）")
     void emptyProfileYieldsNullNode() {
         service.saveConclusion(session("s1"), answer(), context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         JsonNode evidence = capturedEvidence(1);
         assertThat(evidence.has("profile")).isTrue();
@@ -109,9 +110,9 @@ class GuideServiceTest {
     @DisplayName("档案快照是「当时那一份」：两次导诊用不同档案，各留各的（改档案不回改历史）")
     void eachRecordKeepsItsOwnProfile() {
         service.saveConclusion(session("s1"), answer(), context(), "raw-1",
-                new GuideService.ProfileSnapshot("糖尿病史", "糖尿病史", structure("2型糖尿病")));
+                new GuideService.ProfileSnapshot("糖尿病史", structure("2型糖尿病")));
         service.saveConclusion(session("s2"), answer(), context(), "raw-2",
-                new GuideService.ProfileSnapshot("高血压史", "高血压史", structure("高血压")));
+                new GuideService.ProfileSnapshot("高血压史", structure("高血压")));
 
         List<JsonNode> evidences = capturedEvidences(2);
         assertThat(evidences.get(0).path("profile").path("text").asText()).isEqualTo("糖尿病史");
@@ -132,7 +133,7 @@ class GuideServiceTest {
                 "老年多病共存", List.of(), 0.7, true);
 
         service.saveConclusion(session("s1"), answer, context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         GuideRecord record = capturedRecord(1);
         assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
@@ -148,7 +149,7 @@ class GuideServiceTest {
         when(deptService.getById("d-cardio")).thenReturn(dept("d-cardio", "心血管内科"));
 
         service.saveConclusion(session("s1"), answer, contextWithCardioChunk(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         GuideRecord record = capturedRecord(1);
         assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
@@ -163,7 +164,7 @@ class GuideServiceTest {
         asked.setAskRound(3); // 常见路径：预算用满才拿到结论
 
         service.saveConclusion(asked, answer(), context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         // 同一个 updateById 里两个事实一起落：has_result=1 与 ask_round=0
         ArgumentCaptor<ChatSession> captor = ArgumentCaptor.forClass(ChatSession.class);

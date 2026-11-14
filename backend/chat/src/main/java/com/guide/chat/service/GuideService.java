@@ -65,9 +65,9 @@ public class GuideService {
      * 结论落库 + 组装 result 事件载荷。
      *
      * @param rawOutput 模型原始输出（证据快照用，审核回放）
-     * @param profile   本轮健康档案快照输入（待注入文本 + 检索用串 + 结构化档案，可为空）；
+     * @param profile   本轮健康档案快照输入（待注入文本 + 结构化档案，可为空）；
      *                  其中待注入文本随 result 事件单独下发，供推荐卡「已参考您的健康档案」行——
-     *                  它来自后端读档，**不是模型输出**（单据 02）；三者一并进证据快照 profile 节点（单据 04）
+     *                  它来自后端读档，**不是模型输出**；两者一并进证据快照 profile 节点
      */
     @Transactional(rollbackFor = Exception.class)
     public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context,
@@ -245,16 +245,15 @@ public class GuideService {
      * {@code retrieved_query} / {@code prompt_snippet} 同构，落在同一份证据快照 JSON 里，
      * **不新增存储、不新增表、不新增列**。
      *
-     * <p>三样都要，缺一不可：
+     * <p>两样都要，缺一不可：
      * <ul>
      *   <li>{@code text} —— 档案提示文本（模型实际看到的背景）；</li>
-     *   <li>{@code query} —— 档案召回串（检索实际用到的那段）；</li>
      *   <li>{@code content} —— 患者当时填的**结构化档案**（编码 + 标签 + 自由文本）：
      *       只存加工后的文本，审核时就看不出患者当初勾了什么、写了什么。</li>
      * </ul>
      *
-     * <p>节点里的 {@code text}/{@code query} 键是**证据快照的持久化字段名**（词表「档案快照」即以此命名），
-     * 而 Java 记录组件用 {@code profileText}/{@code recallQuery} 消歧（{@code query} 易与主诉串混淆）。
+     * <p><b>不再写 {@code query}</b>：档案已退出检索层，新快照里没有检索用串可记。
+     * 老快照的该键仍原样留在库里、读取侧只取 {@code text}，因此安全可读、不需迁移。
      *
      * <p><b>只写不读</b>：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——
      * 档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，
@@ -263,7 +262,6 @@ public class GuideService {
     private ObjectNode profileNode(ProfileSnapshot profile) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("text", profile.profileText());
-        node.put("query", profile.recallQuery());
         HealthProfileAssembler.Profile structure = profile.structure();
         if (structure == null) {
             node.putNull("content");
@@ -385,13 +383,12 @@ public class GuideService {
     }
 
     /**
-     * 本轮档案快照输入（证据快照 profile 节点用，单据 04）。
+     * 本轮档案快照输入（证据快照 profile 节点用）。
      *
      * @param profileText 档案提示文本（= 推荐卡「已参考健康档案」行）；空 = 本轮无档案
-     * @param recallQuery 档案召回串（03 起进检索扩容）；空 = 无
      * @param structure   患者当时填的结构化档案（编码 + 标签 + 自由文本）；未建档为 null
      */
-    public record ProfileSnapshot(String profileText, String recallQuery,
+    public record ProfileSnapshot(String profileText,
                                   HealthProfileAssembler.Profile structure) {
     }
 
