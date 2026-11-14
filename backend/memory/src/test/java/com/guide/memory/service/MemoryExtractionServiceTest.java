@@ -57,6 +57,7 @@ class MemoryExtractionServiceTest {
     private MemoryMapper memoryMapper;
     private MemoryLogService memoryLogService;
     private SysConfigService sysConfigService;
+    private MemoryVectorIndexer vectorIndexer;
     private MemoryExtractionService service;
     private final AtomicInteger idSeq = new AtomicInteger();
 
@@ -68,8 +69,9 @@ class MemoryExtractionServiceTest {
         memoryMapper = mock(MemoryMapper.class);
         memoryLogService = mock(MemoryLogService.class);
         sysConfigService = mock(SysConfigService.class);
+        vectorIndexer = mock(MemoryVectorIndexer.class);
         service = new MemoryExtractionService(memorySettingService, sessionActivityPort, memoryExtractor,
-                memoryMapper, memoryLogService, sysConfigService);
+                memoryMapper, memoryLogService, sysConfigService, vectorIndexer);
 
         when(memorySettingService.isEnabled(USER)).thenReturn(true);
         when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
@@ -151,6 +153,9 @@ class MemoryExtractionServiceTest {
 
         verify(memoryLogService).append("m1", USER, MemoryOp.ADD, null, "讲慢一点", MemoryActor.EXTRACT);
         verify(memoryLogService).append("m2", USER, MemoryOp.ADD, null, "2型糖尿病", MemoryActor.EXTRACT);
+        // 只给稳定背景建向量：偏好永远全量注入，不需要按需召回
+        verify(vectorIndexer).index(background);
+        verify(vectorIndexer, never()).index(preference);
     }
 
     @Test

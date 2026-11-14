@@ -53,6 +53,7 @@ class MemoryManageServiceTest {
 
     private MemoryMapper memoryMapper;
     private MemoryLogService memoryLogService;
+    private MemoryVectorIndexer vectorIndexer;
     private MemoryManageService service;
 
     @BeforeAll
@@ -64,7 +65,8 @@ class MemoryManageServiceTest {
     void setUp() {
         memoryMapper = mock(MemoryMapper.class);
         memoryLogService = mock(MemoryLogService.class);
-        service = new MemoryManageService(memoryMapper, memoryLogService);
+        vectorIndexer = mock(MemoryVectorIndexer.class);
+        service = new MemoryManageService(memoryMapper, memoryLogService, vectorIndexer);
     }
 
     @Test
@@ -86,6 +88,25 @@ class MemoryManageServiceTest {
                 .doesNotContain("valid_from")
                 .doesNotContain("valid_to");
         verify(memoryLogService).append("m1", USER, MemoryOp.UPDATE, "讲快一点", "讲慢一点", MemoryActor.USER);
+        // 偏好不向量化：编辑不触发任何向量操作
+        verifyNoInteractions(vectorIndexer);
+    }
+
+    @Test
+    @DisplayName("编辑背景：retrieval_text 同步刷新并立即重算向量（否则召回仍用旧文本的向量）")
+    void updateBackgroundRefreshesVectorText() {
+        Memory row = memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病");
+        when(memoryMapper.selectById("m1")).thenReturn(row);
+
+        service.updateValue(USER, "m1", " 1型糖尿病 ");
+
+        ArgumentCaptor<Wrapper<Memory>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(memoryMapper).update(isNull(), captor.capture());
+        String sqlSet = captor.getValue().getSqlSet();
+        assertThat(sqlSet).contains("mvalue").contains("retrieval_text").contains("updated_at");
+        verify(vectorIndexer).index(row);
+        assertThat(row.getMvalue()).isEqualTo("1型糖尿病");
+        assertThat(row.getRetrievalText()).isEqualTo("1型糖尿病");
     }
 
     @Test
@@ -152,6 +173,7 @@ class MemoryManageServiceTest {
 
         verify(memoryMapper).deleteById("m1");
         verify(memoryLogService).append("m1", USER, MemoryOp.DELETE, "2型糖尿病", null, MemoryActor.USER);
+        verify(vectorIndexer).delete("m1");
     }
 
     @Test
@@ -187,6 +209,10 @@ class MemoryManageServiceTest {
         verify(memoryLogService).append("own1", USER, MemoryOp.DELETE, "慢一点", null, MemoryActor.USER);
         verify(memoryLogService).append("own2", USER, MemoryOp.DELETE, "高血压", null, MemoryActor.USER);
         verify(memoryLogService, times(2)).append(any(), any(), eq(MemoryOp.DELETE), any(), isNull(), any());
+        verify(vectorIndexer).delete("own1");
+        verify(vectorIndexer).delete("own2");
+        verify(vectorIndexer, never()).delete("other");
+        verify(vectorIndexer, never()).delete("expired");
     }
 
     @Test

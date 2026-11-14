@@ -6,6 +6,7 @@ import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
+import com.guide.memory.support.StickyTracker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -36,6 +38,7 @@ class MemoryInjectionServiceTest {
     private MemoryMapper memoryMapper;
     private MemorySettingService memorySettingService;
     private SysConfigService sysConfigService;
+    private MemoryVectorStore vectorStore;
     private MemoryInjectionService service;
 
     @BeforeEach
@@ -43,9 +46,11 @@ class MemoryInjectionServiceTest {
         memoryMapper = mock(MemoryMapper.class);
         memorySettingService = mock(MemorySettingService.class);
         sysConfigService = mock(SysConfigService.class);
+        vectorStore = mock(MemoryVectorStore.class);
         when(sysConfigService.getInt(anyString(), anyInt()))
                 .thenReturn(SysConfigService.DEFAULT_MEMORY_PREFERENCE_MAX);
-        service = new MemoryInjectionService(memoryMapper, memorySettingService, sysConfigService);
+        service = new MemoryInjectionService(memoryMapper, memorySettingService, sysConfigService,
+                vectorStore, new StickyTracker());
     }
 
     @Test
@@ -61,16 +66,17 @@ class MemoryInjectionServiceTest {
     }
 
     @Test
-    @DisplayName("开关开启但无记忆：偏好为空、端口存在（07 占位实现无背景召回）")
+    @DisplayName("开关开启但无记忆：偏好为空、端口存在且本轮无命中")
     void enabledWithoutMemoriesReturnsEmptyPreferencesAndPort() {
         when(memorySettingService.isEnabled(USER)).thenReturn(true);
         when(memoryMapper.selectList(any())).thenReturn(List.of());
+        when(vectorStore.search(eq(USER), any(), anyInt())).thenReturn(List.of());
 
         MemoryInjectionService.Injection injection = service.forTurn(USER, SESSION);
 
         assertThat(injection.preferences()).isEmpty();
-        assertThat(injection.recallPort()).isNotNull();
-        assertThat(injection.recallPort().recall("胸闷", new float[]{0.1f})).isNullOrEmpty();
+        assertThat(injection.recallPort()).isInstanceOf(MemoryRecallService.class);
+        assertThat(injection.recallPort().recall("胸闷", new float[]{0.1f})).isEmpty();
     }
 
     @Test
