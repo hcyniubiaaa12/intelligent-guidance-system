@@ -621,7 +621,7 @@ class ChatServiceTest {
     /** 结论兜底的返回值（saveConclusion 是 mock，这里只保证 payload 非空，避免 NPE 掩盖断言） */
     private GuideService.Conclusion conclusion() {
         return new GuideService.Conclusion(new GuideRecord(), new ChatDTO.ResultVO("s1234567890", "r1", "d1",
-                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null));
+                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null, List.of()));
     }
 
     /** 启用科室夹具（切片数不属于 Dept，由 RecommendableDepts 收敛时判定） */

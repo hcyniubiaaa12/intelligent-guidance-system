@@ -7,7 +7,8 @@
  * 单独成文件才看得见、也才测得到。
  *
  * 输入形状（实时 SSE 的 `result` 事件与回放快照 `d.card` 同构）：
- *   dept / confidence / top3[] / note / cites[] / profileText / lowConfidence
+ *   dept / confidence / top3[] / note / cites[] / profileText / lowConfidence / alerts[]
+ *   （alerts 是档案硬警报，只有结论轮才有；回放侧由单据 11 接上）
  */
 
 /** 模型未给出合法置信度时后端置 null：显示「—」并走低置信度样式，不出现 NaN% / null% */
