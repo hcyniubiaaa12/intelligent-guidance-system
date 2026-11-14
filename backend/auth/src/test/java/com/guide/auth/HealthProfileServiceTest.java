@@ -11,6 +11,8 @@ import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
 import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.service.SysConfigService;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import com.guide.common.exception.BizException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,8 +21,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Year;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,14 +75,6 @@ class HealthProfileServiceTest {
         return new HealthProfileDTO.ProfileSaveReq();
     }
 
-    private List<String> tags(int n) {
-        List<String> list = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            list.add("标签" + i);
-        }
-        return list;
-    }
-
     private int currentYear() {
         return Year.now().getValue();
     }
@@ -90,9 +86,9 @@ class HealthProfileServiceTest {
 
         HealthProfileDTO.ProfileVO vo = service.getProfile("u1");
 
-        assertThat(vo.getMedicationTags()).isEmpty();
+        assertThat(vo.getMedicationEntries()).isEmpty();
         assertThat(vo.getAllergyTags()).isEmpty();
-        assertThat(vo.getSurgeryTags()).isEmpty();
+        assertThat(vo.getSurgeryEntries()).isEmpty();
         assertThat(vo.getGender()).isNull();
         assertThat(vo.getBirthYear()).isNull();
         assertThat(vo.getAgeRange()).isNull();
@@ -122,20 +118,141 @@ class HealthProfileServiceTest {
         assertThat(vo.getGender()).isEqualTo("female");
         assertThat(vo.getBirthYear()).isEqualTo(1980);
         assertThat(vo.getAgeRange()).isEqualTo("45-59");
-        assertThat(vo.getSurgeryTags()).containsExactly("阑尾切除术");
+        // 老格式（字符串数组）读回：转成时间字段为空的条目，老用户不会因为改版丢数据
+        assertThat(vo.getSurgeryEntries())
+                .containsExactly(new SurgeryEntry("阑尾切除术", null));
         assertThat(vo.getSurgeryOther()).isEqualTo("去年做过胆囊手术");
+    }
+
+    @Test
+    @DisplayName("读回新对象数组：开始/结束/发生时间原样带回；空时间读成 null")
+    void readsEntryTimesFromObjectArray() {
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setMedicationTags("[{\"value\":\"二甲双胍\",\"startedOn\":\"2024-03\",\"endedOn\":null},"
+                + "{\"value\":\"布洛芬\",\"startedOn\":\"2023-01\",\"endedOn\":\"2023-02\"}]");
+        row.setSurgeryTags("[{\"value\":\"阑尾切除术\",\"occurredOn\":\"2023-10\"},"
+                + "{\"value\":\"胆囊切除术\",\"occurredOn\":null}]");
+        when(profileMapper.selectOne(any())).thenReturn(row);
+
+        HealthProfileDTO.ProfileVO vo = service.getProfile("u1");
+
+        assertThat(vo.getMedicationEntries()).containsExactly(
+                new MedicationEntry("二甲双胍", "2024-03", null),
+                new MedicationEntry("布洛芬", "2023-01", "2023-02"));
+        assertThat(vo.getSurgeryEntries()).containsExactly(
+                new SurgeryEntry("阑尾切除术", "2023-10"),
+                new SurgeryEntry("胆囊切除术", null));
+    }
+
+    @Test
+    @DisplayName("时间语义写入：空时间合法，落库为对象数组（null 时间）")
+    void savesEntriesWithEmptyTimes() {
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(0);
+        HealthProfileDTO.ProfileSaveReq request = req();
+        request.setMedicationEntries(List.of(new MedicationEntry(" 二甲双胍 ", " ", null)));
+        request.setSurgeryEntries(List.of(new SurgeryEntry("阑尾切除术", "")));
+
+        service.saveProfile("u1", request);
+
+        ArgumentCaptor<UserHealthProfile> captor = ArgumentCaptor.forClass(UserHealthProfile.class);
+        verify(profileMapper).insert(captor.capture());
+        assertThat(captor.getValue().getMedicationTags())
+                .isEqualTo("[{\"value\":\"二甲双胍\",\"startedOn\":null,\"endedOn\":null}]");
+        assertThat(captor.getValue().getSurgeryTags())
+                .isEqualTo("[{\"value\":\"阑尾切除术\",\"occurredOn\":null}]");
+    }
+
+    @Test
+    @DisplayName("未来月份：开始 / 结束 / 发生时间一律拒绝，且不写库")
+    void rejectsFutureMonths() {
+        String future = YearMonth.now().plusMonths(1)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+
+        HealthProfileDTO.ProfileSaveReq started = req();
+        started.setMedicationEntries(List.of(new MedicationEntry("二甲双胍", future, null)));
+        BizException e1 = assertThrows(BizException.class, () -> service.saveProfile("u1", started));
+        assertTrue(e1.getMessage().contains("不能是未来月份"));
+
+        HealthProfileDTO.ProfileSaveReq occurred = req();
+        occurred.setSurgeryEntries(List.of(new SurgeryEntry("阑尾切除术", future)));
+        BizException e2 = assertThrows(BizException.class, () -> service.saveProfile("u1", occurred));
+        assertTrue(e2.getMessage().contains("不能是未来月份"));
+
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+    }
+
+    @Test
+    @DisplayName("时间格式非法：不是 YYYY-MM（含 2024-13 / 2024-3）一律拒绝")
+    void rejectsInvalidMonthFormat() {
+        for (String bad : List.of("2024-13", "2024-3", "2024/03", "24-03", "2024-00")) {
+            HealthProfileDTO.ProfileSaveReq request = req();
+            request.setMedicationEntries(List.of(new MedicationEntry("二甲双胍", bad, null)));
+
+            BizException e = assertThrows(BizException.class, () -> service.saveProfile("u1", request));
+
+            assertTrue(e.getMessage().contains("YYYY-MM"), "应拒绝 " + bad);
+            verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+        }
+    }
+
+    @Test
+    @DisplayName("结束时间早于开始时间：拒绝，且不写库")
+    void rejectsEndBeforeStart() {
+        HealthProfileDTO.ProfileSaveReq request = req();
+        request.setMedicationEntries(List.of(new MedicationEntry("二甲双胍", "2024-03", "2024-02")));
+
+        BizException e = assertThrows(BizException.class, () -> service.saveProfile("u1", request));
+
+        assertTrue(e.getMessage().contains("不能早于开始时间"));
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+    }
+
+    @Test
+    @DisplayName("条目值为空：拒绝（空条目是脏输入，不是「未填」）")
+    void rejectsBlankEntryValue() {
+        HealthProfileDTO.ProfileSaveReq request = req();
+        request.setMedicationEntries(List.of(new MedicationEntry("   ", "2024-03", null)));
+
+        BizException e = assertThrows(BizException.class, () -> service.saveProfile("u1", request));
+
+        assertTrue(e.getMessage().contains("用药名称不能为空"));
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+    }
+
+    @Test
+    @DisplayName("同值同时间只留一条；同值不同时间各留一条（去重后再判条数上限）")
+    void deduplicatesSameValueAndTime() {
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(0);
+        HealthProfileDTO.ProfileSaveReq request = req();
+        List<MedicationEntry> entries = new ArrayList<>();
+        // 11 条完全相同的条目：去重后只剩 1 条，不应触发 10 条上限
+        for (int i = 0; i < 11; i++) {
+            entries.add(new MedicationEntry("二甲双胍", "2024-03", null));
+        }
+        entries.add(new MedicationEntry("二甲双胍", "2023-01", "2023-02"));
+        request.setMedicationEntries(entries);
+
+        service.saveProfile("u1", request);
+
+        ArgumentCaptor<UserHealthProfile> captor = ArgumentCaptor.forClass(UserHealthProfile.class);
+        verify(profileMapper).insert(captor.capture());
+        assertThat(captor.getValue().getMedicationTags())
+                .isEqualTo("[{\"value\":\"二甲双胍\",\"startedOn\":\"2024-03\",\"endedOn\":null},"
+                        + "{\"value\":\"二甲双胍\",\"startedOn\":\"2023-01\",\"endedOn\":\"2023-02\"}]");
     }
 
     @Test
     @DisplayName("标签超条数：后端独立二次校验直接拒绝，且不写库")
     void rejectsTooManyTags() {
         HealthProfileDTO.ProfileSaveReq request = req();
-        request.setSurgeryTags(tags(11));
+        request.setSurgeryEntries(IntStream.range(0, 11)
+                .mapToObj(i -> new SurgeryEntry("手术" + i, null)).toList());
 
         BizException e = assertThrows(BizException.class, () -> service.saveProfile("u1", request));
 
         assertEquals(1001, e.getCode());
-        assertTrue(e.getMessage().contains("手术史最多选择 10 项"));
+        assertTrue(e.getMessage().contains("手术最多填写 10 项"));
         verify(profileMapper, never()).insert(any(UserHealthProfile.class));
         verify(profileMapper, never()).update(any(), any());
     }
@@ -222,7 +339,7 @@ class HealthProfileServiceTest {
         request.setGender("male");
         request.setBirthYear(1980);
         request.setAllergyTags(List.of(" 青霉素类 ", "海鲜", "青霉素类", ""));
-        request.setSurgeryTags(List.of("阑尾切除术"));
+        request.setSurgeryEntries(List.of(new SurgeryEntry(" 阑尾切除术 ", null)));
         request.setSurgeryOther("   ");
 
         service.saveProfile("u1", request);
@@ -234,7 +351,8 @@ class HealthProfileServiceTest {
         assertThat(saved.getGender()).isEqualTo(Gender.MALE);
         assertThat(saved.getBirthYear()).isEqualTo(1980);
         assertThat(saved.getAllergyTags()).isEqualTo("[\"青霉素类\",\"海鲜\"]");
-        assertThat(saved.getSurgeryTags()).isEqualTo("[\"阑尾切除术\"]");
+        // 写路径统一写对象数组（时间空 = null），读路径再兼容老字符串数组
+        assertThat(saved.getSurgeryTags()).isEqualTo("[{\"value\":\"阑尾切除术\",\"occurredOn\":null}]");
         assertThat(saved.getSurgeryOther()).isNull();
         // 旧列不再写：迁移/回滚依据必须留在库里
         assertThat(saved.getAgeRange()).isNull();
@@ -248,7 +366,7 @@ class HealthProfileServiceTest {
     void overwritesExistingRowWithoutTouchingLegacyColumns() {
         when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
         HealthProfileDTO.ProfileSaveReq request = req();
-        request.setMedicationTags(List.of("二甲双胍"));
+        request.setMedicationEntries(List.of(new MedicationEntry("二甲双胍", "2024-03", null)));
         request.setBirthYear(1970);
 
         service.saveProfile("u1", request);
@@ -356,6 +474,7 @@ class HealthProfileServiceTest {
 
         HealthProfileService.ChatProfile chat = service.assembleForChat("u1");
 
+        // 老字符串数组（工单 02 写入）经读路径转成时间空条目：文本不因改版变化
         assertThat(chat.assembly().profileText())
                 .isEqualTo("男、1980 年出生、过敏：青霉素类、近期用药：二甲双胍、近期手术：阑尾切除术");
         // 结构化档案仍保留旧字段（证据快照审计），只是不注入
