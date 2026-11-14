@@ -135,6 +135,19 @@ class MemoryExtractValidatorTest {
     }
 
     @Test
+    @DisplayName("背景兜底：过敏 / 手术 / 服药类事实即使被模型塞进 background 也一律丢弃（应走档案候选）")
+    void dropsProfileFactsFromBackground() {
+        List<BackgroundDraft> kept = MemoryExtractValidator.validBackgrounds(List.of(
+                new BackgroundDraft("过敏", "青霉素", "health", "我青霉素过敏", OK, null),
+                new BackgroundDraft("手术", "阑尾切除术", "health", "我做过阑尾切除术", OK, null),
+                new BackgroundDraft("用药", "二甲双胍", "health", "我长期吃二甲双胍", OK, null),
+                new BackgroundDraft("慢病", "高血压", "health", "我有高血压", OK, null)), MIN);
+
+        // 宁可不记，也不把档案事实写进背景——同一事实只存一处，错位置比不记更危险
+        assertThat(kept).extracting(BackgroundDraft::value).containsExactly("高血压");
+    }
+
+    @Test
     @DisplayName("空 key / 空 value：丢弃（模型给了空壳也按无效处理）")
     void dropsBlankFields() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(

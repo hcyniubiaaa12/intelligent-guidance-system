@@ -68,6 +68,7 @@ public class MemoryExtractionService {
     private final MemoryLogService memoryLogService;
     private final SysConfigService sysConfigService;
     private final MemoryVectorIndexer vectorIndexer;
+    private final ProfileCandidateService profileCandidateService;
 
     /** 轮次完成入口（由 {@code MemoryExtractionListener} 在线程池里调用） */
     public void onTurnCompleted(TurnCompletedEvent event) {
@@ -125,6 +126,8 @@ public class MemoryExtractionService {
         }
         savePreferences(userId, result.preferences());
         saveBackgrounds(userId, result.backgrounds());
+        // 档案事实（过敏/用药/手术）只进候选表：未确认前不注入、不预警，患者接受后才写档案
+        profileCandidateService.recordCandidates(userId, result.candidates());
     }
 
     /** 预筛只看最后一条患者消息（助手消息、追问不算患者的自我陈述） */

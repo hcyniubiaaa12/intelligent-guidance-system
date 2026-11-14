@@ -481,6 +481,145 @@ class HealthProfileServiceTest {
         assertThat(chat.structure().historyTags()).containsExactly("2型糖尿病");
     }
 
+    // ---------- 候选接受：appendProfileFact（工单 09） ----------
+
+    @Test
+    @DisplayName("接受过敏候选（词表内）：并入 allergy_tags，只写这一列，其它字段一律不动")
+    void appendsAllergyIntoVocabularyTags() {
+        UserHealthProfile row = existingRow();
+        row.setAllergyTags("[\"海鲜\"]");
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
+        when(profileMapper.selectOne(any())).thenReturn(row);
+        when(healthTagMapper.selectOne(any())).thenReturn(enabledAllergyTag("青霉素"));
+
+        service.appendProfileFact("u1", HealthTagType.ALLERGY, " 青霉素 ", null);
+
+        LambdaUpdateWrapper<UserHealthProfile> wrapper = capturedProfileUpdate();
+        assertThat(wrapper.getSqlSet()).contains("allergy_tags")
+                .doesNotContain("allergy_other", "medication_tags", "surgery_tags");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains("[\"海鲜\",\"青霉素\"]");
+    }
+
+    @Test
+    @DisplayName("接受过敏候选（词表外）：追加到 allergy_other，用顿号与原文合并")
+    void appendsAllergyIntoFreeTextWhenNotInVocabulary() {
+        UserHealthProfile row = existingRow();
+        row.setAllergyTags("[\"海鲜\"]");
+        row.setAllergyOther("花粉");
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
+        when(profileMapper.selectOne(any())).thenReturn(row);
+        when(healthTagMapper.selectOne(any())).thenReturn(null);
+
+        service.appendProfileFact("u1", HealthTagType.ALLERGY, "青霉素", null);
+
+        LambdaUpdateWrapper<UserHealthProfile> wrapper = capturedProfileUpdate();
+        assertThat(wrapper.getSqlSet()).contains("allergy_other").doesNotContain("allergy_tags");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains("花粉、青霉素");
+    }
+
+    @Test
+    @DisplayName("接受用药候选：追加一条带开始月份的用药，保留原有条目")
+    void appendsMedicationEntry() {
+        UserHealthProfile row = existingRow();
+        row.setMedicationTags("[{\"value\":\"布洛芬\",\"startedOn\":\"2023-01\",\"endedOn\":\"2023-02\"}]");
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
+        when(profileMapper.selectOne(any())).thenReturn(row);
+
+        service.appendProfileFact("u1", HealthTagType.MEDICATION, "二甲双胍", "2024-03");
+
+        LambdaUpdateWrapper<UserHealthProfile> wrapper = capturedProfileUpdate();
+        assertThat(wrapper.getSqlSet()).contains("medication_tags").doesNotContain("allergy_tags", "surgery_tags");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains(
+                "[{\"value\":\"布洛芬\",\"startedOn\":\"2023-01\",\"endedOn\":\"2023-02\"},"
+                        + "{\"value\":\"二甲双胍\",\"startedOn\":\"2024-03\",\"endedOn\":null}]");
+        verify(healthTagMapper, never()).selectOne(any());
+    }
+
+    @Test
+    @DisplayName("接受手术候选：追加一条带发生月份的手术")
+    void appendsSurgeryEntry() {
+        UserHealthProfile row = existingRow();
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
+        when(profileMapper.selectOne(any())).thenReturn(row);
+
+        service.appendProfileFact("u1", HealthTagType.SURGERY, "阑尾切除术", "2023-10");
+
+        LambdaUpdateWrapper<UserHealthProfile> wrapper = capturedProfileUpdate();
+        assertThat(wrapper.getSqlSet()).contains("surgery_tags").doesNotContain("allergy_tags", "medication_tags");
+        assertThat(wrapper.getParamNameValuePairs().values())
+                .contains("[{\"value\":\"阑尾切除术\",\"occurredOn\":\"2023-10\"}]");
+    }
+
+    @Test
+    @DisplayName("没有档案行时建行：只写对应的那一列，不凭空写空数组到其它类别")
+    void createsRowForFirstAcceptedFact() {
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(0);
+        when(healthTagMapper.selectOne(any())).thenReturn(null);
+
+        service.appendProfileFact("u1", HealthTagType.ALLERGY, "青霉素", null);
+
+        ArgumentCaptor<UserHealthProfile> captor = ArgumentCaptor.forClass(UserHealthProfile.class);
+        verify(profileMapper).insert(captor.capture());
+        UserHealthProfile saved = captor.getValue();
+        assertThat(saved.getUserId()).isEqualTo("u1");
+        assertThat(saved.getAllergyOther()).isEqualTo("青霉素");
+        assertThat(saved.getAllergyTags()).isNull();
+        assertThat(saved.getMedicationTags()).isNull();
+        assertThat(saved.getSurgeryTags()).isNull();
+        verify(profileMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("同值已在档案里：不重复写（同一事实只存一处）")
+    void sameValueAlreadyPresentIsNoop() {
+        UserHealthProfile row = existingRow();
+        row.setAllergyTags("[\"青霉素\"]");
+        when(profileMapper.countIncludingDeleted("u1")).thenReturn(1);
+        when(profileMapper.selectOne(any())).thenReturn(row);
+        when(healthTagMapper.selectOne(any())).thenReturn(enabledAllergyTag("青霉素"));
+
+        service.appendProfileFact("u1", HealthTagType.ALLERGY, "青霉素", null);
+
+        verify(profileMapper, never()).update(any(), any());
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+    }
+
+    @Test
+    @DisplayName("非法字段 / 空值 / 非法月份：拒绝写入（候选值再干净也不放松校验）")
+    void rejectsInvalidAppendInput() {
+        assertThrows(BizException.class,
+                () -> service.appendProfileFact("u1", HealthTagType.CHRONIC, "糖尿病", null));
+        assertThrows(BizException.class,
+                () -> service.appendProfileFact("u1", HealthTagType.ALLERGY, "  ", null));
+        assertThrows(BizException.class,
+                () -> service.appendProfileFact("u1", HealthTagType.SURGERY, "阑尾切除术", "2024-13"));
+        verify(profileMapper, never()).insert(any(UserHealthProfile.class));
+        verify(profileMapper, never()).update(any(), any());
+    }
+
+    private UserHealthProfile existingRow() {
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setGender(Gender.MALE);
+        row.setBirthYear(1980);
+        return row;
+    }
+
+    private HealthTag enabledAllergyTag(String term) {
+        HealthTag tag = new HealthTag();
+        tag.setTerm(term);
+        tag.setType(HealthTagType.ALLERGY);
+        tag.setEnabled(1);
+        return tag;
+    }
+
+    @SuppressWarnings("unchecked")
+    private LambdaUpdateWrapper<UserHealthProfile> capturedProfileUpdate() {
+        ArgumentCaptor<Wrapper<UserHealthProfile>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(profileMapper).update(isNull(), captor.capture());
+        return (LambdaUpdateWrapper<UserHealthProfile>) captor.getValue();
+    }
+
     @SuppressWarnings("unchecked")
     private Wrapper<HealthTag> capturedTagQuery() {
         ArgumentCaptor<Wrapper<HealthTag>> captor = ArgumentCaptor.forClass(Wrapper.class);

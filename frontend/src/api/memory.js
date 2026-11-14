@@ -1,7 +1,7 @@
 import http from './http'
 
 // 患者端「长期记忆」（memory 域）控制面。
-// 列表 + 开关 + 编辑 + 删除 + 清空；候选接受拒绝由工单 09 补。
+// 列表 + 开关 + 编辑 + 删除 + 清空 + 档案候选接受/拒绝。
 
 /**
  * 读自己的长期记忆。
@@ -9,7 +9,8 @@ import http from './http'
  *   memoryEnabled,                       // 自动记忆开关：关闭只停抽取与注入，旧记忆仍可见
  *   preferences: [{ id, key, value, sourceQuote, observedAt, status }],
  *   backgrounds: [{ ...同上 }],          // 两类背景（background_health / background_other）
- *   candidates: [],                      // 待确认候选：本工单固定为空
+ *   candidates: [{ id, field, fieldLabel, value, occurredOn, sourceQuote, status, conflict }],
+ *                                        // 档案候选（待确认）：未确认前不进回答；conflict 置顶
  *   limits: { preferenceMax, backgroundMax },  // 来自 sys_config，前端不写死
  *   needsCleanup                         // 背景达到上限：提示患者整理
  * }
@@ -41,4 +42,20 @@ export function deleteMemory(id) {
 /** 清空当前用户的全部生效记忆；resolve = 删除条数 */
 export function clearMemories() {
   return http.delete('/memory')
+}
+
+/**
+ * 接受一条档案候选（先改再收）。
+ * value 省略 = 按原候选值接受；传值 = 用患者改后的值写档案。
+ */
+export function acceptCandidate(id, value) {
+  return http.post(
+    `/memory/candidates/${encodeURIComponent(id)}/accept`,
+    value == null ? {} : { value }
+  )
+}
+
+/** 拒绝一条档案候选：只标 rejected，不写档案；同一值以后不再提议 */
+export function rejectCandidate(id) {
+  return http.post(`/memory/candidates/${encodeURIComponent(id)}/reject`)
 }

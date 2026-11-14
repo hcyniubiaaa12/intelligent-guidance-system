@@ -27,6 +27,8 @@ import java.util.List;
  *   <li><b>偏好与背景分开</b>：{@code preference} 进偏好；两类 {@code background_*} 都进背景。</li>
  *   <li><b>排序降序</b>：SQL 已按 observed_at 降序，服务侧再兜一次——纯单测与换实现时仍成立。</li>
  *   <li><b>needsCleanup</b>：背景条数达到上限即为 true（满额交患者整理，不静默淘汰）。</li>
+ *   <li><b>候选单独下发</b>：{@code candidates} 由 {@link ProfileCandidateService} 组装，
+ *       未确认前不进偏好/背景、不参与注入——它只是「待患者确认」的二手事实。</li>
  * </ul>
  */
 @Service
@@ -36,6 +38,7 @@ public class MemoryQueryService {
     private final MemoryMapper memoryMapper;
     private final MemorySettingService memorySettingService;
     private final SysConfigService sysConfigService;
+    private final ProfileCandidateService profileCandidateService;
 
     public MemoryDTO.MemoryVO getMemory(String userId) {
         int preferenceMax = preferenceMax();
@@ -74,6 +77,8 @@ public class MemoryQueryService {
         vo.setMemoryEnabled(memorySettingService.isEnabled(userId));
         vo.setPreferences(preferences);
         vo.setBackgrounds(backgrounds);
+        // 待确认候选是**另一层**：未确认前不进注入、不预警；这里只原样带出给页面
+        vo.setCandidates(profileCandidateService.list(userId));
         vo.setLimits(limits);
         vo.setNeedsCleanup(backgrounds.size() >= backgroundMax);
         return vo;

@@ -9,6 +9,7 @@ import com.guide.common.port.SessionActivityPort.IdleSession;
 import com.guide.memory.dto.MemoryExtractionResult;
 import com.guide.memory.dto.MemoryExtractionResult.BackgroundDraft;
 import com.guide.memory.dto.MemoryExtractionResult.PreferenceDraft;
+import com.guide.memory.dto.MemoryExtractionResult.ProfileCandidateDraft;
 import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryActor;
 import com.guide.memory.enums.MemoryOp;
@@ -58,6 +59,7 @@ class MemoryExtractionServiceTest {
     private MemoryLogService memoryLogService;
     private SysConfigService sysConfigService;
     private MemoryVectorIndexer vectorIndexer;
+    private ProfileCandidateService profileCandidateService;
     private MemoryExtractionService service;
     private final AtomicInteger idSeq = new AtomicInteger();
 
@@ -70,8 +72,9 @@ class MemoryExtractionServiceTest {
         memoryLogService = mock(MemoryLogService.class);
         sysConfigService = mock(SysConfigService.class);
         vectorIndexer = mock(MemoryVectorIndexer.class);
+        profileCandidateService = mock(ProfileCandidateService.class);
         service = new MemoryExtractionService(memorySettingService, sessionActivityPort, memoryExtractor,
-                memoryMapper, memoryLogService, sysConfigService, vectorIndexer);
+                memoryMapper, memoryLogService, sysConfigService, vectorIndexer, profileCandidateService);
 
         when(memorySettingService.isEnabled(USER)).thenReturn(true);
         when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
@@ -238,6 +241,22 @@ class MemoryExtractionServiceTest {
 
         verify(memoryMapper, never()).insert(any(Memory.class));
         verify(memoryMapper, never()).deleteById(any(String.class));
+        verify(memoryLogService, never()).append(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("档案候选只走候选表：不写 user_memory、不建向量（未确认的二手信息绝不进注入路径）")
+    void profileCandidatesNeverBecomeMemories() {
+        ProfileCandidateDraft candidate = new ProfileCandidateDraft(
+                "allergy", "青霉素", null, "我青霉素过敏", new BigDecimal("0.95"));
+        when(memoryExtractor.extract(any())).thenReturn(
+                new MemoryExtractionResult(List.of(), List.of(), List.of(candidate)));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(profileCandidateService).recordCandidates(USER, List.of(candidate));
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        verify(vectorIndexer, never()).index(any());
         verify(memoryLogService, never()).append(any(), any(), any(), any(), any(), any());
     }
 

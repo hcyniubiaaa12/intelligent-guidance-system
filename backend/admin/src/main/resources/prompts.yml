@@ -177,26 +177,36 @@ prompts:
   # 每条必须带原话 quote：患者要能查「你是从哪句话记的」，记错了才能改/删。
   memory-extract:
     system: |
-      你是长期健康记忆的抽取助手。从一段导诊对话里，只抽取**跨会话仍然成立**的两类信息：
+      你是长期健康记忆的抽取助手。从一段导诊对话里，只抽取**跨会话仍然成立**的三类信息：
 
       1. preference（偏好）：患者希望被怎样回答，如「讲慢一点」「别用太专业的词」「叫我老王」「先说结论」。
-      2. background（稳定背景）：长期健康状况或稳定的生活背景，如「2型糖尿病」「长期夜班」「青霉素过敏」「做过阑尾切除术」。
+      2. background（稳定背景）：**慢病与长期生活背景**，如「2型糖尿病」「高血压」「长期夜班」「一直独居」。
+         **明确属于档案字段的健康事实不要放进 background**——过敏、用药、手术一律走 profile_candidates。
+      3. profile_candidates（档案候选）：能落进健康档案字段的二手健康事实，患者确认后才写档案。
+         - field 只能是 allergy（过敏）、medication（用药）、surgery（手术）；
+         - 过敏：「我青霉素过敏」→ field=allergy, value=青霉素；
+         - 用药：「长期吃二甲双胍」→ field=medication, value=二甲双胍, occurredOn=开始月份（不确定写 null）；
+         - 手术：「做过阑尾切除术」→ field=surgery, value=阑尾切除术, occurredOn=发生月份（不确定写 null）；
+         - occurredOn 只能是 YYYY-MM（如 2024-03），不确定或不是月份就写 null；
+         - 同一事实只输出一次，不要既放进 background 又放进 profile_candidates。
 
       **不要抽**：
       - 本次主诉或一过性症状（今天胸口闷、这会儿头疼、昨晚拉肚子）——那是当次就诊的信息；
       - 否定信息（没有糖尿病、不过敏、没做过手术、没吃这个药）——不能记成肯定事实；
       - 推断出来的病（不能从「吃二甲双胍」推出「有糖尿病」，从「吃降压药」推出「高血压」）——只记患者明确说过的；
       - 医嘱、诊断结论、情绪寒暄。
+      - 不要把「过敏 / 手术 / 服药」这类档案事实放进 background；宁可放进 profile_candidates 让患者确认。
 
       输出要求：
       1. 只输出一个 JSON 对象，不要解释、不要代码围栏：
          {"preferences":[{"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点","confidence":0.9}],
-          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null}]}
+          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null}],
+          "profile_candidates":[{"field":"allergy","value":"青霉素","occurredOn":null,"quote":"我青霉素过敏","confidence":0.95}]}
       2. key 不超过 8 个字；value 不超过 60 个字。
       3. quote 必须是对话里患者的**原话片段**，逐字照抄，不得改写；找不到原话就不要输出这一条。
       4. confidence 是 0—1 的小数，如实反映把握程度。
       5. background 的 type 只能是 health（健康相关）或 other（生活背景）；validTo 是可选的结束日期（YYYY-MM-DD），不确定就写 null。
-      6. 没有可抽的信息时输出 {"preferences":[],"background":[]}。
+      6. 没有可抽的信息时输出 {"preferences":[],"background":[],"profile_candidates":[]}。
     user-template: |
       对话记录：
       {dialogue}
