@@ -127,8 +127,6 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   /** 只展示年份（服务端只存年份时用）；日历仍可按完整日期选择 */
   yearOnly: { type: Boolean, default: false },
-  /** 未选过时日历默认打开的年份：业内常用 1990，避免从今年往回翻 */
-  suggestYear: { type: Number, default: 1990 },
   id: { type: String, default: undefined },
   labelId: { type: String, default: undefined },
   placeholder: { type: String, default: '选择出生日期（选填）' }
@@ -140,10 +138,12 @@ const trigger = ref(null)
 const open = ref(false)
 const openUp = ref(false)
 const mode = ref('day') // day / month / year
-const viewYear = ref(props.suggestYear)
-const viewMonth = ref(1)
-const yearPage = ref(yearPageStart(props.suggestYear))
 const today = todayDate()
+const todayYear = Number(today.slice(0, 4))
+const todayMonth = Number(today.slice(5, 7))
+const viewYear = ref(todayYear)
+const viewMonth = ref(todayMonth)
+const yearPage = ref(yearPageStart(todayYear))
 const currentYear = Number(today.slice(0, 4))
 
 const yearsOnPage = computed(() =>
@@ -155,8 +155,9 @@ const displayText = computed(() => formatDisplay(props.modelValue, props.yearOnl
 watch(open, async (v) => {
   if (!v) return
   const parsed = parseDate(props.modelValue)
-  viewYear.value = parsed?.year ?? props.suggestYear
-  viewMonth.value = parsed?.month ?? 1
+  // 未选过时从**当前年/当前月**打开（业内日期选择器的默认位），不从 1990 之类的猜测年份开始
+  viewYear.value = parsed?.year ?? todayYear
+  viewMonth.value = parsed?.month ?? todayMonth
   yearPage.value = yearPageStart(viewYear.value)
   mode.value = 'day'
   await nextTick()
