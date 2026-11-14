@@ -13,7 +13,8 @@
         <div v-if="loading" class="p-prof__loading">正在加载…</div>
 
         <div v-else class="p-overlay__body">
-          <!-- 性别 / 年龄段：选项由读回体的 options 下发，**前端不写死** -->
+          <!-- 性别 / 出生年：性别选项由读回体的 options 下发，**前端不写死**；
+               出生年是数字输入（1900–当前年），不再编辑旧年龄段 -->
           <div class="p-prof__row">
             <label id="p-prof-l-gender" class="p-prof__label">性别</label>
             <PatientSelect
@@ -26,14 +27,16 @@
             />
           </div>
           <div class="p-prof__row">
-            <label id="p-prof-l-age" class="p-prof__label">年龄段</label>
-            <PatientSelect
-              id="p-prof-age"
-              label-id="p-prof-l-age"
-              v-model="form.ageRange"
-              :options="options.ageRanges"
-              none-label="不填"
-              placeholder="暂无可选项"
+            <label class="p-prof__label" for="p-prof-birth">出生年</label>
+            <input
+              id="p-prof-birth"
+              v-model="form.birthYear"
+              class="p-prof__input"
+              type="number"
+              inputmode="numeric"
+              min="1900"
+              :max="currentYear"
+              placeholder="如 1980（选填）"
             />
           </div>
 
@@ -86,6 +89,9 @@ import PatientSelect from './PatientSelect.vue'
 /**
  * 健康档案（选填浮层）。
  *
+ * 缩表后只问「性别 / 出生年 / 过敏 / 近期用药 / 近期手术」。旧年龄段、既往病史
+ * **不再展示、不再提交**——库里保留原值只作迁移与回滚依据，整份覆盖写会清空它们。
+ *
  * 浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）走共享件 `.p-overlay*` 与
  * `.p-fade-*`——见设计文档 §3.8；本页只管表单本身。
  *
@@ -100,40 +106,43 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:open'])
 
+const currentYear = new Date().getFullYear()
+
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const tags = ref([])
 // 上限来自后端受管参数；这里的默认值只在前端首次渲染、尚未拿到响应时兜底
 const limits = ref({ tagMax: 10, textMax: 50, textTotalMax: 120 })
-const options = ref({ genders: [], ageRanges: [] })
+const options = ref({ genders: [] })
 const form = ref(emptyProfile())
 
 // 三个自由文本框共用一条合计额度：写满一个，另外两个的可写空间随之收窄
-const OTHER_FIELDS = ['historyOther', 'medicationOther', 'allergyOther']
+const OTHER_FIELDS = ['allergyOther', 'medicationOther', 'surgeryOther']
 
 function emptyProfile() {
   return {
     gender: '',
-    ageRange: '',
-    historyTags: [],
-    historyOther: '',
+    birthYear: '',
+    allergyTags: [],
+    allergyOther: '',
     medicationTags: [],
     medicationOther: '',
-    allergyTags: [],
-    allergyOther: ''
+    surgeryTags: [],
+    surgeryOther: ''
   }
 }
 
 /**
  * 三组「多选标签 + 其他自由文本」：标签按 type 从词表过滤。
- * 分组名与后端 `HealthTagType.label`（既往病史/长期用药/过敏史）各持一份——跨了语言边界
+ * 分组名与后端 `HealthTagType.label`（过敏史/近期用药/手术史）各持一份——跨了语言边界
  * （后端 Java 枚举 / 前端展示文案），无法共享同一常量，故保留；改文案时两处一起改。
+ * 顺序跟随后端组装文本：过敏 → 近期用药 → 近期手术。
  */
 const groups = computed(() => [
-  { key: 'history', label: '既往病史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
-  { key: 'medication', label: '长期用药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
-  { key: 'allergy', label: '过敏史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' }
+  { key: 'allergy', label: '过敏史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' },
+  { key: 'medication', label: '近期用药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
+  { key: 'surgery', label: '近期手术', tags: 'surgeryTags', other: 'surgeryOther', type: 'surgery', placeholder: '词表里没有的手术，在这里补充' }
 ].map((g) => ({ ...g, options: tags.value.filter((t) => t.type === g.type) })))
 
 // 打开就拉：每次打开都是最新的读回体（可能刚在另一处改过），不做缓存
@@ -160,16 +169,16 @@ async function load() {
       textMax: data.limits?.textMax ?? 50,
       textTotalMax: data.limits?.textTotalMax ?? 120
     }
-    options.value = data.options || { genders: [], ageRanges: [] }
+    options.value = data.options || { genders: [] }
     form.value = {
       gender: data.gender || '',
-      ageRange: data.ageRange || '',
-      historyTags: data.historyTags || [],
-      medicationTags: data.medicationTags || [],
+      birthYear: data.birthYear ?? '',
       allergyTags: data.allergyTags || [],
-      historyOther: data.historyOther || '',
+      allergyOther: data.allergyOther || '',
+      medicationTags: data.medicationTags || [],
       medicationOther: data.medicationOther || '',
-      allergyOther: data.allergyOther || ''
+      surgeryTags: data.surgeryTags || [],
+      surgeryOther: data.surgeryOther || ''
     }
   } catch (e) {
     console.error('[profile] 健康档案加载失败', e)
@@ -210,15 +219,39 @@ function textFieldRemaining(field) {
   return Math.max(0, textFieldMax(field) - (form.value[field]?.length || 0))
 }
 
+/** 出生年：空 = 未填；填了就必须是 1900–当前年（后端还会二次校验） */
+function birthYearOf(formValue) {
+  const raw = String(formValue.birthYear ?? '').trim()
+  if (!raw) return null
+  const year = Number(raw)
+  if (!Number.isInteger(year) || year < 1900 || year > currentYear) {
+    error.value = `出生年需在 1900 到 ${currentYear} 之间`
+    return undefined
+  }
+  return year
+}
+
 async function save() {
   if (saving.value) return
   error.value = ''
+  const birthYear = birthYearOf(form.value)
+  if (birthYear === undefined) return
   saving.value = true
   try {
-    await saveHealthProfile(form.value)
+    // 只提交缩表后的可编辑字段：旧年龄段与既往病史留在库里，不由前端回写
+    await saveHealthProfile({
+      gender: form.value.gender || null,
+      birthYear,
+      allergyTags: form.value.allergyTags,
+      allergyOther: form.value.allergyOther,
+      medicationTags: form.value.medicationTags,
+      medicationOther: form.value.medicationOther,
+      surgeryTags: form.value.surgeryTags,
+      surgeryOther: form.value.surgeryOther
+    })
     emit('update:open', false)
   } catch (e) {
-    // 后端二次校验拒绝（超条数 / 超字数）会给可展示的 message
+    // 后端二次校验拒绝（超条数 / 超字数 / 出生年越界）会给可展示的 message
     error.value = e.message || '保存失败，请稍后重试'
   } finally {
     saving.value = false

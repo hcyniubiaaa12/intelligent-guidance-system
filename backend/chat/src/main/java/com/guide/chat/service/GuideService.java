@@ -269,6 +269,8 @@ public class GuideService {
         }
         ObjectNode content = node.putObject("content");
         content.put("gender", structure.genderCode());
+        content.put("birthYear", structure.birthYear());
+        // 旧字段保留：既让老快照的读取口径一致，也留下迁移前的审计依据（不再进提示词）
         content.put("ageRange", structure.ageRangeCode());
         putTags(content, "historyTags", structure.historyTags());
         content.put("historyOther", structure.historyOther());
@@ -276,6 +278,8 @@ public class GuideService {
         content.put("medicationOther", structure.medicationOther());
         putTags(content, "allergyTags", structure.allergyTags());
         content.put("allergyOther", structure.allergyOther());
+        putTags(content, "surgeryTags", structure.surgeryTags());
+        content.put("surgeryOther", structure.surgeryOther());
         return node;
     }
 

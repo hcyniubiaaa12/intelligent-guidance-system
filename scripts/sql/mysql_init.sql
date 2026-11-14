@@ -70,37 +70,43 @@ CREATE TABLE IF NOT EXISTS `sys_config` (
     UNIQUE KEY `uk_cfg_key` (`config_key`)
 ) ENGINE=InnoDB COMMENT='运行时可调配置字典表（链路 5 参数）；LLM API Key/模型名不走本表（密钥不进库）';
 
--- 患者健康档案（选填，一人一份）——只作检索扩容与生成背景，永远没有决定推荐科室的权力；
+-- 患者健康档案（选填，一人一份）——缩表后只保留性别/出生年/过敏/近期用药/近期手术；
+-- 只注入生成提示词与证据快照，永远没有决定推荐科室的权力；
 -- 历史导诊记录不回读本表（回放靠证据快照里的档案节点，见链路 A）
+-- 旧列 age_range / history_* 保留但不再写、不再展示、不再注入：前者是出生年缺失时的只读兜底，
+-- 后者只作迁移与回滚依据。
 CREATE TABLE IF NOT EXISTS `user_health_profile` (
     `id`               VARCHAR(32)  NOT NULL,
     `user_id`          VARCHAR(32)  NOT NULL COMMENT '用户 id（一人一份）',
     `gender`           VARCHAR(32)  NULL COMMENT '枚举：male/female（选填；NULL=未填）',
-    `age_range`        VARCHAR(32)  NULL COMMENT '年龄段区间：0-3/4-6/7-14/15-44/45-59/60+（选填；区间不是具体岁数）',
-    `history_tags`     JSON         NULL COMMENT '既往病史标签数组（取自 health_tag）',
-    `history_other`    VARCHAR(512) NULL COMMENT '既往病史自由文本补充',
-    `medication_tags`  JSON         NULL COMMENT '长期用药标签数组',
-    `medication_other` VARCHAR(512) NULL COMMENT '长期用药自由文本补充',
+    `birth_year`       SMALLINT     NULL COMMENT '出生年（1900–当前年；选填；NULL=未填）',
+    `age_range`        VARCHAR(32)  NULL COMMENT '旧年龄段区间：0-3/4-6/7-14/15-44/45-59/60+（只读出生存量，不再写）',
+    `history_tags`     JSON         NULL COMMENT '旧既往病史标签数组（只作迁移与回滚依据，不再写/展示/注入）',
+    `history_other`    VARCHAR(512) NULL COMMENT '旧既往病史自由文本（保留不回写）',
+    `medication_tags`  JSON         NULL COMMENT '近期用药标签数组',
+    `medication_other` VARCHAR(512) NULL COMMENT '近期用药自由文本补充',
     `allergy_tags`     JSON         NULL COMMENT '过敏史标签数组（类别）',
     `allergy_other`    VARCHAR(512) NULL COMMENT '过敏史自由文本补充（具体药名等）',
+    `surgery_tags`     JSON         NULL COMMENT '近期手术标签数组',
+    `surgery_other`    VARCHAR(512) NULL COMMENT '近期手术自由文本补充',
     `deleted`          TINYINT      NOT NULL DEFAULT 0,
     `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_uhp_user` (`user_id`)
-) ENGINE=InnoDB COMMENT='患者健康档案（用户级、一人一份、选填）；只作检索扩容与生成背景，不参与科室排序与注号体系';
+) ENGINE=InnoDB COMMENT='患者健康档案（用户级、一人一份、选填）；只作生成背景与硬警报来源，不参与科室排序与注号体系';
 
 CREATE TABLE IF NOT EXISTS `health_tag` (
     `id`         VARCHAR(32)  NOT NULL,
-    `term`       VARCHAR(128) NOT NULL COMMENT '标签词（慢病/用药/过敏类别）',
-    `type`       VARCHAR(32)  NOT NULL COMMENT '枚举：chronic 慢病/medication 用药/allergy 过敏',
+    `term`       VARCHAR(128) NOT NULL COMMENT '标签词（用药/过敏/手术类别）',
+    `type`       VARCHAR(32)  NOT NULL COMMENT '枚举：chronic 旧慢病（保留）/medication 用药/allergy 过敏/surgery 手术',
     `enabled`    TINYINT      NOT NULL DEFAULT 1 COMMENT '1 启用/0 停用；停用只作用于患者端选项加载，历史已选不受影响',
     `deleted`    TINYINT      NOT NULL DEFAULT 0,
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ht_term_type` (`term`, `type`)
-) ENGINE=InnoDB COMMENT='健康档案标签词表（受控词汇）：患者端选项与后续档案召回串共用同一份源；管理端可启停（单据 05）';
+) ENGINE=InnoDB COMMENT='健康档案标签词表（受控词汇）：患者端多选选项的唯一来源；管理端可启停';
 
 -- ------------------------------------------------------------
 -- 2. 会话与导诊（chat，链路 A）

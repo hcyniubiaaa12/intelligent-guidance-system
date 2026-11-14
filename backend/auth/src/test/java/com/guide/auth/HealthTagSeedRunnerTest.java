@@ -43,20 +43,21 @@ class HealthTagSeedRunnerTest {
     }
 
     @Test
-    @DisplayName("空库：45 个种子词全部入库，且默认启用（慢病 25 + 用药 12 + 过敏 8）")
+    @DisplayName("空库：52 个种子词全部入库，且默认启用（慢病 25 + 用药 12 + 过敏 8 + 手术 7）")
     void insertsAllWhenLibraryEmpty() {
         when(mapper.countIncludingDeleted(anyString(), anyString())).thenReturn(0);
 
         runner.run(null);
 
         ArgumentCaptor<HealthTag> captor = ArgumentCaptor.forClass(HealthTag.class);
-        verify(mapper, times(45)).insert(captor.capture());
+        verify(mapper, times(52)).insert(captor.capture());
         List<HealthTag> inserted = captor.getAllValues();
         assertThat(inserted).extracting(HealthTag::getTerm)
-                .contains("高血压", "阿司匹林", "青霉素类");
+                .contains("高血压", "阿司匹林", "青霉素类", "阑尾切除术");
         assertThat(inserted).allMatch(t -> t.getEnabled() == 1);
         assertThat(inserted).extracting(HealthTag::getType).contains(
-                HealthTagType.CHRONIC, HealthTagType.MEDICATION, HealthTagType.ALLERGY);
+                HealthTagType.CHRONIC, HealthTagType.MEDICATION, HealthTagType.ALLERGY,
+                HealthTagType.SURGERY);
     }
 
     @Test
@@ -69,6 +70,6 @@ class HealthTagSeedRunnerTest {
 
         runner.run(null);
 
-        verify(mapper, times(45 - existing.size())).insert(any(HealthTag.class));
+        verify(mapper, times(52 - existing.size())).insert(any(HealthTag.class));
     }
 }

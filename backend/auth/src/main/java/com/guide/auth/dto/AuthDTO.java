@@ -36,6 +36,12 @@ public final class AuthDTO {
 
         /** 昵称，非必填 */
         private String nickname;
+
+        /** 性别（选填）：male / female；注册成功后随档案一起写入 */
+        private String gender;
+
+        /** 出生年（选填，1900–当前年）；注册成功后随档案一起写入 */
+        private Integer birthYear;
     }
 
     /** 登录/注册成功响应：token + 用户信息 */
