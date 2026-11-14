@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     `nickname`   VARCHAR(64)  NULL COMMENT '昵称',
     `status`     VARCHAR(32)  NOT NULL DEFAULT 'normal' COMMENT '枚举：normal/banned，登录时校验（封禁即拒绝）',
     `mute_until` DATETIME     NULL COMMENT '禁言截止时间：NULL 或已过期 = 未禁言。与 status 分离——禁言只禁发言、仍可登录，到期自动解除',
+    `memory_enabled` TINYINT  NOT NULL DEFAULT 1 COMMENT '自动记忆开关 1/0：关闭只停抽取与注入，档案照常生效、旧记忆仍可见',
     `deleted`    TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除 0/1',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -345,6 +346,48 @@ CREATE TABLE IF NOT EXISTS `ingest_task` (
 ) ENGINE=InnoDB COMMENT='离线入库任务表：解析→切分→向量化→入库';
 
 -- ------------------------------------------------------------
+-- 8. 长期记忆（memory）
+-- ------------------------------------------------------------
+-- 旧库补列（本脚本是 CREATE TABLE IF NOT EXISTS，重跑不会改已存在的表）：
+--   ALTER TABLE `user` ADD COLUMN `memory_enabled` TINYINT NOT NULL DEFAULT 1
+--       COMMENT '自动记忆开关 1/0：关闭只停抽取与注入，档案照常生效、旧记忆仍可见' AFTER `mute_until`;
+
+CREATE TABLE IF NOT EXISTS `user_memory` (
+    `id`             VARCHAR(32)  NOT NULL,
+    `user_id`        VARCHAR(32)  NOT NULL COMMENT '归属用户',
+    `type`           VARCHAR(32)  NOT NULL COMMENT '枚举：preference / background_health / background_other',
+    `mkey`           VARCHAR(32)  NOT NULL COMMENT '记忆键（≤8 字）',
+    `mvalue`         VARCHAR(128) NOT NULL COMMENT '记忆值（≤60 字）',
+    `retrieval_text` VARCHAR(256) NULL COMMENT '供 embedding 的扩展文本，不注入',
+    `source_quote`   VARCHAR(512) NULL COMMENT '患者原话出处',
+    `confidence`     DECIMAL(4,3) NULL COMMENT '抽取置信度 0–1',
+    `observed_at`    DATETIME     NOT NULL COMMENT '观察时间：这条事实从哪一刻起被记住',
+    `valid_from`     DATE         NULL COMMENT '有效期起（空=无期限）',
+    `valid_to`       DATE         NULL COMMENT '有效期止（空=无期限）',
+    `status`         VARCHAR(32)  NOT NULL DEFAULT 'active' COMMENT '枚举：active/expired',
+    `deleted`        TINYINT      NOT NULL DEFAULT 0,
+    `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_um_user_type` (`user_id`, `type`, `status`)
+) ENGINE=InnoDB COMMENT='长期记忆：偏好与稳定背景（用户级、跨会话；带原话出处，可查可改可删）';
+
+-- 只追加的审计日志：刻意不带 deleted/updated_at（没有更新语义，也没有软删除需求）
+CREATE TABLE IF NOT EXISTS `user_memory_log` (
+    `id`         VARCHAR(32)  NOT NULL,
+    `memory_id`  VARCHAR(32)  NOT NULL COMMENT '被变更的记忆 id',
+    `user_id`    VARCHAR(32)  NOT NULL COMMENT '归属用户',
+    `op`         VARCHAR(32)  NOT NULL COMMENT '枚举：add/update/delete/merge/promote',
+    `old_value`  VARCHAR(512) NULL COMMENT '变更前值（新增时为空）',
+    `new_value`  VARCHAR(512) NULL COMMENT '变更后值（删除时为空）',
+    `actor`      VARCHAR(32)  NOT NULL COMMENT '枚举：extract/user/migration',
+    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_uml_memory` (`memory_id`),
+    KEY `idx_uml_user` (`user_id`)
+) ENGINE=InnoDB COMMENT='记忆变更审计：只追加，每次新增/修改/删除/合并/提升一行';
+
+-- ------------------------------------------------------------
 -- 初始化数据：管理员账号 + 默认配置（密码请用 BCrypt 重新生成后替换）
 -- ------------------------------------------------------------
 
@@ -374,5 +417,13 @@ INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `remark`) VALUES
 ('c17', 'ingest.parse.timeout.minutes',  '30',   '入库：单次解析总超时（分钟），超了标 failed 可重试'),
 ('c18', 'profile.tag.max',               '10',   '健康档案：每类标签（既往病史/长期用药/过敏史）最多可选条数'),
 ('c19', 'profile.text.max',              '50',   '健康档案：每个「其他」自由文本框最多字数'),
-('c20', 'profile.text.total.max',        '120',  '健康档案：三个「其他」自由文本框合计最多字数（每框上限之外的总量闸，防「既往史挤掉用药史」）')
+('c20', 'profile.text.total.max',        '120',  '健康档案：三个「其他」自由文本框合计最多字数（每框上限之外的总量闸，防「既往史挤掉用药史」）'),
+('c21', 'memory.preference.max',             '5',    '长期记忆：偏好最多条数（满了由模型合并去重）'),
+('c22', 'memory.background.max',             '10',   '长期记忆：稳定背景最多条数（满了提示患者整理，不静默淘汰）'),
+('c23', 'memory.background.recall.top.k',    '3',    '长期记忆：背景召回 top-K'),
+('c24', 'memory.background.recall.threshold','0.70', '长期记忆：背景召回余弦阈值'),
+('c25', 'memory.extract.confidence.min',     '0.6',  '长期记忆：抽取结果最小置信度（低于它丢弃）'),
+('c26', 'memory.extract.session.max',        '3',    '长期记忆：单会话最多抽取次数'),
+('c27', 'memory.candidate.expire.days',      '30',   '档案候选：未处理自动失效天数'),
+('c28', 'memory.block.chars',                '500',  '长期记忆：注入块总字数上限')
 ON DUPLICATE KEY UPDATE `updated_at` = `updated_at`;

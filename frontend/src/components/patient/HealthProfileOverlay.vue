@@ -5,7 +5,7 @@
         <header class="p-overlay__head">
           <div>
             <div class="p-overlay__title">健康档案</div>
-            <p class="p-overlay__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
+            <p class="p-overlay__sub">您填写的 + 我记住的</p>
           </div>
           <button class="p-overlay__close" aria-label="关闭健康档案" @click="close">关闭</button>
         </header>
@@ -183,6 +183,10 @@
             </div>
           </section>
 
+          <!-- 第二段「我记住的」：长期记忆只读列表。放在「您填写的」之后——
+               先说患者确认过的，再说系统自动记下的，顺序本身就是两层信息的优先级。 -->
+          <MemorySection />
+
           <p v-if="error" class="p-prof__err">{{ error }}</p>
         </div>
 
@@ -199,6 +203,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getHealthProfile, saveHealthProfile, listHealthTags } from '../../api/profile'
+import MemorySection from './MemorySection.vue'
 import PatientSelect from './PatientSelect.vue'
 
 /**

@@ -56,6 +56,26 @@ public class SysConfigService {
     /** 健康档案：三个「其他」自由文本框合计最多字数（每框上限之外再加一道总量闸） */
     public static final String KEY_PROFILE_TEXT_TOTAL_MAX = "profile.text.total.max";
 
+    // ---------- 长期记忆（memory）----------
+    // 本轮不上管理端页面（spec §11 只要求配置可读），因此不加入 SysConfigAdminService 白名单：
+    // 白名单 = 管理端可改，加了却没有页面反而是死配置。改库即生效（60s TTL）。
+    /** 偏好最多条数 */
+    public static final String KEY_MEMORY_PREFERENCE_MAX = "memory.preference.max";
+    /** 稳定背景最多条数（满了给页面 needsCleanup 提示，不静默淘汰） */
+    public static final String KEY_MEMORY_BACKGROUND_MAX = "memory.background.max";
+    /** 背景召回 top-K */
+    public static final String KEY_MEMORY_BACKGROUND_RECALL_TOP_K = "memory.background.recall.top.k";
+    /** 背景召回余弦阈值 */
+    public static final String KEY_MEMORY_BACKGROUND_RECALL_THRESHOLD = "memory.background.recall.threshold";
+    /** 抽取结果的最小置信度（低于它丢弃） */
+    public static final String KEY_MEMORY_EXTRACT_CONFIDENCE_MIN = "memory.extract.confidence.min";
+    /** 单会话最多抽取次数 */
+    public static final String KEY_MEMORY_EXTRACT_SESSION_MAX = "memory.extract.session.max";
+    /** 候选未处理自动失效天数 */
+    public static final String KEY_MEMORY_CANDIDATE_EXPIRE_DAYS = "memory.candidate.expire.days";
+    /** 记忆注入块总字数上限 */
+    public static final String KEY_MEMORY_BLOCK_CHARS = "memory.block.chars";
+
     /**
      * 键位的**代码侧默认值**：库中该键缺失时回落（首次部署不灌 sys_config 也能开管理端页面）。
      * 与 SysConfigAdminService 白名单里的 ParamSpec 同源——改这里就够，别再散落第二份字面量。
@@ -76,6 +96,16 @@ public class SysConfigService {
     public static final int DEFAULT_PROFILE_TEXT_MAX = 50;
     /** 三框合计上限 < 3 × 单框上限，否则这道闸永远不生效（默认 120 < 150） */
     public static final int DEFAULT_PROFILE_TEXT_TOTAL_MAX = 120;
+
+    /** 长期记忆的代码侧默认值（与 spec §11 同值） */
+    public static final int DEFAULT_MEMORY_PREFERENCE_MAX = 5;
+    public static final int DEFAULT_MEMORY_BACKGROUND_MAX = 10;
+    public static final int DEFAULT_MEMORY_BACKGROUND_RECALL_TOP_K = 3;
+    public static final double DEFAULT_MEMORY_BACKGROUND_RECALL_THRESHOLD = 0.70;
+    public static final double DEFAULT_MEMORY_EXTRACT_CONFIDENCE_MIN = 0.6;
+    public static final int DEFAULT_MEMORY_EXTRACT_SESSION_MAX = 3;
+    public static final int DEFAULT_MEMORY_CANDIDATE_EXPIRE_DAYS = 30;
+    public static final int DEFAULT_MEMORY_BLOCK_CHARS = 500;
 
     /** 进程内缓存存活时长：管理端改参数后无需重启，最长一分钟生效 */
     private static final long CACHE_TTL_MS = 60_000L;

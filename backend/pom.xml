@@ -28,6 +28,7 @@
         <module>async</module>
         <module>feedback</module>
         <module>stats</module>
+        <module>memory</module>
         <module>admin</module>
     </modules>
 
@@ -88,6 +89,11 @@
             <dependency>
                 <groupId>com.guide</groupId>
                 <artifactId>stats</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.guide</groupId>
+                <artifactId>memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

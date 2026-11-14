@@ -16,7 +16,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.guide.chat.mapper",
         "com.guide.kb.mapper",
         "com.guide.feedback.mapper",
-        "com.guide.async.mapper"
+        "com.guide.async.mapper",
+        "com.guide.memory.mapper"
 })
 public class GuideApplication {
 
