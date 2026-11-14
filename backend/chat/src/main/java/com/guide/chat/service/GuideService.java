@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.guide.auth.service.SysConfigService;
 import com.guide.auth.support.HealthProfileAssembler;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
@@ -274,11 +276,11 @@ public class GuideService {
         content.put("ageRange", structure.ageRangeCode());
         putTags(content, "historyTags", structure.historyTags());
         content.put("historyOther", structure.historyOther());
-        putTags(content, "medicationTags", structure.medicationTags());
+        putMedicationEntries(content, "medicationTags", structure.medicationEntries());
         content.put("medicationOther", structure.medicationOther());
         putTags(content, "allergyTags", structure.allergyTags());
         content.put("allergyOther", structure.allergyOther());
-        putTags(content, "surgeryTags", structure.surgeryTags());
+        putSurgeryEntries(content, "surgeryTags", structure.surgeryEntries());
         content.put("surgeryOther", structure.surgeryOther());
         return node;
     }
@@ -288,6 +290,46 @@ public class GuideService {
         ArrayNode array = parent.putArray(field);
         if (tags != null) {
             tags.forEach(array::add);
+        }
+    }
+
+    /**
+     * 用药条目写对象数组（工单 03）：{@code value + startedOn + endedOn}，空时间写 null。
+     * 键名沿用列名 {@code medicationTags}——老快照里是字符串数组，读取侧必须两种都认，
+     * 所以键名不能跟着 DTO 一起改（改了就分不清"这列是什么"）。
+     */
+    private void putMedicationEntries(ObjectNode parent, String field, List<MedicationEntry> entries) {
+        ArrayNode array = parent.putArray(field);
+        if (entries == null) {
+            return;
+        }
+        for (MedicationEntry entry : entries) {
+            ObjectNode node = array.addObject();
+            node.put("value", entry.value());
+            putNullable(node, "startedOn", entry.startedOn());
+            putNullable(node, "endedOn", entry.endedOn());
+        }
+    }
+
+    /** 手术条目写对象数组：{@code value + occurredOn}，空时间写 null。 */
+    private void putSurgeryEntries(ObjectNode parent, String field, List<SurgeryEntry> entries) {
+        ArrayNode array = parent.putArray(field);
+        if (entries == null) {
+            return;
+        }
+        for (SurgeryEntry entry : entries) {
+            ObjectNode node = array.addObject();
+            node.put("value", entry.value());
+            putNullable(node, "occurredOn", entry.occurredOn());
+        }
+    }
+
+    /** 时间字段空即 null：证据快照要能区分"没填时间"与"填了个空串" */
+    private void putNullable(ObjectNode parent, String field, String value) {
+        if (value == null) {
+            parent.putNull(field);
+        } else {
+            parent.put(field, value);
         }
     }
 

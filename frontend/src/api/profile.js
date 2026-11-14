@@ -9,12 +9,16 @@ import http from './http'
  * 读自己那份健康档案（未建档即返回空档案）。
  * resolve = {
  *   gender, birthYear, ageRange（只读兜底）,
- *   allergyTags, allergyOther, medicationTags, medicationOther, surgeryTags, surgeryOther,
+ *   allergyTags, allergyOther,
+ *   medicationEntries: [{ value, startedOn, endedOn }], medicationOther,
+ *   surgeryEntries: [{ value, occurredOn }], surgeryOther,
  *   limits: { tagMax, textMax, textTotalMax },
  *   options: { genders: [{ value, label }], ageRanges: [{ value, label }] }
  * }
+ * 时间精确到月（YYYY-MM），空 = 未填；用药 endedOn 为空表示仍在用。
+ * 读回兼容老字符串数组（时间字段为空），写回统一提交对象数组。
  * limits 与 options 一并下发：页面不会出现「按旧上限拦人、被后端按新上限拒绝」的错位。
- * ageRange / ageRanges 只为工单 03 的只读兜底保留，本页不编辑。
+ * ageRange / ageRanges 只作出生年缺失时的只读兜底展示，本页不编辑。
  */
 export function getHealthProfile() {
   return http.get('/profile')
@@ -23,7 +27,8 @@ export function getHealthProfile() {
 /**
  * 整份覆盖写：一次提交全部**可编辑**字段，未填即清空。
  * 不提交 ageRange / history_*（保留库中原值，作迁移与回滚依据）。
- * 标签超条数 / 自由文本超字数 / 出生年越界时后端拒绝（reject 携带可展示 message）。
+ * 用药 / 手术提交对象数组；时间 YYYY-MM 且不得是未来月份，endedOn 不得早于 startedOn。
+ * 标签超条数 / 自由文本超字数 / 出生年或时间越界时后端拒绝（reject 携带可展示 message）。
  */
 export function saveHealthProfile(data) {
   return http.put('/profile', data)

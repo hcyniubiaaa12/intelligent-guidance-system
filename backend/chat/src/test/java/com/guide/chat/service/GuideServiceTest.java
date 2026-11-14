@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.auth.service.SysConfigService;
 import com.guide.auth.support.HealthProfileAssembler;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
@@ -71,18 +73,18 @@ class GuideServiceTest {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
                 "male", 1980, "45-59",
                 List.of("2型糖尿病"), null,
-                List.of(), null,
+                List.of(new MedicationEntry("二甲双胍", "2024-03", null)), null,
                 List.of("青霉素类"), "对海鲜过敏",
-                List.of("阑尾切除术"), null);
+                List.of(new SurgeryEntry("阑尾切除术", "2024-05")), null);
         GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
-                "男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期手术：阑尾切除术", structure);
+                "男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期用药：二甲双胍（2024-03 至今）", structure);
 
         service.saveConclusion(session("s1"), answer(), context(), "raw-output", snapshot);
 
         JsonNode profile = capturedEvidence(1).path("profile");
         assertThat(profile.isObject()).isTrue();
         assertThat(profile.path("text").asText())
-                .isEqualTo("男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期手术：阑尾切除术");
+                .isEqualTo("男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期用药：二甲双胍（2024-03 至今）");
         // 新快照不再写 profile.query：档案已退出检索，留一个检索用串只会诱导后人把它重新接回去。
         // 老快照里的 query 仍可安全读取（RecordService 只读 text，见 RecordServiceTest）。
         assertThat(profile.has("query")).isFalse();
@@ -94,9 +96,15 @@ class GuideServiceTest {
         assertThat(content.path("historyTags").get(0).asText()).isEqualTo("2型糖尿病");
         assertThat(content.path("allergyTags").get(0).asText()).isEqualTo("青霉素类");
         assertThat(content.path("allergyOther").asText()).isEqualTo("对海鲜过敏");
-        assertThat(content.path("surgeryTags").get(0).asText()).isEqualTo("阑尾切除术");
         assertThat(content.path("historyOther").isNull()).isTrue();
-        assertThat(content.path("medicationTags").isArray()).isTrue();
+        // 用药/手术写对象数组（含时间）：审核回放要看得出"当时说的是近期还是已停/既往"
+        JsonNode medication = content.path("medicationTags").get(0);
+        assertThat(medication.path("value").asText()).isEqualTo("二甲双胍");
+        assertThat(medication.path("startedOn").asText()).isEqualTo("2024-03");
+        assertThat(medication.path("endedOn").isNull()).isTrue();
+        JsonNode surgery = content.path("surgeryTags").get(0);
+        assertThat(surgery.path("value").asText()).isEqualTo("阑尾切除术");
+        assertThat(surgery.path("occurredOn").asText()).isEqualTo("2024-05");
     }
 
     @Test

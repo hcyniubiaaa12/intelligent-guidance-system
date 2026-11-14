@@ -1,5 +1,7 @@
 package com.guide.auth.dto;
 
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -32,11 +34,14 @@ public final class HealthProfileDTO {
         private Integer birthYear;
         /** 仅只读兜底：出生年缺失时展示旧年龄段（0-3 / … / 60+） */
         private String ageRange;
-        private List<String> medicationTags;
+        /** 用药条目：{ value, startedOn, endedOn }，时间 YYYY-MM、空 = 未填 / 仍在用 */
+        private List<MedicationEntry> medicationEntries;
         private String medicationOther;
+        /** 过敏仍是字符串数组（没有时间语义） */
         private List<String> allergyTags;
         private String allergyOther;
-        private List<String> surgeryTags;
+        /** 手术条目：{ value, occurredOn }，时间 YYYY-MM、空 = 未填 */
+        private List<SurgeryEntry> surgeryEntries;
         private String surgeryOther;
         private Limits limits;
         private Options options;
@@ -51,11 +56,13 @@ public final class HealthProfileDTO {
     public static class ProfileSaveReq {
         private String gender;
         private Integer birthYear;
-        private List<String> medicationTags;
+        /** 用药条目：value 非空、时间 YYYY-MM 且不得是未来月份、endedOn 不得早于 startedOn */
+        private List<MedicationEntry> medicationEntries;
         private String medicationOther;
         private List<String> allergyTags;
         private String allergyOther;
-        private List<String> surgeryTags;
+        /** 手术条目：value 非空、occurredOn 为 YYYY-MM 且不得是未来月份 */
+        private List<SurgeryEntry> surgeryEntries;
         private String surgeryOther;
     }
 

@@ -2,6 +2,7 @@ package com.guide.auth.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.auth.dto.HealthProfileDTO;
 import com.guide.auth.entity.HealthTag;
@@ -13,6 +14,8 @@ import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
 import com.guide.auth.support.HealthProfileAssembler;
 import com.guide.auth.support.HealthTagView;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +24,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Year;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 患者健康档案（auth）：读取自己那份、整份覆盖写、加载标签词表、注册时采集性别与出生年。
@@ -53,6 +60,12 @@ public class HealthProfileService {
     /** 出生年下界：再早的出生年在真实患者里不存在，多半是输入错误 */
     private static final int MIN_BIRTH_YEAR = 1900;
 
+    /** 时间输入只接受「YYYY-MM」且月份 01–12（比宽松解析更严，避免 2024-3 这类脏值落库） */
+    private static final Pattern MONTH_PATTERN = Pattern.compile("^\\d{4}-(0[1-9]|1[0-2])$");
+
+    private static final DateTimeFormatter MONTH_FORMAT =
+            DateTimeFormatter.ofPattern("uuuu-MM").withResolverStyle(ResolverStyle.STRICT);
+
     private final UserHealthProfileMapper profileMapper;
     private final HealthTagMapper healthTagMapper;
     private final SysConfigService sysConfigService;
@@ -66,11 +79,11 @@ public class HealthProfileService {
         vo.setBirthYear(profile.birthYear());
         // 只读兜底：出生年缺失时，前端据此展示旧年龄段（不再允许编辑）
         vo.setAgeRange(profile.ageRangeCode());
-        vo.setMedicationTags(profile.medicationTags());
+        vo.setMedicationEntries(profile.medicationEntries());
         vo.setMedicationOther(profile.medicationOther());
         vo.setAllergyTags(profile.allergyTags());
         vo.setAllergyOther(profile.allergyOther());
-        vo.setSurgeryTags(profile.surgeryTags());
+        vo.setSurgeryEntries(profile.surgeryEntries());
         vo.setSurgeryOther(profile.surgeryOther());
         vo.setLimits(limits());
         vo.setOptions(options());
@@ -90,9 +103,9 @@ public class HealthProfileService {
 
         Gender gender = parseGender(req.getGender());
         Integer birthYear = parseBirthYear(req.getBirthYear());
-        List<String> medicationTags = normalizeTags(req.getMedicationTags(), HealthTagType.MEDICATION.getLabel(), tagMax);
+        List<MedicationEntry> medicationEntries = normalizeMedicationEntries(req.getMedicationEntries(), tagMax);
         List<String> allergyTags = normalizeTags(req.getAllergyTags(), HealthTagType.ALLERGY.getLabel(), tagMax);
-        List<String> surgeryTags = normalizeTags(req.getSurgeryTags(), HealthTagType.SURGERY.getLabel(), tagMax);
+        List<SurgeryEntry> surgeryEntries = normalizeSurgeryEntries(req.getSurgeryEntries(), tagMax);
         String medicationOther = normalizeText(req.getMedicationOther(), HealthTagType.MEDICATION.getLabel() + "补充", textMax);
         String allergyOther = normalizeText(req.getAllergyOther(), HealthTagType.ALLERGY.getLabel() + "补充", textMax);
         String surgeryOther = normalizeText(req.getSurgeryOther(), HealthTagType.SURGERY.getLabel() + "补充", textMax);
@@ -104,11 +117,11 @@ public class HealthProfileService {
             row.setUserId(userId);
             row.setGender(gender);
             row.setBirthYear(birthYear);
-            row.setMedicationTags(toJson(medicationTags));
+            row.setMedicationTags(toJson(medicationEntries));
             row.setMedicationOther(medicationOther);
             row.setAllergyTags(toJson(allergyTags));
             row.setAllergyOther(allergyOther);
-            row.setSurgeryTags(toJson(surgeryTags));
+            row.setSurgeryTags(toJson(surgeryEntries));
             row.setSurgeryOther(surgeryOther);
             profileMapper.insert(row);
             return;
@@ -118,11 +131,11 @@ public class HealthProfileService {
         profileMapper.update(null, Wrappers.<UserHealthProfile>lambdaUpdate()
                 .set(UserHealthProfile::getGender, gender)
                 .set(UserHealthProfile::getBirthYear, birthYear)
-                .set(UserHealthProfile::getMedicationTags, toJson(medicationTags))
+                .set(UserHealthProfile::getMedicationTags, toJson(medicationEntries))
                 .set(UserHealthProfile::getMedicationOther, medicationOther)
                 .set(UserHealthProfile::getAllergyTags, toJson(allergyTags))
                 .set(UserHealthProfile::getAllergyOther, allergyOther)
-                .set(UserHealthProfile::getSurgeryTags, toJson(surgeryTags))
+                .set(UserHealthProfile::getSurgeryTags, toJson(surgeryEntries))
                 .set(UserHealthProfile::getSurgeryOther, surgeryOther)
                 .eq(UserHealthProfile::getUserId, userId));
     }
@@ -233,9 +246,9 @@ public class HealthProfileService {
                 row.getBirthYear(),
                 row.getAgeRange(),
                 parseTags(row.getHistoryTags()), row.getHistoryOther(),
-                parseTags(row.getMedicationTags()), row.getMedicationOther(),
+                parseMedicationEntries(row.getMedicationTags()), row.getMedicationOther(),
                 parseTags(row.getAllergyTags()), row.getAllergyOther(),
-                parseTags(row.getSurgeryTags()), row.getSurgeryOther());
+                parseSurgeryEntries(row.getSurgeryTags()), row.getSurgeryOther());
     }
 
     private HealthProfileAssembler.Profile emptyProfileInput() {
@@ -245,6 +258,94 @@ public class HealthProfileService {
                 List.of(), null,
                 List.of(), null,
                 List.of(), null);
+    }
+
+    /**
+     * 用药条目清洗：value 非空、时间合法且不得是未来月份、结束不得早于开始、
+     * 同值同时间只留一条；去重后仍超上限即拒绝。
+     */
+    private List<MedicationEntry> normalizeMedicationEntries(List<MedicationEntry> raw, int max) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        List<MedicationEntry> result = new ArrayList<>();
+        for (MedicationEntry entry : raw) {
+            if (entry == null) {
+                continue;
+            }
+            String value = requireValue(entry.value(), "用药名称");
+            String startedOn = normalizeMonth(entry.startedOn(), "用药开始时间");
+            String endedOn = normalizeMonth(entry.endedOn(), "用药结束时间");
+            if (startedOn != null && endedOn != null
+                    && YearMonth.parse(endedOn, MONTH_FORMAT).isBefore(YearMonth.parse(startedOn, MONTH_FORMAT))) {
+                throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                        "用药结束时间不能早于开始时间：" + value);
+            }
+            String key = value + "|" + startedOn + "|" + endedOn;
+            if (seen.add(key)) {
+                result.add(new MedicationEntry(value, startedOn, endedOn));
+            }
+        }
+        checkEntryCount(result.size(), "用药", max);
+        return List.copyOf(result);
+    }
+
+    /** 手术条目清洗：value 非空、发生时间合法且不得是未来月份、同值同时间只留一条。 */
+    private List<SurgeryEntry> normalizeSurgeryEntries(List<SurgeryEntry> raw, int max) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        List<SurgeryEntry> result = new ArrayList<>();
+        for (SurgeryEntry entry : raw) {
+            if (entry == null) {
+                continue;
+            }
+            String value = requireValue(entry.value(), "手术名称");
+            String occurredOn = normalizeMonth(entry.occurredOn(), "手术发生时间");
+            String key = value + "|" + occurredOn;
+            if (seen.add(key)) {
+                result.add(new SurgeryEntry(value, occurredOn));
+            }
+        }
+        checkEntryCount(result.size(), "手术", max);
+        return List.copyOf(result);
+    }
+
+    /** 条目值去掉首尾空白后不得为空（空条目不是「未填」，而是脏输入） */
+    private String requireValue(String raw, String label) {
+        if (raw == null || raw.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), label + "不能为空");
+        }
+        return raw.trim();
+    }
+
+    /**
+     * 月份校验：空 = 未填；否则必须是 {@code YYYY-MM}（01–12），且不得晚于当前月份。
+     * 开始 / 结束 / 发生时间同一口径——未来日期没有医学意义，只会让「近期」判断失真。
+     */
+    private String normalizeMonth(String raw, String label) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim();
+        if (!MONTH_PATTERN.matcher(value).matches()) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    label + "格式应为 YYYY-MM（如 2024-03）");
+        }
+        YearMonth month = YearMonth.parse(value, MONTH_FORMAT);
+        if (month.isAfter(YearMonth.now())) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(), label + "不能是未来月份");
+        }
+        return month.format(MONTH_FORMAT);
+    }
+
+    private void checkEntryCount(int size, String label, int max) {
+        if (size > max) {
+            throw new BizException(ErrorCode.PARAM_INVALID.getCode(),
+                    label + "最多填写 " + max + " 项（当前 " + size + " 项）");
+        }
     }
 
     private HealthProfileDTO.Limits limits() {
@@ -380,12 +481,93 @@ public class HealthProfileService {
         }
     }
 
-    private String toJson(List<String> tags) {
+    /**
+     * 用药列 → 条目列表，**同时兼容两种形态**：
+     * <ul>
+     *   <li>老字符串数组 {@code ["二甲双胍"]}（工单 02 及以前写入）⇒ 时间字段为空；</li>
+     *   <li>新对象数组 {@code [{"value":"二甲双胍","startedOn":"2024-03","endedOn":null}]}。</li>
+     * </ul>
+     * 解析失败按空处理并记 WARN——读路径不能因一列脏 JSON 打不开档案。
+     */
+    private List<MedicationEntry> parseMedicationEntries(String json) {
+        JsonNode array = readArray(json, "用药");
+        if (array == null) {
+            return List.of();
+        }
+        List<MedicationEntry> entries = new ArrayList<>();
+        for (JsonNode node : array) {
+            if (node.isTextual()) {
+                // 老格式：字符串就是药名，时间未知
+                if (!node.asText().isBlank()) {
+                    entries.add(new MedicationEntry(node.asText().trim(), null, null));
+                }
+            } else if (node.isObject()) {
+                String value = textOrNull(node, "value");
+                if (value != null && !value.isBlank()) {
+                    entries.add(new MedicationEntry(value.trim(),
+                            textOrNull(node, "startedOn"), textOrNull(node, "endedOn")));
+                }
+            }
+        }
+        return List.copyOf(entries);
+    }
+
+    /** 手术列 → 条目列表，兼容老字符串数组与新对象数组（同上）。 */
+    private List<SurgeryEntry> parseSurgeryEntries(String json) {
+        JsonNode array = readArray(json, "手术");
+        if (array == null) {
+            return List.of();
+        }
+        List<SurgeryEntry> entries = new ArrayList<>();
+        for (JsonNode node : array) {
+            if (node.isTextual()) {
+                if (!node.asText().isBlank()) {
+                    entries.add(new SurgeryEntry(node.asText().trim(), null));
+                }
+            } else if (node.isObject()) {
+                String value = textOrNull(node, "value");
+                if (value != null && !value.isBlank()) {
+                    entries.add(new SurgeryEntry(value.trim(), textOrNull(node, "occurredOn")));
+                }
+            }
+        }
+        return List.copyOf(entries);
+    }
+
+    /** 读 JSON 数组；空 / 非数组 / 坏 JSON 一律 null（调用方按空处理） */
+    private JsonNode readArray(String json, String label) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
         try {
-            return OBJECT_MAPPER.writeValueAsString(tags == null ? List.of() : tags);
+            JsonNode node = OBJECT_MAPPER.readTree(json);
+            if (node != null && node.isArray()) {
+                return node;
+            }
+            log.warn("健康档案{} JSON 不是数组，按空处理：{}", label, json);
+            return null;
         } catch (Exception e) {
-            // 只可能是不可序列化的对象，List<String> 不会走到这里
-            throw new IllegalStateException("健康档案标签序列化失败", e);
+            log.warn("健康档案{} JSON 解析失败，按空处理：{}", label, json);
+            return null;
+        }
+    }
+
+    /** 取对象里的字符串字段；缺失 / null / 空白一律 null（空时间合法） */
+    private String textOrNull(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        String text = value.asText();
+        return text.isBlank() ? null : text.trim();
+    }
+
+    private String toJson(Object value) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(value == null ? List.of() : value);
+        } catch (Exception e) {
+            // 只可能是不可序列化的对象，字符串数组 / 条目记录不会走到这里
+            throw new IllegalStateException("健康档案 JSON 序列化失败", e);
         }
     }
 }

@@ -118,7 +118,7 @@ class ChatServiceTest {
         // 默认无档案：两段空串、结构化档案 null ⇒ 不拼 prompt 段、不加推荐卡行、快照节点写空（与本单据前的链路一致）
         when(healthProfileService.assembleForChat(anyString()))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("", "", false), null));
+                        new HealthProfileAssembler.Assembly("", false), null));
         when(ragService.retrieve(any())).thenAnswer(invocation -> new RagContext("q", "q", List.of(), 0, 0));
         // 线程池 mock 成同步执行：编排在调用线程里跑完，断言不必等
         doAnswer(invocation -> {
@@ -251,7 +251,7 @@ class ChatServiceTest {
         // 患者确实填了档案
         when(healthProfileService.assembleForChat("u1"))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("糖尿病史", "糖尿病史", false), null));
+                        new HealthProfileAssembler.Assembly("糖尿病史", false), null));
 
         chatService.stream("u1", req("我不舒服", "s1234567890"));
 
@@ -272,8 +272,7 @@ class ChatServiceTest {
                 List.of(), null);
         when(healthProfileService.assembleForChat("u1"))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",
-                                "男、45-59岁、糖尿病史", false), structure));
+                        new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史", false), structure));
         when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
         modelReturns(RAW_RECOMMEND);
 
