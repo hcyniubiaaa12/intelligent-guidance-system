@@ -37,16 +37,18 @@ backend/
 ├── async/      # 离线侧：入库流水线线程池 + 任务表编排（阶段推进；解析与切分在 kb）
 ├── feedback/   # 链路 C：埋点、比对、聚合、审核回流
 ├── stats/      # 统计看板：准确率/分布/盲区
+├── memory/     # 长期记忆：偏好/稳定背景的存储、抽取、按需召回、档案候选与控制面
 └── admin/      # 启动器：聚合全部模块、controller 层、application.yml
 ```
 
 ## 2. 依赖规范（单向，禁止循环）
 
-- 依赖方向：admin → 各业务模块 → rag → llm；所有模块 → common；禁止反向与循环
-- rag 不依赖业务模块，不感知业务状态（会话、用户）
-- **运行时参数一律经 `auth` 的 `SysConfigService` 读**（`sys_config` 表的属主是 auth）：chat 读检索/追问参数、kb 读切分参数，都是这一条边。它不是业务模块互相依赖——auth 只依赖 common，不成环；参数是全局配置，不是某个模块的领域能力
+- 依赖方向：admin → 各业务模块 → rag → llm；所有模块 → common；禁止反向与循环。`chat → memory → auth/llm`（记忆读取与控制面），`memory` 不依赖 chat/rag/kb（会话与消息经 common 的 `SessionActivityPort` 由 chat 实现）
+- rag 不依赖业务模块，不感知业务状态（会话、用户）；稳定背景召回经 common 的 `MemoryRecallPort`，由 chat 按「用户 + 会话」构造闭包传入，rag 只把已算好的 query 向量交给它
+- **运行时参数一律经 `auth` 的 `SysConfigService` 读**（`sys_config` 表的属主是 auth）：chat 读检索/追问参数、kb 读切分参数、memory 读记忆参数，都是这一条边。它不是业务模块互相依赖——auth 只依赖 common，不成环；参数是全局配置，不是某个模块的领域能力。8 个 `memory.*` 键**不进管理端白名单**（没有管理端记忆配置页），改库即生效
 - chat 不得直连向量库、ES 与 LLM，只经 rag → llm
-- kb 是唯一写向量库与 ES chunk 索引入口（上传流水线 + 回流同步）；**双写不是同一事务**——MySQL 在事务内，pgvector 走独立连接、ES 走 HTTP，都吃不到事务，故写入失败必须走写时补偿回删已写入的向量；聚类锚点向量除外，归 feedback 模块直写 pgvector（见数据库设计 cluster_bucket_vec）
+- kb 是唯一写向量库与 ES chunk 索引入口（上传流水线 + 回流同步）；**双写不是同一事务**——MySQL 在事务内，pgvector 走独立连接、ES 走 HTTP，都吃不到事务，故写入失败必须走写时补偿回删已写入的向量；聚类锚点向量除外，归 feedback 模块直写 pgvector（见数据库设计 cluster_bucket_vec）；**`user_memory_vec` 是第三处写入例外**，归 memory 模块直写（记忆的事实源在 MySQL `user_memory`，向量只服务稳定背景的按需召回；不建 HNSW，写失败靠回填任务收敛）
+- 健康档案（`user_health_profile`）**已退出检索层**：只注入生成提示词与证据快照，是硬警报的唯一来源；**别把档案重新塞回召回**。**档案候选未确认永远不进 prompt、不产生预警**——候选接受后才写档案
 - 文档解析：`pdf`/`docx`/`png` 只经 `llm` 适配层调 DocumentMind（**唯一路径，不降级**）；`html` 走 Tika、`txt`/`md` 原生读；**Tika 不得接 pdf/docx**——降级路径会顺着依赖爬回来
 - feedback 只读导诊记录、只写映射与知识片段；埋点旁路，不阻塞主流程
 - async 线程池与在线导诊线程隔离，不共用
@@ -63,7 +65,7 @@ MySQL、PostgreSQL + pgvector、MinIO、Spring Security + JWT、MyBatis、Redis�
 
 `<type>(<scope>): <subject>`，一次提交一件事。
 type：feat / fix / docs / style / refactor / perf / test / chore。
-scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / async / stats。
+scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / async / stats / memory。
 
 密钥安全：配置文件（application.yml、.env 等）含密钥/API Key 时，提交前必须提醒用户不要提交。
 配置分工：`application.yml` 公共配置（占位符 `${...}`，提交）；`application-local.yml` 私密配置（真实密钥，不提交，已 gitignore）；`prompts.yml` 提示词配置（导诊主提示词/查询改写/话术，经 `spring.config.import` 引入，改提示词不改代码，启动时校验占位符完整性）。
@@ -81,6 +83,7 @@ scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / asy
 - 数据流：entity / mapper / dto / 前端 api / 页面五处同步；检查统计看板、导出、关联页面是否漏改
 - 检索存储双写：chunk 改动必须同步 pgvector 与 ES 两路，外加 MySQL 里的切片正文副本（三处）；**不是同一事务**——MySQL 在事务内，pgvector 与 ES 不在，失败靠写时补偿（回删已写向量）与删除补偿顺序收敛
 - 约束：无新中间件；依赖方向未破坏；未绕过 LLM 适配层；埋点未侵入主流程；线程池未混用
+- 健康档案与记忆：档案只进 prompt / 快照、**不进检索**；`memory` 的抽取与召回是旁路（失败只 WARN，不阻塞对话）；**关闭自动记忆只停记忆、不停档案**；**未确认候选不进 prompt、不预警**；`user_memory_vec` 只写 `background_*`、不建 HNSW，写失败靠 `MemoryVectorBackfillJob` 回填
 - 验证：后端编译通过；接口真实请求跑通；涉及链路 A/B/C/D 时核对基线文档对齐点
 - 前端：改完 `frontend/` 跑 `npm run check`（人体图纯规则自检）。它已接进 **pre-commit 硬闸**——暂存区含 `frontend/` 才触发，断言失败拒绝提交；一次性启用 `git config core.hooksPath .githooks`（见 `.githooks/README.md`）
 - 文档：涉及链路对齐点、参数、模块边界的改动，同步更新《总体架构与链路设计.md》（**总册**：全局约定 + 分册清单；四条链路与敏感词、管理端控制面各在 `docs/architecture/` 的一册里，改哪条链路就改哪一册）

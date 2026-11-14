@@ -122,17 +122,32 @@
   "model_cited": [1, 2],
   "profile": {
     "text": "（待注入模型的健康档案文本；为空 = 本轮无档案）",
-    "query": "（档案检索用串，进检索扩容；为空 = 无）",
-    "content": {"gender": "male", "ageRange": "45-59", "historyTags": ["2型糖尿病"],
-                "historyOther": null, "medicationTags": [], "medicationOther": null,
-                "allergyTags": ["青霉素类"], "allergyOther": null}
+    "content": {"gender": "male", "birthYear": 1980, "ageRange": "45-59",
+                "historyTags": ["2型糖尿病"], "historyOther": null,
+                "medicationTags": [{"value": "二甲双胍", "startedOn": "2024-03", "endedOn": null}],
+                "medicationOther": null, "allergyTags": ["青霉素类"], "allergyOther": null,
+                "surgeryTags": [{"value": "阑尾切除术", "occurredOn": "2023-10"}], "surgeryOther": null}
   },
+  "memory": {
+    "text": "（本轮实际注入 Prompt 的【长期记忆】段原文；无背景命中 = null）",
+    "hits": [{"id": "m1", "type": "background_health", "key": "慢病", "value": "2型糖尿病", "score": 0.83}],
+    "query": "（稳定背景召回用的改写 query）",
+    "threshold": 0.70
+  },
+  "alerts": [
+    {"level": "hard", "text": "与您的过敏史「青霉素类」相关：知识片段提到青霉素，请务必向医生说明过敏史。",
+     "anchor": "field:allergy", "source": "rule", "memoryId": null},
+    {"level": "advisory", "text": "与您提到的「2型糖尿病」相关",
+     "anchor": "memory:m1", "source": "memory", "memoryId": "m1"}
+  ],
   "prompt_snippet": "（实际送入模型的上下文摘要）",
   "model_output_raw": "（模型原始输出）"
 }
 ```
 
-> `profile` 是**健康档案快照**（2026-10-03 加）：档案参与召回与生成，就是"系统当时看到的输入"的一部分。三样都要——`text` 是模型看到的背景、`query` 是检索用到的串、`content` 是**患者当时填的结构化档案**（审核时能看清勾了什么、写了什么，而不只是加工后的文本）。**只写不读**：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，旧记录的推荐理由就当场失真）。无档案 ⇒ 节点为 `null`（老记录无该节点），回放侧用 `path()` 取值、不炸。
+> `profile` 是**健康档案快照**：`text` 是模型看到的背景、`content` 是**患者当时填的结构化档案**（审核时能看清勾了什么、写了什么，而不只是加工后的文本）。**2026-11-14 起新快照不再写 `query`**——档案已退出检索层，没有检索用串可记；老快照的该键原样留在库里、读取侧只取 `text`，安全可读、不需迁移。`content` 新增 `birthYear` 与 `surgeryTags`，用药改为对象数组（老快照的字符串数组读取侧必须两种都认）。**只写不读**：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，旧记录的推荐理由就当场失真）。无档案 ⇒ 节点为 `null`（老记录无该节点），回放侧用 `path()` 取值、不炸。
+
+> `memory` / `alerts` 是长期记忆快照（2026-11-14 加），同样**只写不读**：回放 / 审核读快照，**不回查当前记忆或当前档案**。`memory.text` 是 `PromptBuilder.memoryBlock` 的**原样产出**（模型真正看到的那一段），不是回放时重新拼的；`query` / `threshold` 是取证字段，事后能复现「当时按什么串、多少分算命中」。无背景命中写 `memory: null`（开关关闭 / 无召回端口 / 未命中都算「没有发生」），无警报写 `alerts: []`——「空」与「没有这个节点」在回放侧是两件事。`alerts` 与实时下发的 `ResultVO.alerts` **逐条一致**（含锚点与来源），回放要能还原患者当时看到了什么；`memoryId` 只在快照里，读取时不补查。老记录缺这两个节点 ⇒ 按空处理、不报错。挂号回放接口 `RecordDTO.CardVO.alerts` 直接读该节点。
 
 > `score` 是精排（rerank）相关度；精排降级（退化为 RRF 顺序）时该值为 RRF 分（量级 ~0.01），日志有 WARN 可查。
 
