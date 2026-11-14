@@ -36,4 +36,12 @@ public class User extends BaseEntity {
      * 每次发言前比一次当前时间即可）。
      */
     private LocalDateTime muteUntil;
+
+    /**
+     * 自动记忆开关：1 开启 / 0 关闭。
+     *
+     * <p>关闭只停「从对话里抽取记忆」与「把偏好/背景注入提示词」，
+     * 健康档案照常注入、旧记忆照常可见。默认 1（库列为 NOT NULL DEFAULT 1）。
+     */
+    private Integer memoryEnabled;
 }

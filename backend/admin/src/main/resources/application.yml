@@ -75,7 +75,7 @@ guide:
 
 mybatis-plus:
   # 枚举包：@EnumValue 标注的编码字段自动装载（见《数据库设计.md》§0）
-  type-enums-package: com.guide.auth.enums,com.guide.chat.enums,com.guide.kb.enums,com.guide.feedback.enums,com.guide.async.enums
+  type-enums-package: com.guide.auth.enums,com.guide.chat.enums,com.guide.kb.enums,com.guide.feedback.enums,com.guide.async.enums,com.guide.memory.enums
   configuration:
     map-underscore-to-camel-case: true
   global-config:

@@ -21,6 +21,10 @@ import com.guide.kb.enums.DocStatus;
 import com.guide.kb.enums.MappingSource;
 import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
+import com.guide.memory.enums.MemoryActor;
+import com.guide.memory.enums.MemoryOp;
+import com.guide.memory.enums.MemoryStatus;
+import com.guide.memory.enums.MemoryType;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -49,7 +53,9 @@ class EnumConventionTest {
             Gender.class, HealthTagType.class,
             // 块类型落在 kb_chunk.chunk_type（VARCHAR），新加的 figure/image/formula/code/header/footer
             // 也必须遵守"编码值 = 常量名小写"这条约定，否则库里会出现两套写法的同一个类型
-            LayoutBlock.BlockType.class
+            LayoutBlock.BlockType.class,
+            // 长期记忆：类型 / 状态 / 操作 / 操作者四个入库枚举
+            MemoryType.class, MemoryStatus.class, MemoryOp.class, MemoryActor.class
     );
 
     @Test
