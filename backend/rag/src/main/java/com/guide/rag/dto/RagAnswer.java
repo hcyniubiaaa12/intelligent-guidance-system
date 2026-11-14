@@ -13,6 +13,8 @@ import java.util.List;
  * @param cites          引用注号（对应 RagContext.chunks 下标 + 1）
  * @param confidence     模型自报 top1 置信度；非法或缺失为 null（取归一化后首位那条的值）
  * @param confidenceValid 置信度是否通过校验（0–1 区间、Top3 单调递减）
+ * @param alerts         模型补充的警报（工单 10）：**必须带锚点**（cite 注号或 field 档案字段），
+ *                       无锚点的已在 {@code AnswerParser} 解析时丢弃；非结论轮恒为空
  */
 public record RagAnswer(
         Verdict verdict,
@@ -21,7 +23,30 @@ public record RagAnswer(
         String note,
         List<Integer> cites,
         Double confidence,
-        boolean confidenceValid) {
+        boolean confidenceValid,
+        List<Alert> alerts) {
+
+    /** 老调用方兼容：没有模型警报时等价于空列表（非结论轮、老格式输出都走这条） */
+    public RagAnswer(Verdict verdict, String reply, List<DeptCandidate> top3, String note,
+                     List<Integer> cites, Double confidence, boolean confidenceValid) {
+        this(verdict, reply, top3, note, cites, confidence, confidenceValid, List.of());
+    }
+
+    public RagAnswer {
+        alerts = alerts == null ? List.of() : List.copyOf(alerts);
+    }
+
+    /**
+     * 模型在结论 JSON 里补充的一条警报。
+     *
+     * @param text  给患者看的文案
+     * @param cite  锚点之一：引用的知识片段注号（对应 RagContext.chunks 下标 + 1）；
+     *              **注号是否越界由 chat 层按实际召回条数再校验**
+     * @param field 锚点之一：档案字段白名单（allergy / medication / surgery）；
+     *              与 cite 同时给出时优先用 cite 作锚点
+     */
+    public record Alert(String text, Integer cite, String field) {
+    }
 
     /**
      * 模型判定（2026-09-30 起由模型在结论 JSON 的 verdict 字段里**显式声明**）。

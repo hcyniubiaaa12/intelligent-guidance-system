@@ -808,7 +808,9 @@ async function runTurn(content) {
               note: data.note,
               cites: data.cites || [],
               lowConfidence: data.lowConfidence,
-              profileText: data.profileText || ''
+              profileText: data.profileText || '',
+              // 档案硬警报（工单 10）：只在结论轮下发；空数组 = 无冲突，卡片不渲染警示条
+              alerts: data.alerts || []
             }
           })
           // 推荐卡渲染完成 = result_view 触点（旁路上报，失败静默）

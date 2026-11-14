@@ -441,6 +441,32 @@
   color: var(--alert);
 }
 
+/* ---------- 结论卡顶部：档案硬警报（工单 10）----------
+   先说冲突、再给结论：患者不该滚到卡片底部才知道"片段提到的药我过敏"。
+   无 alerts 时整块不渲染（前端不画空警示条）。最多 3 条由后端与控制双保险。*/
+.p-card__alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.p-card__alert {
+  margin: 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--alert);
+  border-radius: var(--r-xs);
+  background: var(--alert-soft);
+  color: var(--alert);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+/* 相关提醒（advisory）走主色浅底：它说的是"与您提到的 X 相关"，不是禁忌 */
+.p-card__alert--advisory {
+  border-left-color: var(--leaf);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
+}
+
 /* 健康档案行：患者自述、不是证据。用杏色底块与「判断依据」分开
    （旧方案靠"实线 vs 虚线"区分，这里改用"杏色块 vs 脚注"区分，效果同一件事）*/
 .p-card__profile {
