@@ -11,6 +11,7 @@ import com.guide.auth.mapper.HealthTagMapper;
 import com.guide.auth.mapper.UserHealthProfileMapper;
 import com.guide.auth.service.HealthProfileService;
 import com.guide.auth.service.SysConfigService;
+import com.guide.auth.support.LegacyProfile;
 import com.guide.auth.support.MedicationEntry;
 import com.guide.auth.support.SurgeryEntry;
 import com.guide.common.exception.BizException;
@@ -479,6 +480,108 @@ class HealthProfileServiceTest {
                 .isEqualTo("男、1980 年出生、过敏：青霉素类、近期用药：二甲双胍、近期手术：阑尾切除术");
         // 结构化档案仍保留旧字段（证据快照审计），只是不注入
         assertThat(chat.structure().historyTags()).containsExactly("2型糖尿病");
+    }
+
+    @Test
+    @DisplayName("存量迁移读取：返回旧慢病标签/自由文本与用药、过敏原始 JSON；空档案也返回（供用药格式转换）")
+    void listsLegacyProfilesIncludingEmptyHistory() {
+        UserHealthProfile withHistory = new UserHealthProfile();
+        withHistory.setUserId("u1");
+        withHistory.setHistoryTags("[\"2型糖尿病\",\"高血压\"]");
+        withHistory.setHistoryOther("长期夜班");
+        withHistory.setMedicationTags("[\"二甲双胍\"]");
+        withHistory.setAllergyTags("[\"青霉素类\"]");
+
+        UserHealthProfile empty = new UserHealthProfile();
+        empty.setUserId("u2");
+
+        when(profileMapper.selectList(any())).thenReturn(List.of(withHistory, empty));
+
+        List<LegacyProfile> profiles = service.listLegacyProfiles(2);
+
+        assertThat(profiles).hasSize(2);
+        assertThat(profiles.get(0).userId()).isEqualTo("u1");
+        assertThat(profiles.get(0).historyTags()).containsExactly("2型糖尿病", "高血压");
+        assertThat(profiles.get(0).historyOther()).isEqualTo("长期夜班");
+        assertThat(profiles.get(0).medicationTagsJson()).isEqualTo("[\"二甲双胍\"]");
+        assertThat(profiles.get(0).allergyTagsJson()).isEqualTo("[\"青霉素类\"]");
+        // 空档案也必须返回：用药/过敏的字符串数组格式转换与历史无关
+        assertThat(profiles.get(1).userId()).isEqualTo("u2");
+        assertThat(profiles.get(1).historyTags()).isEmpty();
+        assertThat(profiles.get(1).historyOther()).isNull();
+    }
+
+    @Test
+    @DisplayName("存量迁移读取：limit ≤ 0 直接返回空，不发查询")
+    void legacyProfileListRejectsNonPositiveLimit() {
+        List<LegacyProfile> profiles = service.listLegacyProfiles(0);
+
+        assertThat(profiles).isEmpty();
+        verify(profileMapper, never()).selectList(any());
+    }
+
+    @Test
+    @DisplayName("存量迁移读取：按 userId 游标分页（user_id > afterUserId），避免每次重启只迁前 N 条")
+    @SuppressWarnings("unchecked")
+    void legacyProfileListUsesUserIdCursor() {
+        when(profileMapper.selectList(any())).thenReturn(List.of());
+
+        service.listLegacyProfiles(100, "u9");
+
+        ArgumentCaptor<Wrapper<UserHealthProfile>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(profileMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSegment()).contains("user_id >");
+    }
+
+    @Test
+    @DisplayName("用药格式迁移：老字符串数组重写成对象数组（时间为空），过敏列不动")
+    @SuppressWarnings("unchecked")
+    void rewritesMedicationStringsAsObjects() {
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setMedicationTags("[\"二甲双胍\",\"胰岛素\"]");
+        row.setAllergyTags("[\"青霉素类\"]");
+        when(profileMapper.selectOne(any())).thenReturn(row);
+
+        boolean changed = service.rewriteMedicationTagsAsObjects("u1");
+
+        assertTrue(changed);
+        ArgumentCaptor<Wrapper<UserHealthProfile>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(profileMapper).update(isNull(), captor.capture());
+        LambdaUpdateWrapper<UserHealthProfile> wrapper =
+                (LambdaUpdateWrapper<UserHealthProfile>) captor.getValue();
+        assertThat(wrapper.getSqlSet()).contains("medication_tags").doesNotContain("allergy_tags");
+        assertThat(wrapper.getParamNameValuePairs().values()).contains(
+                "[{\"value\":\"二甲双胍\",\"startedOn\":null,\"endedOn\":null},"
+                        + "{\"value\":\"胰岛素\",\"startedOn\":null,\"endedOn\":null}]");
+    }
+
+    @Test
+    @DisplayName("用药格式迁移：已经是对象数组不动（幂等，不产生无意义的更新）")
+    void rewriteMedicationSkipsObjectArray() {
+        UserHealthProfile row = new UserHealthProfile();
+        row.setUserId("u1");
+        row.setMedicationTags("[{\"value\":\"二甲双胍\",\"startedOn\":\"2024-03\",\"endedOn\":null}]");
+        when(profileMapper.selectOne(any())).thenReturn(row);
+
+        assertThat(service.rewriteMedicationTagsAsObjects("u1")).isFalse();
+
+        verify(profileMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("用药格式迁移：空 / 坏 JSON / 无档案不写库（读路径容错不反向改数据）")
+    void rewriteMedicationSkipsEmptyOrUnreadable() {
+        when(profileMapper.selectOne(any())).thenReturn(null);
+        assertThat(service.rewriteMedicationTagsAsObjects("u1")).isFalse();
+
+        UserHealthProfile blank = new UserHealthProfile();
+        blank.setUserId("u2");
+        blank.setMedicationTags("not-json");
+        when(profileMapper.selectOne(any())).thenReturn(blank);
+        assertThat(service.rewriteMedicationTagsAsObjects("u2")).isFalse();
+
+        verify(profileMapper, never()).update(any(), any());
     }
 
     @SuppressWarnings("unchecked")
