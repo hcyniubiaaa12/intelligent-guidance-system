@@ -76,14 +76,22 @@ public class ChatDTO {
      * <p>只有结论轮才下发：ASK / INFO / UNKNOWN 走别的分支，根本不产 {@link ResultVO}——
      * 「非结论轮不弹结构化警报」是结构上保证的，不靠前端判断。
      *
-     * @param level  {@code hard}（档案硬冲突，危险色）/ {@code advisory}（相关提醒，主色浅底）
-     * @param text   患者可读文案，说清与哪条档案项冲突
-     * @param anchor 锚点：{@code cite:N}（知识片段注号）或
-     *               {@code field:allergy|medication|surgery}（档案字段）；
-     *               患者据此能核对到具体依据
-     * @param source 产出方：{@code rule}（后端词面规则）/ {@code model}（模型补充）
+     * @param level    {@code hard}（档案硬冲突，危险色）/ {@code advisory}（相关提醒，主色浅底）
+     * @param text     患者可读文案，说清与哪条档案项冲突
+     * @param anchor   锚点：{@code cite:N}（知识片段注号）、
+     *                 {@code field:allergy|medication|surgery}（档案字段）或
+     *                 {@code memory:<id>}（稳定背景条目）；患者据此能核对到具体依据
+     * @param source   产出方：{@code rule}（后端词面规则）/ {@code model}（模型补充）/
+     *                 {@code memory}（稳定背景命中）
+     * @param memoryId 命中的记忆 id（仅 {@code source=memory} 有值）；用来指回具体一条记忆，
+     *                 指不回的提醒不会出现在这里
      */
-    public record AlertVO(String level, String text, String anchor, String source) {
+    public record AlertVO(String level, String text, String anchor, String source, String memoryId) {
+
+        /** 档案硬警报（规则/模型）的便捷构造：没有记忆出处 */
+        public AlertVO(String level, String text, String anchor, String source) {
+            this(level, text, anchor, source, null);
+        }
     }
 
     /**

@@ -53,7 +53,8 @@ public class PromptBuilder {
         String prompt = PromptProperties.render(prompts.getDiagnosis().getSystemTemplate(),
                 PromptProperties.PLACEHOLDER_KNOWLEDGE, knowledgeBlock(context));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PROFILE, profileBlock(request));
-        prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MEMORY, memoryBlock(request, context));
+        prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MEMORY,
+                memoryBlock(request, context.memoryHits()));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_PARTS, partsBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_DEPTS, deptBlock(request));
         prompt = PromptProperties.render(prompt, PromptProperties.PLACEHOLDER_MARKER, AnswerParser.MARKER);
@@ -106,12 +107,18 @@ public class PromptBuilder {
      *
      * <p>上限按条累加、超限停止加入后续条目并 WARN——**保留完整条目，不切半句**：
      * 半句话的偏好会让模型误读患者意图，比少注入一条更糟。上限是配置异常的信号，不是裁剪手段。
+     *
+     * <p><b>公开</b>：{@code RagService} 用它算出**本轮实际注入的文本**放进 {@link RagContext#memoryText()}，
+     * 证据快照直接写那一份。prompt 与快照共用这一个实现，不会出现"模型看到的"与"回放显示的"两份口径。
+     *
+     * @param request 本轮请求（偏好取自 {@code preferences}）
+     * @param hits    稳定背景召回命中（可为 null / 空）
      */
-    private String memoryBlock(RagRequest request, RagContext context) {
+    public String memoryBlock(RagRequest request, List<MemoryHit> hits) {
         List<String> lines = new ArrayList<>();
         int totalChars = 0;
 
-        List<MemoryHit> backgrounds = context.memoryHits().stream()
+        List<MemoryHit> backgrounds = (hits == null ? List.<MemoryHit>of() : hits).stream()
                 .filter(Objects::nonNull)
                 .filter(hit -> hit.type() != null && hit.type().startsWith("background"))
                 .filter(hit -> hit.value() != null && !hit.value().isBlank())

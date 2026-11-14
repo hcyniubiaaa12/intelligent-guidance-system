@@ -20,6 +20,7 @@ import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.common.util.TextUtil;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
@@ -155,11 +156,16 @@ public class GuideService {
     private static final Set<String> MODEL_ALERT_FIELDS = Set.of("allergy", "medication", "surgery");
 
     /**
-     * 合并两类警报（工单 10）。
+     * 合并三类提示（工单 10 / 11）：档案硬警报（规则 → 模型）与稳定背景相关提醒。
      *
-     * <p><b>规则优先且不可被模型否定</b>：规则警报先全部入列，模型输出只能在其后补充，
-     * 既不能挤掉、也不能覆盖它们。合并顺序固定为「规则 → 模型」，总量上限
-     * {@link ProfileAlertDetector#MAX_ALERTS}——规则占满名额时模型警报整体丢弃。
+     * <p><b>硬警报优先且不可被模型否定</b>：规则警报先全部入列，模型输出只能在其后补充，
+     * 既不能挤掉、也不能覆盖它们。合并顺序固定为「规则 → 记忆提醒 → 模型」，
+     * 总量上限 {@link ProfileAlertDetector#MAX_ALERTS}——规则占满名额时其余两类整体丢弃。
+     *
+     * <p><b>相关提醒只说「相关」</b>：稳定背景是长期背景、不是医学证据，
+     * 文案只写「与您提到的「X」相关」，绝不写「禁忌 / 不能」。
+     * 每条提醒必须带 {@code memoryId} 与 {@code memory:<id>} 锚点——
+     * 指不回具体记忆条目的提醒一律丢弃（患者点不到依据的提示不该出现）。
      *
      * <p><b>去重口径</b>：同一文案（trim 后逐字相同）只留一条。规则侧已按「档案值」去重，
      * 这里再按文案去一次，是为了防止模型把规则那条换个来源重写一遍。
@@ -183,6 +189,31 @@ public class GuideService {
             }
         }
 
+        // 稳定背景相关提醒：只报「相关」，且必须指回具体记忆条目。
+        // 排在硬警报之后：档案冲突是重事，名额先给它；占满时提醒整体丢弃。
+        List<MemoryHit> memoryHits = context.memoryHits() == null ? List.of() : context.memoryHits();
+        int advisoryCount = 0;
+        for (MemoryHit hit : memoryHits) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            if (hit == null || hit.type() == null || !hit.type().startsWith("background")) {
+                continue;
+            }
+            String memoryId = hit.id() == null ? "" : hit.id().strip();
+            String value = hit.value() == null ? "" : hit.value().strip();
+            if (memoryId.isEmpty() || value.isEmpty()) {
+                log.warn("背景提醒缺少记忆 id 或内容，已丢弃（提醒必须能指回具体条目）：id={}｜值={}",
+                        hit.id(), TextUtil.abbreviate(hit.value(), 40));
+                continue;
+            }
+            String text = "与您提到的「" + value + "」相关";
+            if (texts.add(text)) {
+                merged.add(new ChatDTO.AlertVO("advisory", text, "memory:" + memoryId, "memory", memoryId));
+                advisoryCount++;
+            }
+        }
+
         int chunkCount = context.chunks() == null ? 0 : context.chunks().size();
         List<RagAnswer.Alert> modelAlerts = answer.alerts() == null ? List.of() : answer.alerts();
         for (RagAnswer.Alert alert : modelAlerts) {
@@ -200,8 +231,8 @@ public class GuideService {
         }
 
         if (!merged.isEmpty()) {
-            log.info("结论警报：规则 {} 条、模型补充 {} 条，合并下发 {} 条（上限 {}）｜锚点 {}",
-                    ruleAlerts.size(), modelAlerts.size(), merged.size(),
+            log.info("结论警报：规则 {} 条、记忆提醒 {} 条、模型补充 {} 条，合并下发 {} 条（上限 {}）｜锚点 {}",
+                    ruleAlerts.size(), advisoryCount, modelAlerts.size(), merged.size(),
                     ProfileAlertDetector.MAX_ALERTS,
                     merged.stream().map(ChatDTO.AlertVO::anchor).toList());
         }
@@ -315,6 +346,14 @@ public class GuideService {
         } else {
             evidence.set("profile", profileNode(profile));
         }
+        // 记忆节点同 profile 一样是**只写不读**的当时快照：回放/审核读它，绝不回查当前记忆。
+        // 无命中（含开关关闭、无召回端口）写 null 而不是空对象——「没有发生过」与「发生了但为空」
+        // 在回放侧是两件事，空对象会让人以为当时召回了、只是没记内容。
+        if (context.memoryHits().isEmpty()) {
+            evidence.putNull("memory");
+        } else {
+            evidence.set("memory", memoryNode(context));
+        }
         // 警报节点与下发内容逐条一致（含锚点与来源）：事后回放要能还原患者当时看到了什么。
         // 无警报也写空数组——「空」和「没有这个节点」在回放侧是两件事。
         ArrayNode alertArray = evidence.putArray("alerts");
@@ -324,6 +363,13 @@ public class GuideService {
             node.put("text", alert.text());
             node.put("anchor", alert.anchor());
             node.put("source", alert.source());
+            // 记忆出处在快照里必须留着：回放要能显示"当时是照哪条背景提的醒"，
+            // 而且回放**不回查当前记忆**——id 只在快照里，不在读取时补。
+            if (alert.memoryId() == null) {
+                node.putNull("memoryId");
+            } else {
+                node.put("memoryId", alert.memoryId());
+            }
         }
         evidence.put("prompt_snippet", TextUtil.abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
         evidence.put("model_output_raw", TextUtil.abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
@@ -370,6 +416,35 @@ public class GuideService {
         content.put("allergyOther", structure.allergyOther());
         putSurgeryEntries(content, "surgeryTags", structure.surgeryEntries());
         content.put("surgeryOther", structure.surgeryOther());
+        return node;
+    }
+
+    /**
+     * 记忆快照节点（工单 11）：还原"本轮实际注入了哪一段、命中了哪几条"。
+     *
+     * <p>{@code text} 是 {@code PromptBuilder.memoryBlock} 的**原样产出**（模型真正看到的那一段），
+     * 不是回放时重新拼的——拼一遍就等于用今天的配置改写历史。
+     * {@code query} / {@code threshold} 是取证字段：事后要能复现"当时按什么串、多少分算命中"。
+     *
+     * @param context 检索上下文（memoryHits 非空时才会调用本方法）
+     */
+    private ObjectNode memoryNode(RagContext context) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("text", context.memoryText());
+        ArrayNode hits = node.putArray("hits");
+        for (MemoryHit hit : context.memoryHits()) {
+            if (hit == null) {
+                continue;
+            }
+            ObjectNode item = hits.addObject();
+            item.put("id", hit.id());
+            item.put("type", hit.type());
+            item.put("key", hit.key());
+            item.put("value", hit.value());
+            item.put("score", hit.score());
+        }
+        node.put("query", context.memoryQuery());
+        node.put("threshold", context.memoryThreshold());
         return node;
     }
 

@@ -26,6 +26,9 @@ import java.util.List;
  *                        由 chat 从 memory 读取后传入，rag 不感知 userId。
  * @param memoryRecallPort 稳定背景的召回端口（可为 null / 返回空）；rag 用**已算好的 query 向量**回调它，
  *                        不额外 embedding、不直连向量库，也不感知用户。
+ * @param memoryThreshold 稳定背景召回阈值（来自 {@code memory.background.recall.threshold}）。
+ *                        rag 自己不用它做判定（判定在 memory 侧），它是**证据快照的取证字段**：
+ *                        事后要能复现「当时按多少分算命中」。非法值回落默认 0.70。
  *
  * <p>注意：追问轮次（{@code ask_round}）**不再是入参**——rag 从无任何消费者读它，曾经传进来是死字段
  * （2026-10-14 工单 05 核实后删除）。rag 侧"该不该追问"只由 {@code forceConclusion} 一个开关决定。
@@ -40,10 +43,12 @@ public record RagRequest(
         String profileText,
         List<String> parts,
         List<String> preferences,
-        MemoryRecallPort memoryRecallPort) {
+        MemoryRecallPort memoryRecallPort,
+        double memoryThreshold) {
 
     public static final int DEFAULT_TOP_K = 20;
     public static final int DEFAULT_TOP_N = 5;
+    public static final double DEFAULT_MEMORY_THRESHOLD = 0.70;
 
     public RagRequest {
         history = history == null ? List.of() : List.copyOf(history);
@@ -59,6 +64,22 @@ public record RagRequest(
                 .filter(s -> !s.isEmpty()).toList();
         topK = topK <= 0 ? DEFAULT_TOP_K : topK;
         topN = topN <= 0 ? DEFAULT_TOP_N : topN;
+        // 阈值是配置值，缺省/越界一律回落默认：快照里写一个 0.0 会让事后复现变成假象
+        if (!(memoryThreshold > 0 && memoryThreshold <= 1)) {
+            memoryThreshold = DEFAULT_MEMORY_THRESHOLD;
+        }
+    }
+
+    /**
+     * 兼容构造：调用方/测试不关心取证阈值时按默认 0.70。
+     * 生产路径（chat）显式传 {@code memory.background.recall.threshold}。
+     */
+    public RagRequest(String query, List<RagTurn> history, List<DeptOption> deptOptions,
+                      boolean forceConclusion, int topK, int topN, String profileText,
+                      List<String> parts, List<String> preferences,
+                      MemoryRecallPort memoryRecallPort) {
+        this(query, history, deptOptions, forceConclusion, topK, topN, profileText, parts,
+                preferences, memoryRecallPort, DEFAULT_MEMORY_THRESHOLD);
     }
 
     /** 是否多轮（有历史才做查询改写） */

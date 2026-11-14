@@ -91,6 +91,9 @@ public class RagService {
         // 记忆召回复用**已算好的 query 向量**（端口签名就是为此设计的）：不额外 embedding，
         // 也仍然不知道 userId。记忆是旁路——端口异常只 WARN，检索照常往下走。
         List<MemoryHit> memoryHits = recallMemory(request.memoryRecallPort(), query, queryVector);
+        // 实际注入的记忆段文本在这里定稿：prompt 与证据快照都写这一份，不各自再拼一遍。
+        // 即使没有命中也要算（偏好段可能仍会注入）；快照只在有背景命中时才落 memory 节点。
+        String memoryText = promptBuilder.memoryBlock(request, memoryHits);
 
         long recallStart = System.currentTimeMillis();
         List<ChunkHit> vectorHits = pgVectorUtil.searchChunks(queryVector, request.topK());
@@ -110,7 +113,8 @@ public class RagService {
         if (fused.isEmpty()) {
             log.info("检索结束：无命中（检查知识库是否有切片 / 索引是否建好）｜总耗时 {} ms",
                     System.currentTimeMillis() - start);
-            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size(), memoryHits);
+            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size(),
+                    memoryHits, memoryText, query, request.memoryThreshold());
         }
         log.info("RRF 融合：{} 个排名列表 → 候选 {} 条（主诉双路同时命中 {} 条）｜Top3 {}",
                 rankedLists.size(), fused.size(), bothPathCount(vectorHits, esHits), rrfSummary(fused, 3));
@@ -128,7 +132,8 @@ public class RagService {
             log.info("  精排 #{} score={} chunkId={} 《{}》", i + 1, format(hit.score()), hit.chunkId(), hit.title());
             log.debug("  精排 #{} 正文：{}", i + 1, abbreviate(hit.content(), 200));
         }
-        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size(), memoryHits);
+        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size(),
+                memoryHits, memoryText, query, request.memoryThreshold());
     }
 
     /**
