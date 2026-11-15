@@ -16,7 +16,9 @@ import com.guide.memory.enums.MemoryOp;
 import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
+import com.guide.memory.service.MemoryExtractor.ExistingMemory;
 import com.guide.memory.service.MemoryExtractor.MergedPreference;
+import com.guide.memory.service.MemoryExtractor.PreferenceItem;
 import com.guide.memory.support.MemoryNegation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -123,7 +125,7 @@ public class MemoryExtractionService {
             return;
         }
 
-        MemoryExtractionResult result = memoryExtractor.extract(dialogueText(turns));
+        MemoryExtractionResult result = memoryExtractor.extract(dialogueText(turns), rememberedMemories(userId));
         if (result == null || result.isEmpty()) {
             log.info("本轮未抽到可落库的记忆：sessionId={}", sessionId);
             return;
@@ -189,6 +191,30 @@ public class MemoryExtractionService {
         return null;
     }
 
+    /**
+     * 取给模型判重用的旧记忆清单：**只取生效中的**，在「患者更正收回」之后取。
+     *
+     * <p>顺序很重要：更正那一步会把被否定的背景置 expired，先取旧清单就等于把患者刚放弃的说法
+     * 又摆回模型面前。偏好与背景一起编号（模型不认 id，只认序号）。
+     *
+     * <p>取不到（DB 抖动）按空清单处理：判重退化成「全部 new」，仍是可用的降级——
+     * 不能因为拿不到旧记忆就连抽取都不做。
+     */
+    private List<ExistingMemory> rememberedMemories(String userId) {
+        try {
+            List<ExistingMemory> items = new ArrayList<>();
+            for (Memory row : activeMemories(userId, MemoryType.PREFERENCE,
+                    MemoryType.BACKGROUND_HEALTH, MemoryType.BACKGROUND_OTHER)) {
+                items.add(new ExistingMemory(row.getType(), row.getMkey(), row.getMvalue()));
+            }
+            return items;
+        } catch (RuntimeException e) {
+            log.warn("读取已记住的记忆失败，本轮判重按「全部新增」处理：userId={}｜原因={}",
+                    userId, e.getMessage());
+            return List.of();
+        }
+    }
+
     // ---------------- 偏好 ----------------
 
     private void savePreferences(String userId, List<PreferenceDraft> drafts) {
@@ -235,7 +261,7 @@ public class MemoryExtractionService {
                                   List<PreferenceDraft> fresh, int max) {
         List<MergedPreference> merged;
         try {
-            merged = memoryExtractor.merge(valuesOf(existing), valuesOfDrafts(fresh));
+            merged = memoryExtractor.merge(itemsOf(existing), itemsOfDrafts(fresh));
         } catch (RuntimeException e) {
             log.warn("偏好合并失败，丢弃本批新偏好（旧偏好保留）：userId={}｜原因={}", userId, e.getMessage());
             return;
@@ -366,12 +392,13 @@ public class MemoryExtractionService {
         return text.toString().strip();
     }
 
-    private List<String> valuesOf(List<Memory> rows) {
-        return rows.stream().map(Memory::getMvalue).toList();
+    /** 合并只需「键 + 值」：旧偏好带上自己的 key，模型不必凭空编一个新键 */
+    private List<PreferenceItem> itemsOf(List<Memory> rows) {
+        return rows.stream().map(row -> new PreferenceItem(row.getMkey(), row.getMvalue())).toList();
     }
 
-    private List<String> valuesOfDrafts(List<PreferenceDraft> drafts) {
-        return drafts.stream().map(PreferenceDraft::value).toList();
+    private List<PreferenceItem> itemsOfDrafts(List<PreferenceDraft> drafts) {
+        return drafts.stream().map(draft -> new PreferenceItem(draft.key(), draft.value())).toList();
     }
 
     /** 合并后的值若能对上原条目，沿用它的原话；对不上就串起旧偏好原话（仍可追溯） */

@@ -206,15 +206,30 @@ prompts:
 
       输出要求：
       1. 只输出一个 JSON 对象，不要解释、不要代码围栏：
-         {"preferences":[{"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点","confidence":0.9}],
-          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null}],
+         {"preferences":[{"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点","confidence":0.9,"action":"new","target":null}],
+          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null,"action":"new","target":null}],
           "profile_candidates":[{"field":"allergy","value":"青霉素","occurredOn":null,"quote":"我青霉素过敏","confidence":0.95}]}
       2. key 不超过 8 个字；value 不超过 60 个字。
       3. quote 必须是对话里患者的**原话片段**，逐字照抄，不得改写；找不到原话就不要输出这一条。
       4. confidence 是 0—1 的小数，如实反映把握程度。
       5. background 的 type 只能是 health（健康相关）或 other（生活背景）；validTo 是可选的结束日期（YYYY-MM-DD），不确定就写 null。
       6. 没有可抽的信息时输出 {"preferences":[],"background":[],"profile_candidates":[]}。
+
+      **判重（action / target）**：用户消息里有一段「已记住的记忆」，按序号编号、分 [偏好] / [背景] 两组。
+      你抽出的每一条 preference 与 background 都要带两个字段：
+      - action：new（没说过的）/ update（就是已记住的那一条）/ skip（已记住的那条更好或等价）；
+      - target：已记住的记忆的**序号**（从 1 开始），只有 update 需要填，其余写 null。
+      四条口径，按顺序判断：
+      1. **只有明确是同一件事才 update**。只是措辞相近、说的其实不是一回事（如「怕冷」和「怕热」），按 new。
+      2. update 时 value 取**信息量更大**的那个（「青霉素」→「青霉素和头孢都过敏」取后者）；
+         已记住的那条本来就更具体、新说法没带来新信息，按 skip。
+      3. 新说法与已记住的**相反**（「讲慢一点」→「不要太慢」）⇒ update，以新说法为准。
+      4. **拿不准就 new**。多记一条患者看得见、能自己删；漏记或误合并一条，他永远不知道自己被记错了。
+      已记住的记忆为空时（显示「（无）」），所有条目一律 action=new、target=null。
     user-template: |
+      已记住的记忆（更新时 target 填这里的序号）：
+      {remembered}
+
       对话记录：
       {dialogue}
 
@@ -222,14 +237,15 @@ prompts:
   # 合并失败或输出不可解析时，抽取侧会**丢弃本批新偏好**（不删旧偏好）——宁可不记，也不写坏数据。
   memory-merge:
     system: |
-      你是偏好整理助手。下面有两组患者偏好：一组是系统已经记住的，一组是刚从句子里新抽到的。
+      你是偏好整理助手。下面有两组患者偏好，每条都是「键：值」：一组是系统已经记住的，一组是刚从句子里新抽到的。
       请合并去重，保留**不重复、不冲突**的偏好；条数不得超过现有偏好上限（由系统按配置约束，不要新增条数）。
 
       要求：
-      1. 语义相同的合并成一条（如「讲慢一点」和「说慢点」只留一条，用更具体的表述）。
+      1. 语义相同的合并成一条（如「回答方式：讲慢一点」和「语速：慢点」只留一条，用更具体的表述）。
       2. 新偏好与旧偏好冲突时，**以新偏好为准**（患者最近的说法更新）。
       3. 不要新增两组里都没有的偏好，不要改写患者原意。
-      4. 只输出 JSON：{"preferences":[{"key":"回答方式","value":"讲慢一点"}]}，不要解释、不要代码围栏。
+      4. **key 只能取自输入里的键**：合并后的每一条，用它来自的那条输入的 key（更新的那条用新偏好的 key）。不要自己编新键。
+      5. 只输出 JSON：{"preferences":[{"key":"回答方式","value":"讲慢一点"}]}，不要解释、不要代码围栏。
     user-template: |
       已记住的偏好：
       {existing}
