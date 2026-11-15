@@ -115,7 +115,7 @@ public final class MemoryExtractValidator {
             String type = "other".equalsIgnoreCase(cleaned.type()) ? "other" : "health";
             if (seen.add(key(type, cleaned.key(), cleaned.value()))) {
                 result.add(new BackgroundDraft(cleaned.key(), cleaned.value(), type, cleaned.quote(),
-                        cleaned.confidence(), cleaned.validTo()));
+                        cleaned.confidence(), cleaned.validTo(), cleaned.action(), cleaned.target()));
             }
         }
         return result;
@@ -217,8 +217,9 @@ public final class MemoryExtractValidator {
         if (draft == null) {
             return null;
         }
+        // 判重字段原样带过：它是解析层已经降级好的结论，校验层只判「留或丢」，不改判重结果
         return new PreferenceDraft(trim(draft.key()), trim(draft.value()), trim(draft.quote()),
-                draft.confidence());
+                draft.confidence(), draft.action(), draft.target());
     }
 
     private static BackgroundDraft clean(BackgroundDraft draft) {
@@ -227,7 +228,7 @@ public final class MemoryExtractValidator {
         }
         String type = draft.type() == null ? "health" : draft.type().trim().toLowerCase(Locale.ROOT);
         return new BackgroundDraft(trim(draft.key()), trim(draft.value()), type, trim(draft.quote()),
-                draft.confidence(), draft.validTo());
+                draft.confidence(), draft.validTo(), draft.action(), draft.target());
     }
 
     private static String trim(String text) {

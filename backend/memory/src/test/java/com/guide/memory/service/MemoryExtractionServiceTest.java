@@ -17,6 +17,7 @@ import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
 import com.guide.memory.service.MemoryExtractor.MergedPreference;
+import com.guide.memory.service.MemoryExtractor.PreferenceItem;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -104,7 +105,7 @@ class MemoryExtractionServiceTest {
 
         verify(sessionActivityPort).recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT);
         verify(sessionActivityPort, never()).tryIncrementExtractCount(any(), anyInt());
-        verify(memoryExtractor, never()).extract(any());
+        verify(memoryExtractor, never()).extract(any(), any());
     }
 
     @Test
@@ -120,7 +121,7 @@ class MemoryExtractionServiceTest {
         when(memoryMapper.selectList(any())).thenReturn(List.of(row));
         when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
                 .thenReturn(List.of(new DialogueTurn("user", "说错了我没有2型糖尿病", LocalDateTime.now())));
-        when(memoryExtractor.extract(any()))
+        when(memoryExtractor.extract(any(), any()))
                 .thenReturn(new MemoryExtractionResult(List.of(), List.of(), List.of()));
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
@@ -142,7 +143,7 @@ class MemoryExtractionServiceTest {
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
 
         verify(sessionActivityPort, never()).tryIncrementExtractCount(any(), anyInt());
-        verify(memoryExtractor, never()).extract(any());
+        verify(memoryExtractor, never()).extract(any(), any());
     }
 
     @Test
@@ -152,13 +153,13 @@ class MemoryExtractionServiceTest {
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
 
-        verify(memoryExtractor, never()).extract(any());
+        verify(memoryExtractor, never()).extract(any(), any());
     }
 
     @Test
     @DisplayName("合法抽取落库：偏好/背景各按其类型写入，带原话、置信度、观察时间与 retrievalText，并写审计")
     void persistsValidResultWithAudit() {
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")),
                 List.of(background("慢病", "2型糖尿病", "health", "我有2型糖尿病", "0.95", null))));
 
@@ -190,7 +191,7 @@ class MemoryExtractionServiceTest {
     @Test
     @DisplayName("背景 type=other 落 background_other；validTo 已过则状态直接置 expired")
     void backgroundTypeAndExpiry() {
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(),
                 List.of(background("生活", "长期夜班", "other", "我一直上夜班", "0.9", null),
                         background("用药", "二甲双胍", "health", "我长期吃二甲双胍", "0.9",
@@ -210,7 +211,7 @@ class MemoryExtractionServiceTest {
     void skipsExistingDuplicates() {
         when(memoryMapper.selectList(any())).thenReturn(List.of(existing("old", MemoryType.PREFERENCE,
                 "回答方式", "讲慢一点", "0.9")));
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")), List.of()));
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
@@ -227,7 +228,7 @@ class MemoryExtractionServiceTest {
             existing.add(existing("old" + i, MemoryType.PREFERENCE, "偏好" + i, "值" + i, "0.8"));
         }
         when(memoryMapper.selectList(any())).thenReturn(existing);
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")), List.of()));
         when(memoryExtractor.merge(any(), any())).thenReturn(List.of(
                 new MergedPreference("偏好0", "值0"),
@@ -239,9 +240,17 @@ class MemoryExtractionServiceTest {
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<String>> incoming = ArgumentCaptor.forClass(List.class);
-        verify(memoryExtractor).merge(any(), incoming.capture());
-        assertThat(incoming.getValue()).containsExactly("讲慢一点");
+        ArgumentCaptor<List<PreferenceItem>> existingItem = ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PreferenceItem>> incoming = ArgumentCaptor.forClass(List.class);
+        verify(memoryExtractor).merge(existingItem.capture(), incoming.capture());
+        // 新偏好确实进了合并输入，且带着 key——模型不再需要凭空编 key
+        assertThat(incoming.getValue()).extracting(PreferenceItem::value).containsExactly("讲慢一点");
+        assertThat(incoming.getValue()).extracting(PreferenceItem::key).containsExactly("回答方式");
+        assertThat(existingItem.getValue()).extracting(PreferenceItem::key)
+                .containsExactly("偏好0", "偏好1", "偏好2", "偏好3", "偏好4");
+        assertThat(existingItem.getValue()).extracting(PreferenceItem::value)
+                .containsExactly("值0", "值1", "值2", "值3", "值4");
 
         // 5 条合并结果写入 + 5 条旧偏好逻辑删除
         verify(memoryMapper, times(5)).insert(any(Memory.class));
@@ -259,7 +268,7 @@ class MemoryExtractionServiceTest {
             existing.add(existing("old" + i, MemoryType.PREFERENCE, "偏好" + i, "值" + i, "0.8"));
         }
         when(memoryMapper.selectList(any())).thenReturn(existing);
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")), List.of()));
         when(memoryExtractor.merge(any(), any())).thenThrow(new IllegalStateException("合并输出不可解析"));
 
@@ -275,7 +284,7 @@ class MemoryExtractionServiceTest {
     void profileCandidatesNeverBecomeMemories() {
         ProfileCandidateDraft candidate = new ProfileCandidateDraft(
                 "allergy", "青霉素", null, "我青霉素过敏", new BigDecimal("0.95"));
-        when(memoryExtractor.extract(any())).thenReturn(
+        when(memoryExtractor.extract(any(), any())).thenReturn(
                 new MemoryExtractionResult(List.of(), List.of(), List.of(candidate)));
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
@@ -294,7 +303,7 @@ class MemoryExtractionServiceTest {
             existing.add(existing("old" + i, MemoryType.BACKGROUND_HEALTH, "背景" + i, "值" + i, "0.8"));
         }
         when(memoryMapper.selectList(any())).thenReturn(existing);
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(), List.of(background("慢病", "糖尿病", "health", "我有糖尿病", "0.9", null))));
 
         service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
@@ -306,19 +315,19 @@ class MemoryExtractionServiceTest {
     @Test
     @DisplayName("模型/落库异常只记日志：不上抛、不重试（抽取是旁路）")
     void failuresOnlyWarn() {
-        when(memoryExtractor.extract(any())).thenThrow(new RuntimeException("upstream 502"));
+        when(memoryExtractor.extract(any(), any())).thenThrow(new RuntimeException("upstream 502"));
         assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
                 .doesNotThrowAnyException();
 
         resetExtractor();
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")), List.of()));
         when(memoryMapper.insert(any(Memory.class))).thenThrow(new RuntimeException("db down"));
 
         assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
                 .doesNotThrowAnyException();
         // 不重试：第二次调用不会再调一次模型
-        verify(memoryExtractor, times(1)).extract(any());
+        verify(memoryExtractor, times(1)).extract(any(), any());
     }
 
     @Test
@@ -326,12 +335,12 @@ class MemoryExtractionServiceTest {
     void idleExtractionSkipsPrefilter() {
         when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
                 .thenReturn(List.of(new DialogueTurn("user", "你好", LocalDateTime.now())));
-        when(memoryExtractor.extract(any())).thenReturn(new MemoryExtractionResult(
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
                 List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9")), List.of()));
 
         service.extractIdleSession(new IdleSession(SESSION, USER));
 
-        verify(memoryExtractor).extract(any());
+        verify(memoryExtractor).extract(any(), any());
         verify(memoryMapper).insert(any(Memory.class));
     }
 
