@@ -48,6 +48,11 @@ import java.util.regex.Pattern;
  *
  * <p><b>满额口径</b>：偏好满配置上限（memory.preference.max，默认 5）调一次合并去重（合并失败丢弃本批新偏好、保留旧偏好）；
  * 背景满 10 条保留旧背景、丢弃新背景并把 needsCleanup 留给人手整理（页面已有提示）。
+ *
+ * <p><b>判重前置（工单 02）</b>：偏好落库前按模型给的 {@code action} 分派——{@code new} 插入、
+ * {@code update} 原地改旧行、{@code skip} 零写入；分派由纯函数 {@link MemoryDedupPlanner} 完成，
+ * 它以**送进提示词的那份清单**为准解析 {@code target} 序号。满额合并降为兜底。
+ * 背景的分派（含 {@code retrieval_text} 与向量同步）在工单 03，本单仍全插。
  */
 @Slf4j
 @Service
@@ -125,12 +130,15 @@ public class MemoryExtractionService {
             return;
         }
 
-        MemoryExtractionResult result = memoryExtractor.extract(dialogueText(turns), rememberedMemories(userId));
+        List<Memory> remembered = rememberedRows(userId);
+        MemoryExtractionResult result = memoryExtractor.extract(dialogueText(turns), existingMemories(remembered));
         if (result == null || result.isEmpty()) {
             log.info("本轮未抽到可落库的记忆：sessionId={}", sessionId);
             return;
         }
-        savePreferences(userId, result.preferences());
+        // 判重候选就是**送进提示词的那一份清单**：模型回的 target 是它的序号，
+        // 另查一次等于换了一套编号，会把患者的一条偏好改成另一条。
+        savePreferences(userId, remembered, result.preferences());
         saveBackgrounds(userId, result.backgrounds());
         // 档案事实（过敏/用药/手术）只进候选表：未确认前不注入、不预警，患者接受后才写档案
         profileCandidateService.recordCandidates(userId, result.candidates());
@@ -200,14 +208,10 @@ public class MemoryExtractionService {
      * <p>取不到（DB 抖动）按空清单处理：判重退化成「全部 new」，仍是可用的降级——
      * 不能因为拿不到旧记忆就连抽取都不做。
      */
-    private List<ExistingMemory> rememberedMemories(String userId) {
+    private List<Memory> rememberedRows(String userId) {
         try {
-            List<ExistingMemory> items = new ArrayList<>();
-            for (Memory row : activeMemories(userId, MemoryType.PREFERENCE,
-                    MemoryType.BACKGROUND_HEALTH, MemoryType.BACKGROUND_OTHER)) {
-                items.add(new ExistingMemory(row.getType(), row.getMkey(), row.getMvalue()));
-            }
-            return items;
+            return activeMemories(userId, MemoryType.PREFERENCE,
+                    MemoryType.BACKGROUND_HEALTH, MemoryType.BACKGROUND_OTHER);
         } catch (RuntimeException e) {
             log.warn("读取已记住的记忆失败，本轮判重按「全部新增」处理：userId={}｜原因={}",
                     userId, e.getMessage());
@@ -215,40 +219,155 @@ public class MemoryExtractionService {
         }
     }
 
+    /** 送进提示词的形态（模型只认序号 + 键 + 值，不认 id） */
+    private List<ExistingMemory> existingMemories(List<Memory> rows) {
+        List<ExistingMemory> items = new ArrayList<>();
+        for (Memory row : rows) {
+            items.add(new ExistingMemory(row.getType(), row.getMkey(), row.getMvalue()));
+        }
+        return items;
+    }
+
     // ---------------- 偏好 ----------------
 
-    private void savePreferences(String userId, List<PreferenceDraft> drafts) {
+    /**
+     * 偏好落库：**先判重、再决定插还是改**（工单 02）。
+     *
+     * <p>三步：
+     * <ol>
+     *   <li>{@code (key, value)} 全等去重——挡的是模型把同一条说两遍（与旧行全等、与本批重复）；</li>
+     *   <li>按 {@code action} 分派：{@code update} 原地改旧行（id 不变），{@code skip} 零写入，
+     *       其余插入；</li>
+     *   <li>满额仍保留合并兜底（历史口径，主路径已改为判重）。</li>
+     * </ol>
+     *
+     * <p><b>判重出任何异常都降级为「全部新增」</b>：多一条患者看得见、能自己删；
+     * 整批丢掉他永远不知道自己被漏记了。
+     *
+     * @param remembered **送进提示词的那份清单**（同一个顺序）——target 的序号就是它的下标
+     */
+    private void savePreferences(String userId, List<Memory> remembered, List<PreferenceDraft> drafts) {
         if (drafts == null || drafts.isEmpty()) {
             return;
         }
         try {
-            List<Memory> existing = activeMemories(userId, MemoryType.PREFERENCE);
-            Set<String> existingKeys = new HashSet<>();
-            for (Memory row : existing) {
-                existingKeys.add(key(row.getMkey(), row.getMvalue()));
-            }
-            List<PreferenceDraft> fresh = new ArrayList<>();
-            for (PreferenceDraft draft : drafts) {
-                if (existingKeys.add(key(draft.key(), draft.value()))) {
-                    fresh.add(draft);
-                }
-            }
+            List<PreferenceDraft> fresh = dedupePreferences(remembered, drafts);
             if (fresh.isEmpty()) {
                 return;
             }
+            List<MemoryDedupPlanner.Update<PreferenceDraft>> updates;
+            List<PreferenceDraft> toInsert;
+            try {
+                MemoryDedupPlanner.Plan<PreferenceDraft> plan = MemoryDedupPlanner.plan(fresh, remembered);
+                updates = plan.updates();
+                toInsert = new ArrayList<>(plan.news());
+            } catch (RuntimeException e) {
+                log.warn("偏好判重分派失败，本批按「全部新增」落库：userId={}｜原因={}",
+                        userId, e.getMessage());
+                updates = List.of();
+                toInsert = new ArrayList<>(fresh);
+            }
+            for (MemoryDedupPlanner.Update<PreferenceDraft> update : updates) {
+                if (!applyPreferenceUpdate(userId, update)) {
+                    // 这一条改不动就改成新增：整批丢掉患者永远不知道自己被漏记了
+                    toInsert.add(update.draft());
+                }
+            }            if (toInsert.isEmpty()) {
+                return;
+            }
+            List<Memory> existing = filterType(remembered, MemoryType.PREFERENCE);
             int max = preferenceMax();
-            if (existing.size() + fresh.size() <= max) {
-                for (PreferenceDraft draft : fresh) {
+            if (existing.size() + toInsert.size() <= max) {
+                for (PreferenceDraft draft : toInsert) {
                     Memory saved = insert(userId, MemoryType.PREFERENCE, draft.key(), draft.value(),
                             draft.quote(), draft.confidence(), null);
                     audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 }
                 return;
             }
-            mergePreferences(userId, existing, fresh, max);
+            mergePreferences(userId, existing, toInsert, max);
         } catch (RuntimeException e) {
             log.warn("偏好落库失败（丢弃本批）：userId={}｜原因={}", userId, e.getMessage());
         }
+    }
+
+    /**
+     * 全等去重：与**已有的生效偏好**全等、以及同一批里重复的，都只留第一条。
+     *
+     * <p>它挡的是「同一句话被说两遍」，与语义判重（模型给的 action）是两件事，两者都保留：
+     * 模型漏判时这里仍能挡住最明显的重复。
+     */
+    private List<PreferenceDraft> dedupePreferences(List<Memory> remembered, List<PreferenceDraft> drafts) {
+        Set<String> existingKeys = new HashSet<>();
+        for (Memory row : filterType(remembered, MemoryType.PREFERENCE)) {
+            existingKeys.add(key(row.getMkey(), row.getMvalue()));
+        }
+        List<PreferenceDraft> fresh = new ArrayList<>();
+        for (PreferenceDraft draft : drafts) {
+            if (existingKeys.add(key(draft.key(), draft.value()))) {
+                fresh.add(draft);
+            }
+        }
+        return fresh;
+    }
+
+    /**
+     * 原地改一条偏好：id 不变，只改值 / 原话 / 置信度 / 观察时间。
+     *
+     * <p><b>用 {@code LambdaUpdateWrapper} 显式列字段，不用 {@code updateById}</b>：后者会把整份实体
+     * 写回去，手上这份是判重时取的旧快照，会把别的列（例如同批前一条刚改过的值）覆盖掉。
+     *
+     * <p><b>偏好不碰 retrieval_text</b>：偏好永远全量注入、不向量化，刷它是给一个不会被用到的派生列做无用功
+     * （背景那边必须刷，见工单 03）。
+     *
+     * @return 是否改成功（false ⇒ 调用方把这条改成新增，不丢）
+     */
+    private boolean applyPreferenceUpdate(String userId, MemoryDedupPlanner.Update<PreferenceDraft> update) {
+        Memory row = update.row();
+        PreferenceDraft draft = update.draft();
+        String oldValue = row.getMvalue();
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
+                    .set(Memory::getMkey, draft.key())
+                    .set(Memory::getMvalue, draft.value())
+                    .set(Memory::getSourceQuote, draft.quote())
+                    .set(Memory::getConfidence, draft.confidence())
+                    .set(Memory::getObservedAt, now)
+                    .set(Memory::getUpdatedAt, now)
+                    .eq(Memory::getId, row.getId())
+                    .eq(Memory::getUserId, userId)
+                    .eq(Memory::getStatus, MemoryStatus.ACTIVE));
+            memoryLogService.append(row.getId(), userId, MemoryOp.UPDATE,
+                    oldValue, draft.value(), MemoryActor.EXTRACT);
+            // 快照跟着改：这一批若还要走满额合并，送进合并提示词的必须是**改口后的值**，
+            // 否则患者刚说的新说法会被合并回改口前的旧说法。
+            row.setMkey(draft.key());
+            row.setMvalue(draft.value());
+            row.setSourceQuote(draft.quote());
+            row.setConfidence(draft.confidence());
+            row.setObservedAt(now);
+            log.info("偏好已按新说法原地更新：userId={} memoryId={} {} → {}",
+                    userId, row.getId(), oldValue, draft.value());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("偏好原地更新失败，本条改为新增：userId={} memoryId={}｜原因={}",
+                    userId, row.getId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private List<Memory> filterType(List<Memory> rows, MemoryType type) {
+        List<Memory> matched = new ArrayList<>();
+        if (rows == null) {
+            return matched;
+        }
+        for (Memory row : rows) {
+            if (row.getType() == type) {
+                matched.add(row);
+            }
+        }
+        return matched;
     }
 
     /**
@@ -401,16 +520,25 @@ public class MemoryExtractionService {
         return drafts.stream().map(draft -> new PreferenceItem(draft.key(), draft.value())).toList();
     }
 
-    /** 合并后的值若能对上原条目，沿用它的原话；对不上就串起旧偏好原话（仍可追溯） */
+    /**
+     * 合并结果的一条该挂谁的原话。
+     *
+     * <p>顺序是「**新原话优先**，其次旧原话，最后才是旧原话串联」：合并后的值若是本批新说法的改写，
+     * 依据就该是患者刚说的那句；只在旧行里找（原先的行为）会把一条改口挂到**改口前**的原话上——
+     * 「我记住的」里看到的出处与值互相矛盾，患者据此无法判断系统到底记住了什么。
+     *
+     * <p>仍保留「值全等才算对上」这条保守规则：对不上任何一条（模型自己揉出来的新说法）时，
+     * 串起旧原话，至少还能追到这批记忆从哪来。
+     */
     private String bestQuote(String value, List<Memory> existing, List<PreferenceDraft> fresh) {
+        for (PreferenceDraft draft : fresh) {
+            if (value.equals(draft.value()) && draft.quote() != null && !draft.quote().isBlank()) {
+                return draft.quote();
+            }
+        }
         for (Memory row : existing) {
             if (value.equals(row.getMvalue()) && row.getSourceQuote() != null) {
                 return row.getSourceQuote();
-            }
-        }
-        for (PreferenceDraft draft : fresh) {
-            if (value.equals(draft.value())) {
-                return draft.quote();
             }
         }
         StringBuilder quotes = new StringBuilder();

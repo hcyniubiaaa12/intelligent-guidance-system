@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
  *   <li>置信度低于阈值 → 丢（不修补、不猜）；</li>
  *   <li>key &gt; 8 字 / value &gt; 60 字 → 丢（落库列宽与页面展示共同决定）；</li>
  *   <li>否定句 → 丢（「没有糖尿病」不是「糖尿病」）；</li>
- *   <li>禁止推断：原话里既没有 value、也没有稳定标记 → 丢（从用药推疾病就是这一类）；</li>
+ *   <li>依据不成立 → 丢。<b>偏好与背景口径不同</b>（工单 02）：偏好只要求**原话整体出现在本轮
+ *       对话原文里**（允许改写表述），背景仍要求「值出现在原话里」或有稳定标记；</li>
  *   <li>当前主诉不作为长期事实：背景值是纯症状描述且原话没有稳定标记 → 丢；</li>
  *   <li>背景兜底（工单 09）：过敏 / 手术 / 服药类档案事实 → 丢（应走档案候选，同一事实只存一处）。</li>
  * </ol>
@@ -59,8 +60,18 @@ public final class MemoryExtractValidator {
     private MemoryExtractValidator() {
     }
 
-    /** 校验偏好草稿：逐条过滤并去重 */
-    public static List<PreferenceDraft> validPreferences(List<PreferenceDraft> drafts, double minConfidence) {
+    /**
+     * 校验偏好草稿：逐条过滤并去重。
+     *
+     * <p><b>偏好与背景的依据口径不同</b>（工单 02）：偏好说的是「怎么回答我」，患者改口时
+     * 新说法往往与旧说法（也往往与原话）措辞不同——「你讲话不要太慢了」记成「语速要慢」是正常改写。
+     * 所以偏好**不再要求值逐字出现在原话里**，改为**原话必须整体出现在本轮对话原文里**：
+     * 表述可以改写，依据不能是编的。否定句判定仍保留（「不要太慢」不是「要慢得离谱」）。
+     *
+     * @param dialogue 本轮对话原文（患者 / 助手逐行）。空 = 没有原文可比对，偏好一律丢弃
+     */
+    public static List<PreferenceDraft> validPreferences(List<PreferenceDraft> drafts, double minConfidence,
+                                                        String dialogue) {
         List<PreferenceDraft> result = new ArrayList<>();
         if (drafts == null) {
             return result;
@@ -75,7 +86,9 @@ public final class MemoryExtractValidator {
             if (negated(cleaned.quote(), cleaned.value())) {
                 continue;
             }
-            if (!supportedByQuote(cleaned.quote(), cleaned.value())) {
+            if (!quoteInDialogue(cleaned.quote(), dialogue)) {
+                log.debug("偏好原话不在本轮对话原文里，已丢弃：quote={}｜value={}",
+                        cleaned.quote(), cleaned.value());
                 continue;
             }
             if (seen.add(key("preference", cleaned.key(), cleaned.value()))) {
@@ -162,9 +175,30 @@ public final class MemoryExtractValidator {
         return false;
     }
 
-    /** 禁止推断：原话含 value，或含稳定标记，才算「患者说过」 */
+    /** 禁止推断（**只用于背景**）：原话含 value，或含稳定标记，才算「患者说过」 */
     static boolean supportedByQuote(String quote, String value) {
         return quote.contains(value) || STABLE_MARKER.matcher(quote).find();
+    }
+
+    /**
+     * 偏好的依据判定：原话必须整体出现在本轮对话原文里。
+     *
+     * <p>为什么不是「原话包含值」：偏好改口的新说法与原话天然措辞不同，逐字比对会把改口整条丢掉；
+     * 反过来，只要原话确实出自本轮对话，这条记忆就有据可查，患者能在「我记住的」里追到出处。
+     *
+     * <p>按**去空白**后的串比对：模型照抄原话时经常把行内空格、换行改掉，
+     * 那些差异不改变「患者确实这么说过」这个事实。空原话/空对话一律不通过。
+     */
+    static boolean quoteInDialogue(String quote, String dialogue) {
+        String said = compact(quote);
+        if (said.isEmpty()) {
+            return false;
+        }
+        return compact(dialogue).contains(said);
+    }
+
+    private static String compact(String text) {
+        return text == null ? "" : text.replaceAll("\\s+", "");
     }
 
     /**
