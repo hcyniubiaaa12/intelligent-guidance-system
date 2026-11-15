@@ -36,6 +36,8 @@ class MemoryPromptsProtocolTest {
         assertThat(system).contains("\"action\"").contains("\"target\"").contains("action=new").contains("target=null");
         assertThat(system).contains("拿不准就 new");
         assertThat(system).contains("同一件事").contains("信息量更大").contains("相反");
+        // 偏好与背景不互相合并：target 只能指向同一组
+        assertThat(system).contains("永远不是同一件事");
     }
 
     @Test
