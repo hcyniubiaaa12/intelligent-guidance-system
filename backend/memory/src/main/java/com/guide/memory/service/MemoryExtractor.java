@@ -90,7 +90,7 @@ public class MemoryExtractor {
                     SysConfigService.KEY_MEMORY_EXTRACT_CONFIDENCE_MIN,
                     SysConfigService.DEFAULT_MEMORY_EXTRACT_CONFIDENCE_MIN);
             List<PreferenceDraft> validPreferences =
-                    MemoryExtractValidator.validPreferences(preferences, minConfidence);
+                    MemoryExtractValidator.validPreferences(preferences, minConfidence, dialogue);
             List<BackgroundDraft> validBackgrounds =
                     MemoryExtractValidator.validBackgrounds(backgrounds, minConfidence);
             List<ProfileCandidateDraft> validCandidates =

@@ -6,18 +6,21 @@ import com.guide.common.event.TurnCompletedEvent;
 import com.guide.common.port.SessionActivityPort;
 import com.guide.common.port.SessionActivityPort.DialogueTurn;
 import com.guide.common.port.SessionActivityPort.IdleSession;
+import com.guide.memory.MpTableInfoTestSupport;
 import com.guide.memory.dto.MemoryExtractionResult;
 import com.guide.memory.dto.MemoryExtractionResult.BackgroundDraft;
 import com.guide.memory.dto.MemoryExtractionResult.PreferenceDraft;
 import com.guide.memory.dto.MemoryExtractionResult.ProfileCandidateDraft;
 import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryActor;
+import com.guide.memory.enums.MemoryDedupAction;
 import com.guide.memory.enums.MemoryOp;
 import com.guide.memory.enums.MemoryStatus;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.mapper.MemoryMapper;
 import com.guide.memory.service.MemoryExtractor.MergedPreference;
 import com.guide.memory.service.MemoryExtractor.PreferenceItem;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +67,12 @@ class MemoryExtractionServiceTest {
     private MemoryExtractionService service;
     private final AtomicInteger idSeq = new AtomicInteger();
 
+    /** LambdaUpdateWrapper 的 set 会立即解析列名：纯单测里得先手工建 TableInfo 缓存 */
+    @BeforeAll
+    static void initTableInfo() {
+        MpTableInfoTestSupport.init(Memory.class);
+    }
+
     @BeforeEach
     void setUp() {
         memorySettingService = mock(MemorySettingService.class);
@@ -94,6 +103,121 @@ class MemoryExtractionServiceTest {
             return 1;
         });
         when(memoryMapper.selectList(any())).thenReturn(List.of());
+    }
+
+    @Test
+    @DisplayName("偏好改口 action=update：原地改旧行（id 不变），审计记 update（old→new），不插新行")
+    void updatePreferenceInPlace() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        old.setSourceQuote("我希望你讲慢一点");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9",
+                        MemoryDedupAction.UPDATE, 1)), List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        // 不插新行：改口是「这一条变了」，不是「多了一条」
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Memory>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(memoryMapper).update(isNull(), captor.capture());
+        // 用显式列更新（不是 updateById 整实体回写），且只命中目标行（id + 归属 + 生效中）
+        assertThat(captor.getValue().getSqlSet()).contains("mvalue", "source_quote", "confidence", "observed_at");
+        // 先取 sqlSegment 才会把 eq 的参数值落进 paramNameValuePairs
+        assertThat(captor.getValue().getSqlSegment()).contains("id", "user_id", "status");
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains("语速要慢", "你讲话不要太慢了", "old1", USER);
+
+        verify(memoryLogService).append("old1", USER, MemoryOp.UPDATE,
+                "讲慢一点", "语速要慢", MemoryActor.EXTRACT);
+        verify(memoryLogService, never()).append(any(), any(), eq(MemoryOp.ADD), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("偏好 action=skip：零写入、零审计（值没变却刷新观察时间会让它跳到列表最前）")
+    void skipPreferenceWritesNothing() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("回答方式", "讲慢一点", "我希望你讲慢一点", "0.9",
+                        MemoryDedupAction.SKIP, 1)), List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        verify(memoryMapper, never()).update(any(), any());
+        verify(memoryLogService, never()).append(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("偏好 action=new：照既有路径插入并记 add 审计")
+    void newPreferenceInserts() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("称呼", "叫我老王", "叫我老王就行", "0.9", MemoryDedupAction.NEW, null)),
+                List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("叫我老王");
+        verify(memoryLogService).append("m1", USER, MemoryOp.ADD, null, "叫我老王", MemoryActor.EXTRACT);
+    }
+
+    @Test
+    @DisplayName("target 指向另一类的行：降级为新增，不改那条背景（偏好与背景永远不是同一件事）")
+    void updateTargetOfOtherTypeFallsBackToNew() {
+        Memory background = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.9");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(background));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9",
+                        MemoryDedupAction.UPDATE, 1)), List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryMapper).insert(any(Memory.class));
+        verify(memoryMapper, never()).update(any(), any());
+        verify(memoryLogService).append("m1", USER, MemoryOp.ADD, null, "语速要慢", MemoryActor.EXTRACT);
+    }
+
+    @Test
+    @DisplayName("target 的序号按「送进提示词的那份清单」算：偏好排在第 2 位时 target=2 改的是它")
+    void targetFollowsPromptOrderNotPerTypeQuery() {
+        Memory first = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.9");
+        Memory second = existing("p1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(first, second));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9",
+                        MemoryDedupAction.UPDATE, 2)), List.of()));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryLogService).append("p1", USER, MemoryOp.UPDATE,
+                "讲慢一点", "语速要慢", MemoryActor.EXTRACT);
+        verify(memoryMapper, never()).insert(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("判重分派过程中的异常：本批按「全部新增」落库，一条不丢")
+    void dedupFailureFallsBackToNew() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9", MemoryDedupAction.UPDATE, 1)),
+                List.of()));
+        // 原地更新这一步炸了（DB 抖动）：这一批不能跟着丢，退回「全部当新增」
+        when(memoryMapper.update(any(), any())).thenThrow(new RuntimeException("db down"));
+
+        assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
+                .doesNotThrowAnyException();
+
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("语速要慢");
     }
 
     @Test
@@ -350,6 +474,11 @@ class MemoryExtractionServiceTest {
 
     private PreferenceDraft pref(String key, String value, String quote, String confidence) {
         return new PreferenceDraft(key, value, quote, new BigDecimal(confidence));
+    }
+
+    private PreferenceDraft pref(String key, String value, String quote, String confidence,
+                                 MemoryDedupAction action, Integer target) {
+        return new PreferenceDraft(key, value, quote, new BigDecimal(confidence), action, target);
     }
 
     private BackgroundDraft background(String key, String value, String type, String quote,

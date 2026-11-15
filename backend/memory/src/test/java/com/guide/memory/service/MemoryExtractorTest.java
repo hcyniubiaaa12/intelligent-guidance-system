@@ -61,7 +61,8 @@ class MemoryExtractorTest {
                  "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null}]}
                 """);
 
-        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，希望你讲慢一点");
+        // quote 必须是对话里的原话片段（工单 02 起偏好也校验这一条）：fixture 与 quote 对齐
+        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，我希望你讲慢一点");
 
         assertThat(result.preferences()).extracting(p -> p.value()).containsExactly("讲慢一点");
         assertThat(result.backgrounds()).extracting(b -> b.value()).containsExactly("2型糖尿病");
@@ -71,7 +72,7 @@ class MemoryExtractorTest {
         ArgumentCaptor<List<ChatMsg>> captor = ArgumentCaptor.forClass(List.class);
         verify(chatModel).chat(captor.capture());
         assertThat(captor.getValue().get(0).content()).isEqualTo("记忆抽取系统提示");
-        assertThat(captor.getValue().get(1).content()).contains("患者：我有2型糖尿病，希望你讲慢一点");
+        assertThat(captor.getValue().get(1).content()).contains("患者：我有2型糖尿病，我希望你讲慢一点");
     }
 
     @Test
@@ -203,7 +204,7 @@ class MemoryExtractorTest {
                    "confidence":0.9,"validTo":null,"action":"skip","target":2}]}
                 """);
 
-        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，控制良好，希望你讲慢一点",
+        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，控制良好，我希望你讲慢一点",
                 List.of(new ExistingMemory(MemoryType.PREFERENCE, "回答方式", "讲慢一点"),
                         new ExistingMemory(MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病")));
 
@@ -231,7 +232,8 @@ class MemoryExtractorTest {
                  "background":[]}
                 """);
 
-        MemoryExtractionResult result = extractor.extract("患者：我希望甲、乙、丙、丁、戊、己、庚",
+        MemoryExtractionResult result = extractor.extract(
+                "患者：我希望甲。我希望乙。我希望丙。我希望丁。我希望戊。我希望庚。我希望己",
                 List.of(new ExistingMemory(MemoryType.PREFERENCE, "回答方式", "讲慢一点")));
 
         assertThat(result.preferences()).hasSize(7);

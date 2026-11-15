@@ -16,13 +16,29 @@ import java.util.List;
  * <p>这些 draft 是**未经校验**的原始结果：能不能落库由
  * {@code MemoryExtractValidator}（偏好/背景）与 {@code CandidateValidator}（候选）统一判定。
  *
- * <p><b>判重字段</b>：偏好与背景草稿带 {@code action} / {@code target}（工单 01 的预factor）——
+ * <p><b>判重字段</b>：偏好与背景草稿带 {@code action} / {@code target}——
  * 解析层已把缺失、非法值与越界 target 全部降级成 {@link MemoryDedupAction#NEW}，
- * 所以进到这里的草稿一定带着**可信**的 action；但落库层当前**不认**它（照旧全插），
- * 分派留给后续切片（见 {@code .scratch/memory-dedup/issues/02*.md}）。
+ * 所以进到这里的草稿一定带着**可信**的 action。
+ * <b>偏好侧已按它分派落库</b>（{@code MemoryExtractionService#savePreferences}，工单 02）；
+ * <b>背景侧仍是全插</b>——背景的原地更新要连带刷新 {@code retrieval_text} 与向量，
+ * 是工单 03 的事，那一刀落地前不要把背景也切到分派路径上（否则会写出「新值 + 旧向量」的行）。
  */
 public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<BackgroundDraft> backgrounds,
                                      List<ProfileCandidateDraft> candidates) {
+
+    /**
+     * 带判重字段的草稿（偏好与稳定背景）。
+     *
+     * <p>抽出来是为了让分派逻辑（{@code MemoryDedupPlanner}）只写一份：
+     * 两类草稿的差别在落库列与向量同步，不在「看 action、按 target 找行」这一步。
+     */
+    public interface DedupDraft {
+
+        MemoryDedupAction action();
+
+        /** 送进提示词的旧清单里的序号（1 起）；仅 {@code action=update} 时有值 */
+        Integer target();
+    }
 
     public MemoryExtractionResult {
         preferences = preferences == null ? List.of() : List.copyOf(preferences);
@@ -50,7 +66,7 @@ public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<Bac
      *               其余动作与「模型没给 / 给了不合法的值」一律为 {@code null}
      */
     public record PreferenceDraft(String key, String value, String quote, BigDecimal confidence,
-                                  MemoryDedupAction action, Integer target) {
+                                  MemoryDedupAction action, Integer target) implements DedupDraft {
 
         /** 兼容不关心判重的调用方（既有测试、校验器内部重建草稿）：等价于 {@code action=new} */
         public PreferenceDraft(String key, String value, String quote, BigDecimal confidence) {
@@ -71,7 +87,7 @@ public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<Bac
      */
     public record BackgroundDraft(String key, String value, String type, String quote,
                                   BigDecimal confidence, LocalDate validTo,
-                                  MemoryDedupAction action, Integer target) {
+                                  MemoryDedupAction action, Integer target) implements DedupDraft {
 
         /** 兼容不关心判重的调用方：等价于 {@code action=new} */
         public BackgroundDraft(String key, String value, String type, String quote,
