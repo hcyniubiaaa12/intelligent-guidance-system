@@ -284,8 +284,10 @@ class MemoryGoldSetEvalTest {
     /**
      * 把样本里的 {@code existing} 读成生产侧同形的清单（序号 = 数组下标 + 1）。
      *
-     * <p>{@code type} 只有 {@code preference} 与「其余一律背景」两种取值——
-     * 判重协议里模型只认「偏好 / 背景」两组的序号，评估不引入第三种。
+     * <p>{@code type} 支持判重协议里的三类：{@code preference}、{@code background_health}
+     * （简写 {@code health} / {@code background}）与 {@code background_other}（简写 {@code other}）。
+     * 缺省或无法识别时按 {@code background_health} 处理——旧样本只写过 {@code background}，
+     * 不能因为新增类型让它们换语义。
      */
     private List<ExistingMemory> existingMemories(JsonNode nodes) {
         List<ExistingMemory> existing = new ArrayList<>();
@@ -294,11 +296,19 @@ class MemoryGoldSetEvalTest {
             if (value.isBlank()) {
                 continue;
             }
-            MemoryType type = "preference".equalsIgnoreCase(text(node, "type"))
-                    ? MemoryType.PREFERENCE : MemoryType.BACKGROUND_HEALTH;
-            existing.add(new ExistingMemory(type, text(node, "key"), value));
+            existing.add(new ExistingMemory(existingType(text(node, "type")),
+                    text(node, "key"), value));
         }
         return existing;
+    }
+
+    private MemoryType existingType(String raw) {
+        String type = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        return switch (type) {
+            case "preference" -> MemoryType.PREFERENCE;
+            case "background_other", "other" -> MemoryType.BACKGROUND_OTHER;
+            default -> MemoryType.BACKGROUND_HEALTH;
+        };
     }
 
     /**

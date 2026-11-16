@@ -39,6 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -103,6 +104,8 @@ class MemoryExtractionServiceTest {
             invocation.getArgument(0, Memory.class).setId("m" + idSeq.incrementAndGet());
             return 1;
         });
+        // 默认视为命中并改了一行；「并发置失效 ⇒ 0 行」由专门用例覆盖
+        when(memoryMapper.update(any(), any())).thenReturn(1);
         when(memoryMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -169,6 +172,83 @@ class MemoryExtractionServiceTest {
         // 向量走共用口径（与患者手动编辑同一处），不是各写一遍
         verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
         verify(vectorIndexer, never()).index(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("偏好更新命中 0 行（目标已被并发置为失效）：不写 update 审计，本条降级为新增")
+    void preferenceUpdateHitsNoRowFallsBackToNew() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9",
+                        MemoryDedupAction.UPDATE, 1)), List.of()));
+        // 判重之后目标行被并发置为 expired：UPDATE 命中 0 行，不能当成功
+        when(memoryMapper.update(any(), any())).thenReturn(0);
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryLogService, never()).append(any(), any(), eq(MemoryOp.UPDATE), any(), any(), any());
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("语速要慢");
+        verify(memoryLogService).append("m1", USER, MemoryOp.ADD, null, "语速要慢", MemoryActor.EXTRACT);
+    }
+
+    @Test
+    @DisplayName("背景更新命中 0 行：不写 update 审计、不动向量，本条降级为新增")
+    void backgroundUpdateHitsNoRowFallsBackToNew() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病，控制良好", "health",
+                        "2型糖尿病，控制良好", "0.9", null, MemoryDedupAction.UPDATE, 1))));
+        when(memoryMapper.update(any(), any())).thenReturn(0);
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryLogService, never()).append(any(), any(), eq(MemoryOp.UPDATE), any(), any(), any());
+        verify(vectorIndexer, never()).refreshBackgroundValue(any(), any(), any());
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("2型糖尿病，控制良好");
+        verify(vectorIndexer).index(inserted.getValue());
+    }
+
+    @Test
+    @DisplayName("偏好更新成功但审计写失败：只记日志，不再插入一条（同一事实不能两行）")
+    void preferenceAuditFailureDoesNotDuplicate() {
+        Memory old = existing("old1", MemoryType.PREFERENCE, "回答方式", "讲慢一点", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(pref("语速", "语速要慢", "你讲话不要太慢了", "0.9",
+                        MemoryDedupAction.UPDATE, 1)), List.of()));
+        doThrow(new RuntimeException("audit down"))
+                .when(memoryLogService).append(any(), any(), any(), any(), any(), any());
+
+        assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
+                .doesNotThrowAnyException();
+
+        // 是否降级为新增只由 UPDATE 的决定：审计失败不触发第二次写入
+        verify(memoryMapper, never()).insert(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("背景更新成功但审计写失败：仍不插新行，向量照常重算")
+    void backgroundAuditFailureDoesNotDuplicate() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病，控制良好", "health",
+                        "2型糖尿病，控制良好", "0.9", null, MemoryDedupAction.UPDATE, 1))));
+        doThrow(new RuntimeException("audit down"))
+                .when(memoryLogService).append(any(), any(), any(), any(), any(), any());
+
+        assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
+                .doesNotThrowAnyException();
+
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"),
+                any(LocalDateTime.class));
     }
 
     @Test

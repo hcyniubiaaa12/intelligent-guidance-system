@@ -1,8 +1,5 @@
 package com.guide.memory.enums;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
 import java.util.Optional;
 
 /**
@@ -15,19 +12,14 @@ import java.util.Optional;
  *
  * <p><b>编码值由常量名派生</b>，与提示词里写的 {@code new / update / skip} 逐字一致。
  */
-@Getter
-@RequiredArgsConstructor
 public enum MemoryDedupAction {
 
     /** 没说过的：插入新行 */
-    NEW("新增"),
+    NEW,
     /** 同一条，新说法更具体或相反：原地改旧行（id 不变） */
-    UPDATE("更新"),
+    UPDATE,
     /** 旧值已经更好或等价：什么都不写 */
-    SKIP("跳过");
-
-    /** 展示名（日志用；患者端不展示判重结果） */
-    private final String label;
+    SKIP;
 
     /** 协议编码值 = 常量名小写 */
     public String getCode() {

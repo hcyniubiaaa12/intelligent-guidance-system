@@ -330,9 +330,10 @@ public class MemoryExtractionService {
         Memory row = update.row();
         PreferenceDraft draft = update.draft();
         String oldValue = row.getMvalue();
+        LocalDateTime now = LocalDateTime.now();
+        int affected;
         try {
-            LocalDateTime now = LocalDateTime.now();
-            memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
+            affected = memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
                     .set(Memory::getMkey, draft.key())
                     .set(Memory::getMvalue, draft.value())
                     .set(Memory::getSourceQuote, draft.quote())
@@ -342,23 +343,29 @@ public class MemoryExtractionService {
                     .eq(Memory::getId, row.getId())
                     .eq(Memory::getUserId, userId)
                     .eq(Memory::getStatus, MemoryStatus.ACTIVE));
-            memoryLogService.append(row.getId(), userId, MemoryOp.UPDATE,
-                    oldValue, draft.value(), MemoryActor.EXTRACT);
-            // 快照跟着改：这一批若还要走满额合并，送进合并提示词的必须是**改口后的值**，
-            // 否则患者刚说的新说法会被合并回改口前的旧说法。
-            row.setMkey(draft.key());
-            row.setMvalue(draft.value());
-            row.setSourceQuote(draft.quote());
-            row.setConfidence(draft.confidence());
-            row.setObservedAt(now);
-            log.info("偏好已按新说法原地更新：userId={} memoryId={} {} → {}",
-                    userId, row.getId(), oldValue, draft.value());
-            return true;
         } catch (RuntimeException e) {
             log.warn("偏好原地更新失败，本条改为新增：userId={} memoryId={}｜原因={}",
                     userId, row.getId(), e.getMessage());
             return false;
         }
+        // 判重之后目标行可能被并发置为 expired / 删除：UPDATE 命中 0 行不是成功，
+        // 降级为新增，否则患者这次说的话就静默丢了（spec「失败一律按不重复落库」）。
+        if (affected <= 0) {
+            log.warn("偏好原地更新未命中目标行（可能已被并发置为失效），本条改为新增：userId={} memoryId={}",
+                    userId, row.getId());
+            return false;
+        }
+        // 快照跟着改：这一批若还要走满额合并，送进合并提示词的必须是**改口后的值**，
+        // 否则患者刚说的新说法会被合并回改口前的旧说法。
+        row.setMkey(draft.key());
+        row.setMvalue(draft.value());
+        row.setSourceQuote(draft.quote());
+        row.setConfidence(draft.confidence());
+        row.setObservedAt(now);
+        auditUpdate(row.getId(), userId, oldValue, draft.value());
+        log.info("偏好已按新说法原地更新：userId={} memoryId={} {} → {}",
+                userId, row.getId(), oldValue, draft.value());
+        return true;
     }
 
     private List<Memory> filterType(List<Memory> rows, MemoryType type) {
@@ -509,17 +516,10 @@ public class MemoryExtractionService {
                 ? MemoryType.BACKGROUND_OTHER : MemoryType.BACKGROUND_HEALTH;
     }
 
+    /** 背景两类都算：复用 {@link #filterType}，不另写一份过滤循环 */
     private List<Memory> backgroundRows(List<Memory> remembered) {
-        List<Memory> matched = new ArrayList<>();
-        if (remembered == null) {
-            return matched;
-        }
-        for (Memory row : remembered) {
-            if (row.getType() == MemoryType.BACKGROUND_HEALTH
-                    || row.getType() == MemoryType.BACKGROUND_OTHER) {
-                matched.add(row);
-            }
-        }
+        List<Memory> matched = filterType(remembered, MemoryType.BACKGROUND_HEALTH);
+        matched.addAll(filterType(remembered, MemoryType.BACKGROUND_OTHER));
         return matched;
     }
 
@@ -550,9 +550,10 @@ public class MemoryExtractionService {
         Memory row = update.row();
         BackgroundDraft draft = update.draft();
         String oldValue = row.getMvalue();
+        LocalDateTime now = LocalDateTime.now();
+        int affected;
         try {
-            LocalDateTime now = LocalDateTime.now();
-            memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
+            affected = memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
                     .set(Memory::getMkey, draft.key())
                     .set(Memory::getMvalue, draft.value())
                     .set(Memory::getSourceQuote, draft.quote())
@@ -563,22 +564,33 @@ public class MemoryExtractionService {
                     .eq(Memory::getId, row.getId())
                     .eq(Memory::getUserId, userId)
                     .eq(Memory::getStatus, MemoryStatus.ACTIVE));
-            memoryLogService.append(row.getId(), userId, MemoryOp.UPDATE,
-                    oldValue, draft.value(), MemoryActor.EXTRACT);
-            // 快照跟着改：同批后续步骤与应用内缓存读到的都该是新值
-            row.setMkey(draft.key());
-            row.setSourceQuote(draft.quote());
-            row.setConfidence(draft.confidence());
-            row.setObservedAt(now);
-            vectorIndexer.refreshBackgroundValue(row, draft.value(), now);
-            log.info("稳定背景已按新说法原地更新：userId={} memoryId={} {} → {}",
-                    userId, row.getId(), oldValue, draft.value());
-            return true;
         } catch (RuntimeException e) {
             log.warn("稳定背景原地更新失败，本条改为新增：userId={} memoryId={}｜原因={}",
                     userId, row.getId(), e.getMessage());
             return false;
         }
+        // 命中 0 行 = 目标已被并发置为 expired / 删除：不能当成功，降级为新增（spec「失败一律按不重复落库」）
+        if (affected <= 0) {
+            log.warn("稳定背景原地更新未命中目标行（可能已被并发置为失效），本条改为新增：userId={} memoryId={}",
+                    userId, row.getId());
+            return false;
+        }
+        // 快照跟着改：同批后续步骤与应用内缓存读到的都该是新值
+        row.setMkey(draft.key());
+        row.setSourceQuote(draft.quote());
+        row.setConfidence(draft.confidence());
+        row.setObservedAt(now);
+        auditUpdate(row.getId(), userId, oldValue, draft.value());
+        // 向量重算是旁路：MySQL 已写成新值，这里失败只 WARN，回填任务会按 updated_at 补
+        try {
+            vectorIndexer.refreshBackgroundValue(row, draft.value(), now);
+        } catch (RuntimeException e) {
+            log.warn("稳定背景向量刷新失败（记忆本身已更新，回填任务会补）：userId={} memoryId={}｜原因={}",
+                    userId, row.getId(), e.getMessage());
+        }
+        log.info("稳定背景已按新说法原地更新：userId={} memoryId={} {} → {}",
+                userId, row.getId(), oldValue, draft.value());
+        return true;
     }
 
     // ---------------- 公共落库 ----------------
@@ -602,6 +614,22 @@ public class MemoryExtractionService {
                 ? MemoryStatus.EXPIRED : MemoryStatus.ACTIVE);
         memoryMapper.insert(memory);
         return memory;
+    }
+
+    /**
+     * 原地更新的审计：**刻意独立于 UPDATE 的成败判定**。
+     *
+     * <p>审计写失败只 WARN——它不能让调用方把「已经改成功的行」当成没改成而降级为新增，
+     * 那会造成同一事实两行（一条旧的已改、一条新插入）。审计丢了是可追溯性问题，
+     * 重复落库是患者可见的数据错误，后者更重。
+     */
+    private void auditUpdate(String memoryId, String userId, String oldValue, String newValue) {
+        try {
+            memoryLogService.append(memoryId, userId, MemoryOp.UPDATE, oldValue, newValue, MemoryActor.EXTRACT);
+        } catch (RuntimeException e) {
+            log.warn("记忆更新审计写入失败（更新本身已生效，不回滚、不重复落库）：userId={} memoryId={} op=update｜原因={}",
+                    userId, memoryId, e.getMessage());
+        }
     }
 
     /** 审计必须挂在真实 id 上：insert 已由 MyBatis-Plus 回填 id，缺失只可能是 mock/异常路径 */
