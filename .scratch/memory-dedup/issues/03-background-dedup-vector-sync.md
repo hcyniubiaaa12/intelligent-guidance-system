@@ -31,3 +31,13 @@
   - 测试：`MemoryExtractionServiceTest` 新增 4 例（背景 update 原地改 + 刷 retrieval_text + 只调 `refreshBackgroundValue`、背景 skip 零写入零审计、满额时改口仍生效、更新失败回退新增），并在偏好 update 用例上钉「不触发 `refreshBackgroundValue` / `index`」；`MemoryVectorIndexerTest` 新增 2 例（新文本重算、偏好空操作）；`MemoryManageServiceTest` 改为断言委托给共用方法。
   - 验证：`mvn -o -B -pl memory -am test` → **186 用例全绿**（基线 180 + 新增 6，1 skipped 为既有）；`mvn -o -B test` 全后端 11 个模块 BUILD SUCCESS。
   - **真机验证没做**：worktree 内无 `application-local.yml`（私密配置被 gitignore、不会随分支带过来），且中间件 `192.168.193.131:3306` 不可达，起不了服务；要验「库中只剩更完整的一条 + 向量按新文本重算」必须跑真实抽取与 embedding。上面两条用例已在 mock 层面钉住分派与调用，真机项留待有环境时补。
+
+- 2026-11-16 **真机验证（部分补做）**。同一环境（MySQL 本地、其余中间件在 `192.168.193.131`、真实 DeepSeek + DashScope embedding）。
+  - **「2型糖尿病」→「2型糖尿病，现在控制得挺好的」**：`skip`，库里仍是一条，`retrieval_text`/向量不动。符合规则 2「旧值已经够具体就 skip」——状态细节不是新的稳定事实。
+  - **「高血压」→「除了高血压，我还有糖尿病」**：两条。那是两个不同的事实，**不该合并**；这次探针一开始写错了预期，已纠正。
+  - **「2型糖尿病」→「…还查出来糖尿病肾病」**：独立一条；判重专项里同形态样本 2 次有 1 次判 `update`。
+  - **未抓到背景 `update` 的端到端证据**：模型在这几种说法上分别判了 skip / new，还有一次被背景「禁止推断」校验误杀（值不是原话的连续子串）。
+    因此「`retrieval_text` 与向量按新文本重算」仍只有单测（`MemoryExtractionServiceTest` 背景 update 用例 + `MemoryVectorIndexerTest`）覆盖，
+    真机证据不足。偏好 `update` 走同一条编辑形状，已端到端验过（见工单 02）。
+  - 首次端到端跑确实观察到 `user_memory_vec` 写入（DashScope `向量化：文本=1 条｜维度=1024` 日志），但对应的是**插入**路径，不是 update 路径。
+  - 因此本工单最后一项 checkbox **保持未勾**：代码已实现并单测覆盖，端到端证据不完整。
