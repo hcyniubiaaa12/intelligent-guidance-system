@@ -12,7 +12,10 @@ import com.guide.memory.dto.MemoryExtractionResult;
 import com.guide.memory.dto.MemoryExtractionResult.BackgroundDraft;
 import com.guide.memory.dto.MemoryExtractionResult.PreferenceDraft;
 import com.guide.memory.dto.MemoryExtractionResult.ProfileCandidateDraft;
+import com.guide.memory.enums.MemoryDedupAction;
+import com.guide.memory.enums.MemoryType;
 import com.guide.memory.service.MemoryExtractor;
+import com.guide.memory.service.MemoryExtractor.ExistingMemory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -43,9 +46,11 @@ import static org.mockito.Mockito.when;
  * {@code DEEPSEEK_API_KEY}，或 {@code MEMORY_EVAL_CONFIG} 指向本地 application-local.yml）。
  * 复现命令见 {@code docs/memory-gold-set.md}。
  *
- * <p><b>它测什么</b>：逐条调用生产同一条链路 {@link MemoryExtractor#extract(String)}
+ * <p><b>它测什么</b>：逐条调用生产同一条链路 {@link MemoryExtractor#extract(String, List)}
  * （模型 + 两道纯函数校验），再按 gold set 的期望算精确率 / 召回率 / 空样本准确率 /
- * 候选月份准确率 / 背景类型准确率。它不是单元测试——指标低不代表构建失败，
+ * 候选月份准确率 / 背景类型准确率。样本可带 {@code existing}（已记住的记忆清单）——
+ * 有它就同时校验模型回的 {@code action} / {@code target}，这部分**单独汇总、不并入 P/R/F1**，
+ * 以免判重样本改变「82 条抽取基线」的口径。它不是单元测试——指标低不代表构建失败，
  * 输出是给提示词迭代与阈值校准用的诊断信息。
  *
  * <p><b>为什么不用 Spring 上下文</b>：评估只需要「真实模型 + prompts.yml + 配置默认值」，
@@ -83,6 +88,8 @@ class MemoryGoldSetEvalTest {
         int monthHit = 0;
         int typeExpected = 0;
         int typeHit = 0;
+        DedupMetrics dedup = new DedupMetrics();
+        int extractionCases = 0;
         List<String> failures = new ArrayList<>();
 
         long start = System.currentTimeMillis();
@@ -91,31 +98,40 @@ class MemoryGoldSetEvalTest {
             String category = text(node, "category");
             String dialogue = text(node, "dialogue");
             JsonNode expect = node.path("expect");
+            List<ExistingMemory> existing = existingMemories(node.path("existing"));
 
-            MemoryExtractionResult actual = extractor.extract(dialogue);
-            Metrics metrics = byCategory.computeIfAbsent(category, Metrics::new);
+            MemoryExtractionResult actual = extractor.extract(dialogue, existing);
             CaseResult result = score(expect, actual);
-            merge(total, result);
-            merge(metrics, result);
 
-            if (isEmptyCase(expect)) {
-                emptyCases++;
-                if (result.tp == 0 && result.fp == 0 && result.fn == 0) {
-                    emptyPass++;
+            // 带 existing 的样本（category=dedup）只算判重指标：抽取的 P/R/F1 保持
+            // 「原始 82 条」口径不变，否则新增样本会悄悄改写基线数字。
+            if (!existing.isEmpty()) {
+                scoreDedup(id, expect, actual, dedup);
+            } else {
+                extractionCases++;
+                Metrics metrics = byCategory.computeIfAbsent(category, Metrics::new);
+                merge(total, result);
+                merge(metrics, result);
+
+                if (isEmptyCase(expect)) {
+                    emptyCases++;
+                    if (result.tp == 0 && result.fp == 0 && result.fn == 0) {
+                        emptyPass++;
+                    }
                 }
+                monthExpected += result.monthExpected;
+                monthHit += result.monthHit;
+                typeExpected += result.typeExpected;
+                typeHit += result.typeHit;
             }
-            monthExpected += result.monthExpected;
-            monthHit += result.monthHit;
-            typeExpected += result.typeExpected;
-            typeHit += result.typeHit;
             if (result.fp > 0 || result.fn > 0) {
                 failures.add(failureLine(id, category, result));
             }
         }
         long cost = System.currentTimeMillis() - start;
 
-        printReport(cases.size(), cost, total, byCategory, emptyPass, emptyCases,
-                monthHit, monthExpected, typeHit, typeExpected, failures);
+        printReport(extractionCases, dedup.cases, cost, total, byCategory, emptyPass, emptyCases,
+                monthHit, monthExpected, typeHit, typeExpected, dedup, failures);
         assertThat(cases).isNotEmpty();
     }
 
@@ -263,14 +279,132 @@ class MemoryGoldSetEvalTest {
         metrics.fn += result.fn;
     }
 
+    // ---------------- 判重（只对带 existing 的样本） ----------------
+
+    /**
+     * 把样本里的 {@code existing} 读成生产侧同形的清单（序号 = 数组下标 + 1）。
+     *
+     * <p>{@code type} 只有 {@code preference} 与「其余一律背景」两种取值——
+     * 判重协议里模型只认「偏好 / 背景」两组的序号，评估不引入第三种。
+     */
+    private List<ExistingMemory> existingMemories(JsonNode nodes) {
+        List<ExistingMemory> existing = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            String value = text(node, "value");
+            if (value.isBlank()) {
+                continue;
+            }
+            MemoryType type = "preference".equalsIgnoreCase(text(node, "type"))
+                    ? MemoryType.PREFERENCE : MemoryType.BACKGROUND_HEALTH;
+            existing.add(new ExistingMemory(type, text(node, "key"), value));
+        }
+        return existing;
+    }
+
+    /**
+     * 判重打分：值先按 {@link #dedupValueMatches} 对上实际草稿（含 aliases、按包含匹配），再比对 {@code action}；
+     * {@code target} 只在期望为 {@code update} 时计分——非 update 时协议要求 target 为空，
+     * 比它只会把「正确地留空」算成错。
+     *
+     * <p>抽不出那条值时 action 记一次未命中（原因写「未抽出」）：判重的前提是先认出这条事实，
+     * 连值都没有时不该被算成「action 判断正确」。
+     */
+    private void scoreDedup(String id, JsonNode expect, MemoryExtractionResult actual, DedupMetrics metrics) {
+        metrics.cases++;
+        StringBuilder line = new StringBuilder(id);
+        scoreDedupGroup(id, "偏好", expectList(expect, "preferences"),
+                actual.preferences().stream()
+                        .map(p -> new DedupActual(p.value(), p.action(), p.target())).toList(),
+                line, metrics);
+        scoreDedupGroup(id, "背景", expectList(expect, "background"),
+                actual.backgrounds().stream()
+                        .map(b -> new DedupActual(b.value(), b.action(), b.target())).toList(),
+                line, metrics);
+        metrics.lines.add(line.toString().strip());
+    }
+
+    /**
+     * 判重样本的值匹配比抽取指标**宽一档**：实际值**包含**期望值或任一 alias 即算命中。
+     *
+     * <p>判重问的是「这条事实被认成了清单里的哪一条」，不是「value 最终写成几个字」——
+     * 写成「和老伴一起住，不再独居」与「和老伴一起住」是同一个判断。
+     * 值粒度由抽取指标（P/R/F1）单独把关，这里放宽不会掩盖它；实际值仍逐条打印在报告里。
+     */
+    private boolean dedupValueMatches(Expect expected, String actualValue) {
+        String actual = normalize(actualValue);
+        if (actual.isEmpty()) {
+            return false;
+        }
+        String core = normalize(expected.value);
+        if (!core.isEmpty() && actual.contains(core)) {
+            return true;
+        }
+        for (String alias : expected.aliases) {
+            String normalized = normalize(alias);
+            if (!normalized.isEmpty() && actual.contains(normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void scoreDedupGroup(String id, String group, List<Expect> expected,
+                                 List<DedupActual> actual, StringBuilder line, DedupMetrics metrics) {
+        boolean[] used = new boolean[actual.size()];
+        for (Expect e : expected) {
+            String want = e.action == null ? "" : e.action.toLowerCase(Locale.ROOT);
+            if (want.isBlank()) {
+                continue;
+            }
+            int hit = -1;
+            for (int i = 0; i < actual.size() && hit < 0; i++) {
+                if (!used[i] && dedupValueMatches(e, actual.get(i).value())) {
+                    hit = i;
+                }
+            }
+            if (hit >= 0) {
+                used[hit] = true;
+            }
+            DedupActual got = hit < 0 ? null : actual.get(hit);
+            String gotAction = got == null ? "未抽出" : got.action().getCode();
+            boolean actionOk = got != null && want.equals(gotAction);
+            metrics.actionExpected++;
+            if (actionOk) {
+                metrics.actionHit++;
+            } else {
+                metrics.misses.add(String.format("%s「%s」期望 action=%s，实际 %s",
+                        id, e.value, want, gotAction));
+            }
+
+            String targetNote = "";
+            if (MemoryDedupAction.UPDATE.getCode().equals(want)) {
+                metrics.targetExpected++;
+                Integer gotTarget = got == null ? null : got.target();
+                boolean targetOk = gotTarget != null && e.target != null && gotTarget.equals(e.target);
+                if (targetOk) {
+                    metrics.targetHit++;
+                } else {
+                    metrics.misses.add(String.format("%s「%s」期望 target=%s，实际 %s",
+                            id, e.value, e.target, gotTarget == null ? "null" : gotTarget));
+                }
+                targetNote = " target=" + (gotTarget == null ? "null" : gotTarget);
+            }
+            line.append('｜').append(group).append("「").append(e.value).append("」")
+                    .append(want).append("→").append(gotAction).append(targetNote)
+                    .append(actionOk ? " ✓" : " ✗");
+        }
+    }
+
     // ---------------- 报告 ----------------
 
-    private void printReport(int cases, long costMs, Metrics total, Map<String, Metrics> byCategory,
-                             int emptyPass, int emptyCases, int monthHit, int monthExpected,
-                             int typeHit, int typeExpected, List<String> failures) {
+    private void printReport(int cases, int dedupCases, long costMs, Metrics total,
+                             Map<String, Metrics> byCategory, int emptyPass, int emptyCases,
+                             int monthHit, int monthExpected, int typeHit, int typeExpected,
+                             DedupMetrics dedup, List<String> failures) {
         StringBuilder out = new StringBuilder();
         out.append("\n===== 长期记忆 gold set 评估 =====\n");
-        out.append("样本：").append(cases).append(" 条｜耗时 ").append(costMs).append(" ms\n");
+        out.append("抽取样本：").append(cases).append(" 条｜判重样本：").append(dedupCases)
+                .append(" 条｜耗时 ").append(costMs).append(" ms\n");
         out.append(String.format(Locale.ROOT, "总体：TP=%d FP=%d FN=%d｜P=%.3f R=%.3f F1=%.3f%n",
                 total.tp, total.fp, total.fn, total.precision(), total.recall(), total.f1()));
         out.append("空样本准确率：").append(emptyPass).append('/').append(emptyCases)
@@ -283,8 +417,21 @@ class MemoryGoldSetEvalTest {
                     "  %-12s TP=%3d FP=%3d FN=%3d｜P=%.3f R=%.3f F1=%.3f%n",
                     m.name, m.tp, m.fp, m.fn, m.precision(), m.recall(), m.f1()));
         }
+        if (dedupCases > 0) {
+            out.append("\n判重（带 existing 的样本，不并入上方 P/R/F1）：\n");
+            out.append("  action 命中：").append(dedup.actionHit).append('/')
+                    .append(dedup.actionExpected).append('\n');
+            out.append("  target 命中：").append(dedup.targetHit).append('/')
+                    .append(dedup.targetExpected).append("（仅 update 计入）\n");
+            if (!dedup.misses.isEmpty()) {
+                out.append("  判重差异：\n");
+                dedup.misses.forEach(m -> out.append("    ").append(m).append('\n'));
+            }
+            out.append("  逐条：\n");
+            dedup.lines.forEach(l -> out.append("    ").append(l).append('\n'));
+        }
         if (!failures.isEmpty()) {
-            out.append("\n逐条差异（最多 30 条）：\n");
+            out.append("\n逐条差异（抽取样本与判重样本的 value 差异，最多 30 条；判重样本的计分见上一段）：\n");
             failures.stream().limit(30).forEach(line -> out.append("  ").append(line).append('\n'));
         }
         // 控制台可能不是 UTF-8；评估结果同时写 target 下的文件，便于 Windows 下读取。
@@ -330,6 +477,12 @@ class MemoryGoldSetEvalTest {
         String userTemplate = string(extract.get("user-template"));
         assertThat(system).as("prompts.memory-extract.system").isNotBlank();
         assertThat(userTemplate).as("prompts.memory-extract.user-template").isNotBlank();
+        // 手工装配绕过了 PromptProperties 的 @PostConstruct 占位符校验，
+        // 这条断言把「模板必须能被 extract() 渲染」钉在这里：缺 {remembered} 时旧清单根本进不去，
+        // 判重样本会全量失败却看不出原因。
+        assertThat(userTemplate).as("prompts.memory-extract.user-template 必含 {remembered}")
+                .contains(PromptProperties.PLACEHOLDER_REMEMBERED)
+                .contains(PromptProperties.PLACEHOLDER_DIALOGUE);
 
         PromptProperties properties = new PromptProperties();
         properties.getMemoryExtract().setSystem(system);
@@ -452,6 +605,9 @@ class MemoryGoldSetEvalTest {
             expect.field = text(node, "field");
             expect.occurredOn = text(node, "occurredOn");
             expect.type = text(node, "type");
+            expect.action = text(node, "action");
+            JsonNode target = node.get("target");
+            expect.target = target != null && target.isIntegralNumber() ? target.asInt() : null;
             for (JsonNode alias : node.path("aliases")) {
                 if (alias.isTextual() && !alias.asText().isBlank()) {
                     expect.aliases.add(alias.asText());
@@ -491,10 +647,29 @@ class MemoryGoldSetEvalTest {
         private String field;
         private String occurredOn;
         private String type;
+        /** 判重样本专用：期望的 action（new / update / skip），空 = 这条不参与判重计分 */
+        private String action;
+        /** 判重样本专用：期望的旧清单序号（仅 update 有意义） */
+        private Integer target;
         private final List<String> aliases = new ArrayList<>();
     }
 
     private record Actual(String value, String field, String occurredOn) {
+    }
+
+    /** 判重比对用的一条实际草稿（偏好与背景共用） */
+    private record DedupActual(String value, MemoryDedupAction action, Integer target) {
+    }
+
+    /** 判重指标（与抽取的 {@link Metrics} 刻意分开：口径不同，混在一起就不可比） */
+    private static final class DedupMetrics {
+        private int cases;
+        private int actionExpected;
+        private int actionHit;
+        private int targetExpected;
+        private int targetHit;
+        private final List<String> misses = new ArrayList<>();
+        private final List<String> lines = new ArrayList<>();
     }
 
     private static final class CaseResult {
