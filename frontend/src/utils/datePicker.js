@@ -61,6 +61,19 @@ export function formatMonthDisplay(value) {
 }
 
 /**
+ * 年月**紧凑**展示：`2024-03`；非法返回空串。
+ *
+ * <p>只给单行条目里的紧凑选择器用（`PatientDatePicker` 的 `compact`）。一行里要同时放下
+ * 药名、开始、结束、至今、删除，「2024 年 3 月」放不下两次——而年月本来就是零填充的
+ * `YYYY-MM`，等宽数字下比中文还好对。面板里照旧写「2024 年 3 月」，那是给人读的句子。
+ */
+export function formatMonthCompact(value) {
+  const parsed = parseMonth(value)
+  if (!parsed) return ''
+  return `${parsed.year}-${pad2(parsed.month)}`
+}
+
+/**
  * 年月是否落在可选范围内（两端含）。`YYYY-MM` 零填充，字符串比较即时间顺序。
  * 空 = 未填，永远算范围外；min/max 为空表示那一端不设限。
  */

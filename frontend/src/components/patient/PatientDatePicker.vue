@@ -1,5 +1,5 @@
 <template>
-  <div class="p-dp" ref="root">
+  <div class="p-dp" :class="{ 'p-dp--compact': compact }" ref="root">
     <button
       :id="id"
       ref="trigger"
@@ -99,7 +99,7 @@
       </template>
 
       <div class="p-dp__foot">
-        <button type="button" class="p-dp__clear" :disabled="!modelValue" @click="clear">清除</button>
+        <button type="button" class="p-dp__clear" :disabled="!modelValue" @click="clear">{{ clearLabel }}</button>
         <span v-if="hintText" class="p-dp__hint">{{ hintText }}</span>
       </div>
     </div>
@@ -114,6 +114,7 @@ import {
   buildMonthGrid,
   formatDisplay,
   formatMonth,
+  formatMonthCompact,
   formatMonthDisplay,
   monthInRange,
   parseDate,
@@ -150,9 +151,20 @@ const props = defineProps({
   max: { type: String, default: '' },
   /** 面板脚注；不传时 day 粒度给出生日期那句，month 粒度不显示 */
   hint: { type: String, default: '' },
+  /**
+   * 面板底部「清除」按钮的文案。用药结束位传「至今」——那里清空就等于"仍在使用"，
+   * 说「清除」会让患者以为把记录删了。默认仍是通用文案。
+   */
+  clearLabel: { type: String, default: '清除' },
   id: { type: String, default: undefined },
   labelId: { type: String, default: undefined },
-  placeholder: { type: String, default: '选择出生日期（选填）' }
+  placeholder: { type: String, default: '选择出生日期（选填）' },
+  /**
+   * 紧凑形态（只对 month 粒度有意义）：触发按钮只写 `2024-03`、去掉日历图标、
+   * 收窄内边距。给「单行条目」用——一行里要同时放下药名、开始、结束、至今与删除，
+   * 「2024 年 3 月」放不下两次。**面板里照旧写「2024 年 3 月」**，那是给人读的句子。
+   */
+  compact: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -183,11 +195,12 @@ const yearsOnPage = computed(() =>
   Array.from({ length: YEAR_PAGE_SIZE }, (_, i) => yearPage.value + i)
 )
 const cells = computed(() => buildMonthGrid(viewYear.value, viewMonth.value))
-const displayText = computed(() =>
-  isMonthMode.value
-    ? formatMonthDisplay(props.modelValue)
-    : formatDisplay(props.modelValue, props.yearOnly)
-)
+const displayText = computed(() => {
+  if (!isMonthMode.value) return formatDisplay(props.modelValue, props.yearOnly)
+  return props.compact
+    ? formatMonthCompact(props.modelValue)
+    : formatMonthDisplay(props.modelValue)
+})
 
 const selectedMonth = computed(() => {
   if (isMonthMode.value) {
@@ -244,22 +257,58 @@ function onOutside(event) {
   if (root.value && !root.value.contains(event.target)) close()
 }
 
+/** 最近的会裁掉溢出内容的祖先——可用空间要按它算，不是按视口 */
+function clipParent(el) {
+  let p = el?.parentElement
+  while (p && p !== document.body) {
+    const s = getComputedStyle(p)
+    if (/(auto|scroll|hidden|clip)/.test(s.overflowY + s.overflowX)) return p
+    p = p.parentElement
+  }
+  return null
+}
+
 /**
- * 面板高度约 330px（年月模式更低，仍按同一值算，宁可多留余量）；下方装不下且上方更宽裕时向上翻。
- * 水平方向把面板夹回视口：触发按钮在用药条目里只有一百来像素宽，居中弹出会顶到浮层边缘。
+ * 决定面板朝哪边开、能占多高。
+ *
+ * <p>**必须量最近的裁剪祖先**：健康档案的右栏是滚动容器，日期控件常落在它的中部——
+ * 只按视口判断会以为下方有空间，面板展开后却被滚动容器裁掉一半（真机症状：
+ * 打开年月面板只看到几格，其余点不到）。可用空间 = 裁剪祖先与视口的交集。
+ *
+ * <p>装不下就**向上翻**；两侧都装不下时选空间大的一侧，并把面板高度压到可用空间、
+ * 由面板自己滚（**不给高度下限**——为凑一个"至少 Npx"而超出可用空间，正是"只露出一条"
+ * 的成因，与 §3.9 自绘下拉同一条口径）。
+ * 水平方向也夹回裁剪祖先的左右边界：触发按钮在用药条目里只有一百来像素宽，
+ * 居中弹出会顶到滚动容器边缘。
  */
 function measureDirection() {
   const rect = trigger.value?.getBoundingClientRect()
-  if (!rect) return
-  openUp.value = rect.bottom + 360 > window.innerHeight && rect.top > 360
   const panel = panelEl.value
-  if (!panel) return
+  if (!rect || !panel) return
+
+  // 先放开高度量真实高度（面板的 max-height 只用于压到可用空间）
+  panel.style.maxHeight = 'none'
+  const wanted = panel.offsetHeight || 360
+
+  const cp = clipParent(root.value)
+  const cRect = cp ? cp.getBoundingClientRect() : null
+  const top = Math.max(cRect ? cRect.top : 0, 0)
+  const bottom = Math.min(cRect ? cRect.bottom : window.innerHeight, window.innerHeight)
+  const below = bottom - rect.bottom - 6
+  const above = rect.top - top - 6
+
+  const up = below < wanted && above > below
+  openUp.value = up
+  panel.style.maxHeight = `${Math.max(0, up ? above : below)}px`
+
   const width = panel.offsetWidth
   if (!width) return
+  const leftBound = Math.max(cRect ? cRect.left : 0, 0) + 8
+  const rightBound = Math.min(cRect ? cRect.right : window.innerWidth, window.innerWidth) - 8
   const center = rect.left + rect.width / 2
   const left = Math.min(
-    Math.max(center - width / 2, 8),
-    Math.max(8, window.innerWidth - width - 8)
+    Math.max(center - width / 2, leftBound),
+    Math.max(leftBound, rightBound - width)
   )
   panel.style.left = `${left - rect.left}px`
   panel.style.transform = 'none'

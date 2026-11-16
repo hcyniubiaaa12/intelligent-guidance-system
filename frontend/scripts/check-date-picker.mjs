@@ -8,6 +8,7 @@ import {
   formatDate,
   formatDisplay,
   formatMonth,
+  formatMonthCompact,
   formatMonthDisplay,
   fromBirthYear,
   isLeapYear,
@@ -106,6 +107,10 @@ check('年月解析与格式化：YYYY-MM、非法值一律 null 或空串', () 
   assert.equal(formatMonth(2024, 13), '')
   assert.equal(formatMonthDisplay('2024-03'), '2024 年 3 月')
   assert.equal(formatMonthDisplay('2024-3'), '')
+  assert.equal(formatMonthCompact('2024-03'), '2024-03')
+  assert.equal(formatMonthCompact('2024-11'), '2024-11')
+  assert.equal(formatMonthCompact('2024-3'), '')
+  assert.equal(formatMonthCompact(''), '')
 })
 
 check('年月范围：两端含、空 min/max 不设限、非法值永远在范围外', () => {
