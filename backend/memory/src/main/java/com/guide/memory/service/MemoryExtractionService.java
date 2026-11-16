@@ -49,10 +49,13 @@ import java.util.regex.Pattern;
  * <p><b>满额口径</b>：偏好满配置上限（memory.preference.max，默认 5）调一次合并去重（合并失败丢弃本批新偏好、保留旧偏好）；
  * 背景满 10 条保留旧背景、丢弃新背景并把 needsCleanup 留给人手整理（页面已有提示）。
  *
- * <p><b>判重前置（工单 02）</b>：偏好落库前按模型给的 {@code action} 分派——{@code new} 插入、
- * {@code update} 原地改旧行、{@code skip} 零写入；分派由纯函数 {@link MemoryDedupPlanner} 完成，
- * 它以**送进提示词的那份清单**为准解析 {@code target} 序号。满额合并降为兜底。
- * 背景的分派（含 {@code retrieval_text} 与向量同步）在工单 03，本单仍全插。
+ * <p><b>判重前置（工单 02 / 03）</b>：偏好与稳定背景落库前都按模型给的 {@code action} 分派——
+ * {@code new} 插入、{@code update} 原地改旧行、{@code skip} 零写入；分派由纯函数
+ * {@link MemoryDedupPlanner} 完成，它以**送进提示词的那份清单**为准解析 {@code target} 序号。
+ * 满额合并降为兜底。
+ *
+ * <p><b>背景的 {@code update} 多一步</b>：同步刷新 {@code retrieval_text} / {@code updated_at} 并重算向量，
+ * 否则召回继续用旧文本的向量（改口等于没改）。偏好永远全量注入、不向量化，没有这一步。
  */
 @Slf4j
 @Service
@@ -139,7 +142,7 @@ public class MemoryExtractionService {
         // 判重候选就是**送进提示词的那一份清单**：模型回的 target 是它的序号，
         // 另查一次等于换了一套编号，会把患者的一条偏好改成另一条。
         savePreferences(userId, remembered, result.preferences());
-        saveBackgrounds(userId, result.backgrounds());
+        saveBackgrounds(userId, remembered, result.backgrounds());
         // 档案事实（过敏/用药/手术）只进候选表：未确认前不注入、不预警，患者接受后才写档案
         profileCandidateService.recordCandidates(userId, result.candidates());
     }
@@ -272,7 +275,8 @@ public class MemoryExtractionService {
                     // 这一条改不动就改成新增：整批丢掉患者永远不知道自己被漏记了
                     toInsert.add(update.draft());
                 }
-            }            if (toInsert.isEmpty()) {
+            }
+            if (toInsert.isEmpty()) {
                 return;
             }
             List<Memory> existing = filterType(remembered, MemoryType.PREFERENCE);
@@ -413,47 +417,167 @@ public class MemoryExtractionService {
 
     // ---------------- 稳定背景 ----------------
 
-    private void saveBackgrounds(String userId, List<BackgroundDraft> drafts) {
+    /**
+     * 稳定背景落库：与偏好同一套判重（工单 03）——{@code new} 插入、{@code update} 原地改旧行、
+     * {@code skip} 零写入。分派器与偏好共用一个，不为背景另写一套。
+     *
+     * <p><b>与偏好唯一的差别在 update 的副作用</b>：背景要维护向量一致性——改值时同步刷新
+     * {@code retrieval_text} / {@code updated_at} 并重算向量（见 {@link #applyBackgroundUpdate}）；
+     * 偏好永远全量注入、不向量化，没有这一步。
+     *
+     * <p><b>满额只看「真正要新增」的条数</b>：{@code update} 不增条数、{@code skip} 完全不算。
+     * 否则患者满 10 条时，一次「补充细节」（旧说法 → 更完整的说法）会被满额逻辑误杀——
+     * 而那恰恰是判重最该生效的场景。
+     *
+     * @param remembered **送进提示词的那份清单**（同一个顺序）——target 的序号就是它的下标
+     */
+    private void saveBackgrounds(String userId, List<Memory> remembered, List<BackgroundDraft> drafts) {
         if (drafts == null || drafts.isEmpty()) {
             return;
         }
         try {
-            List<Memory> existing = activeMemories(userId, MemoryType.BACKGROUND_HEALTH,
-                    MemoryType.BACKGROUND_OTHER);
-            Set<String> existingKeys = new HashSet<>();
-            for (Memory row : existing) {
-                existingKeys.add(typedKey(row.getType().getCode(), row.getMkey(), row.getMvalue()));
-            }
-            List<BackgroundDraft> fresh = new ArrayList<>();
-            for (BackgroundDraft draft : drafts) {
-                String type = "other".equalsIgnoreCase(draft.type())
-                        ? MemoryType.BACKGROUND_OTHER.getCode() : MemoryType.BACKGROUND_HEALTH.getCode();
-                if (existingKeys.add(typedKey(type, draft.key(), draft.value()))) {
-                    fresh.add(draft);
-                }
-            }
+            List<BackgroundDraft> fresh = dedupeBackgrounds(remembered, drafts);
             if (fresh.isEmpty()) {
                 return;
             }
-            int max = backgroundMax();
-            if (existing.size() + fresh.size() > max) {
-                log.warn("稳定背景已满（{} + {} > {}），保留旧背景、丢弃本批新背景；页面会提示患者整理",
-                        existing.size(), fresh.size(), max);
+            List<MemoryDedupPlanner.Update<BackgroundDraft>> updates;
+            List<BackgroundDraft> toInsert;
+            try {
+                MemoryDedupPlanner.Plan<BackgroundDraft> plan = MemoryDedupPlanner.plan(fresh, remembered);
+                updates = plan.updates();
+                toInsert = new ArrayList<>(plan.news());
+            } catch (RuntimeException e) {
+                log.warn("背景判重分派失败，本批按「全部新增」落库：userId={}｜原因={}",
+                        userId, e.getMessage());
+                updates = List.of();
+                toInsert = new ArrayList<>(fresh);
+            }
+            for (MemoryDedupPlanner.Update<BackgroundDraft> update : updates) {
+                if (!applyBackgroundUpdate(userId, update)) {
+                    // 这一条改不动就改成新增：整批丢掉患者永远不知道自己被漏记了
+                    toInsert.add(update.draft());
+                }
+            }
+            if (toInsert.isEmpty()) {
+                // 本批全是 update / skip：条数没变，不必走满额判断（满额时也要放行改口）
                 return;
             }
-            for (BackgroundDraft draft : fresh) {
-                MemoryType type = "other".equalsIgnoreCase(draft.type())
-                        ? MemoryType.BACKGROUND_OTHER : MemoryType.BACKGROUND_HEALTH;
-                Memory saved = insert(userId, type, draft.key(), draft.value(), draft.quote(),
-                        draft.confidence(), draft.validTo());
+            int max = backgroundMax();
+            int existingCount = backgroundRows(remembered).size();
+            if (existingCount + toInsert.size() > max) {
+                log.warn("稳定背景已满（{} + {} > {}），保留旧背景、丢弃本批新增；页面会提示患者整理",
+                        existingCount, toInsert.size(), max);
+                return;
+            }
+            for (BackgroundDraft draft : toInsert) {
+                Memory saved = insert(userId, backgroundType(draft), draft.key(), draft.value(),
+                        draft.quote(), draft.confidence(), draft.validTo());
                 audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 // 稳定背景需要向量才能被按需召回；写入失败由 indexer 降级（WARN + 回填任务补），
                 // 抽取本身已在线程池里，这里同步调用即可，不再多包一层异步。
                 vectorIndexer.index(saved);
             }
-            log.info("稳定背景已写入 {} 条：userId={}", fresh.size(), userId);
+            log.info("稳定背景已写入 {} 条：userId={}", toInsert.size(), userId);
         } catch (RuntimeException e) {
             log.warn("稳定背景落库失败（丢弃本批）：userId={}｜原因={}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * 背景全等去重：与**已有的生效背景**全等、以及同一批里重复的，都只留第一条。
+     *
+     * <p>它挡的是「同一句话被说两遍」，与语义判重（模型给的 action）是两件事，两者都保留：
+     * 模型漏判时这里仍能挡住最明显的重复。
+     */
+    private List<BackgroundDraft> dedupeBackgrounds(List<Memory> remembered, List<BackgroundDraft> drafts) {
+        Set<String> existingKeys = new HashSet<>();
+        for (Memory row : backgroundRows(remembered)) {
+            existingKeys.add(typedKey(row.getType().getCode(), row.getMkey(), row.getMvalue()));
+        }
+        List<BackgroundDraft> fresh = new ArrayList<>();
+        for (BackgroundDraft draft : drafts) {
+            if (existingKeys.add(typedKey(backgroundType(draft).getCode(), draft.key(), draft.value()))) {
+                fresh.add(draft);
+            }
+        }
+        return fresh;
+    }
+
+    /** 草稿的 type 归一：只有 {@code other} 落 background_other，其余按 background_health（与解析层同口径） */
+    private MemoryType backgroundType(BackgroundDraft draft) {
+        return "other".equalsIgnoreCase(draft.type())
+                ? MemoryType.BACKGROUND_OTHER : MemoryType.BACKGROUND_HEALTH;
+    }
+
+    private List<Memory> backgroundRows(List<Memory> remembered) {
+        List<Memory> matched = new ArrayList<>();
+        if (remembered == null) {
+            return matched;
+        }
+        for (Memory row : remembered) {
+            if (row.getType() == MemoryType.BACKGROUND_HEALTH
+                    || row.getType() == MemoryType.BACKGROUND_OTHER) {
+                matched.add(row);
+            }
+        }
+        return matched;
+    }
+
+    /**
+     * 原地改一条稳定背景：id 不变，改键 / 值 / 原话 / 置信度 / 观察时间，并**同步向量**。
+     *
+     * <p><b>为什么这条比偏好多一步</b>：背景的 embedding 文本是 {@code retrieval_text}，
+     * 值变了却只改 {@code mvalue}，重算出来的向量仍指向旧说法——召回继续拿旧文本把他引到旧结论。
+     * 顺序是：
+     * <ol>
+     *   <li>MySQL 一条 UPDATE 写全内容列 + {@code retrieval_text} + {@code updated_at}（事实源先落定）；</li>
+     *   <li>审计 {@code update}（old→new，actor=extract）；</li>
+     *   <li>刷新内存快照后重算向量——与患者手动编辑共用
+     *       {@link MemoryVectorIndexer#refreshBackgroundValue}，不写第二份实现。</li>
+     * </ol>
+     * 向量写失败不上抛（旁路）：MySQL 的 {@code updated_at} 已比向量行新，
+     * {@code MemoryVectorBackfillJob.needsIndex()} 下一轮会按它补上。
+     *
+     * <p><b>用 {@code LambdaUpdateWrapper} 显式列字段，不用 {@code updateById}</b>：手上这份是判重时
+     * 取的旧快照，整实体回写会把它没读到的列覆盖掉。
+     *
+     * <p>字段集不含 {@code valid_to} / {@code status} / {@code type}：改口改的是「这件事是什么」，
+     * 不是它的有效期与分类——到期背景走插入路径、患者更正走 retract 路径，各自有归属。
+     *
+     * @return 是否改成功（false ⇒ 调用方把这条改成新增，不丢）
+     */
+    private boolean applyBackgroundUpdate(String userId, MemoryDedupPlanner.Update<BackgroundDraft> update) {
+        Memory row = update.row();
+        BackgroundDraft draft = update.draft();
+        String oldValue = row.getMvalue();
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            memoryMapper.update(null, Wrappers.<Memory>lambdaUpdate()
+                    .set(Memory::getMkey, draft.key())
+                    .set(Memory::getMvalue, draft.value())
+                    .set(Memory::getSourceQuote, draft.quote())
+                    .set(Memory::getConfidence, draft.confidence())
+                    .set(Memory::getObservedAt, now)
+                    .set(Memory::getUpdatedAt, now)
+                    .set(Memory::getRetrievalText, draft.value())
+                    .eq(Memory::getId, row.getId())
+                    .eq(Memory::getUserId, userId)
+                    .eq(Memory::getStatus, MemoryStatus.ACTIVE));
+            memoryLogService.append(row.getId(), userId, MemoryOp.UPDATE,
+                    oldValue, draft.value(), MemoryActor.EXTRACT);
+            // 快照跟着改：同批后续步骤与应用内缓存读到的都该是新值
+            row.setMkey(draft.key());
+            row.setSourceQuote(draft.quote());
+            row.setConfidence(draft.confidence());
+            row.setObservedAt(now);
+            vectorIndexer.refreshBackgroundValue(row, draft.value(), now);
+            log.info("稳定背景已按新说法原地更新：userId={} memoryId={} {} → {}",
+                    userId, row.getId(), oldValue, draft.value());
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("稳定背景原地更新失败，本条改为新增：userId={} memoryId={}｜原因={}",
+                    userId, row.getId(), e.getMessage());
+            return false;
         }
     }
 

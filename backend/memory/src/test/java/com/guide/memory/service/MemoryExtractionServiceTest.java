@@ -43,6 +43,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -133,6 +134,100 @@ class MemoryExtractionServiceTest {
         verify(memoryLogService).append("old1", USER, MemoryOp.UPDATE,
                 "讲慢一点", "语速要慢", MemoryActor.EXTRACT);
         verify(memoryLogService, never()).append(any(), any(), eq(MemoryOp.ADD), any(), any(), any());
+        // 偏好不向量化：改口不触发 retrieval_text 刷新，也不重算向量
+        verify(vectorIndexer, never()).refreshBackgroundValue(any(), any(), any());
+        verify(vectorIndexer, never()).index(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("背景改口 action=update：原地改旧行（id 不变）、同一语句刷 retrieval_text，再重算向量，不插新行")
+    void updateBackgroundInPlaceRefreshesVector() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        old.setSourceQuote("我有2型糖尿病");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病，控制良好", "health",
+                        "2型糖尿病，控制良好", "0.9", null, MemoryDedupAction.UPDATE, 1))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Memory>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(memoryMapper).update(isNull(), captor.capture());
+        // 内容列 + retrieval_text + updated_at 同一条语句落库：向量文本不能与值分家
+        assertThat(captor.getValue().getSqlSet()).contains("mkey", "mvalue", "source_quote",
+                "confidence", "observed_at", "updated_at", "retrieval_text");
+        // 只命中目标行（id + 归属 + 生效中）
+        assertThat(captor.getValue().getSqlSegment()).contains("id", "user_id", "status");
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains("2型糖尿病，控制良好", "b1", USER);
+
+        verify(memoryLogService).append("b1", USER, MemoryOp.UPDATE,
+                "2型糖尿病", "2型糖尿病，控制良好", MemoryActor.EXTRACT);
+        // 向量走共用口径（与患者手动编辑同一处），不是各写一遍
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
+        verify(vectorIndexer, never()).index(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("背景 action=skip：零写入、零审计、不动向量（值没变却刷新观察时间会让它跳到列表最前）")
+    void skipBackgroundWritesNothing() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病", "health", "我有2型糖尿病", "0.9",
+                        null, MemoryDedupAction.SKIP, 1))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        verify(memoryMapper, never()).update(any(), any());
+        verify(memoryLogService, never()).append(any(), any(), any(), any(), any(), any());
+        verifyNoInteractions(vectorIndexer);
+    }
+
+    @Test
+    @DisplayName("背景满额时仍能改口：update 不增条数，不被满额逻辑误杀")
+    void backgroundFullStillAllowsUpdate() {
+        List<Memory> existing = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            existing.add(existing("old" + i, MemoryType.BACKGROUND_HEALTH, "背景" + i, "值" + i, "0.8"));
+        }
+        when(memoryMapper.selectList(any())).thenReturn(existing);
+        // remembered 顺序 = 10 条背景，target=3 指的是 old2
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "糖尿病，控制良好", "health",
+                        "我糖尿病控制得不错", "0.9", null, MemoryDedupAction.UPDATE, 3))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        verify(memoryMapper, never()).insert(any(Memory.class));
+        verify(memoryLogService).append("old2", USER, MemoryOp.UPDATE,
+                "值2", "糖尿病，控制良好", MemoryActor.EXTRACT);
+        verify(vectorIndexer).refreshBackgroundValue(eq(existing.get(2)), eq("糖尿病，控制良好"),
+                any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("背景原地更新失败：本条改为新增落库，不丢草稿")
+    void backgroundUpdateFailureFallsBackToNew() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病，控制良好", "health",
+                        "2型糖尿病，控制良好", "0.9", null, MemoryDedupAction.UPDATE, 1))));
+        // 原地更新这一步炸了（DB 抖动）：这一批不能跟着丢，退回新增
+        when(memoryMapper.update(any(), any())).thenThrow(new RuntimeException("db down"));
+
+        assertThatCode(() -> service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION)))
+                .doesNotThrowAnyException();
+
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("2型糖尿病，控制良好");
+        verify(vectorIndexer).index(inserted.getValue());
     }
 
     @Test
@@ -484,6 +579,13 @@ class MemoryExtractionServiceTest {
     private BackgroundDraft background(String key, String value, String type, String quote,
                                        String confidence, LocalDate validTo) {
         return new BackgroundDraft(key, value, type, quote, new BigDecimal(confidence), validTo);
+    }
+
+    private BackgroundDraft background(String key, String value, String type, String quote,
+                                       String confidence, LocalDate validTo,
+                                       MemoryDedupAction action, Integer target) {
+        return new BackgroundDraft(key, value, type, quote, new BigDecimal(confidence), validTo,
+                action, target);
     }
 
     private Memory existing(String id, MemoryType type, String key, String value, String confidence) {
