@@ -19,9 +19,9 @@ import java.util.List;
  * <p><b>判重字段</b>：偏好与背景草稿带 {@code action} / {@code target}——
  * 解析层已把缺失、非法值与越界 target 全部降级成 {@link MemoryDedupAction#NEW}，
  * 所以进到这里的草稿一定带着**可信**的 action。
- * <b>偏好侧已按它分派落库</b>（{@code MemoryExtractionService#savePreferences}，工单 02）；
- * <b>背景侧仍是全插</b>——背景的原地更新要连带刷新 {@code retrieval_text} 与向量，
- * 是工单 03 的事，那一刀落地前不要把背景也切到分派路径上（否则会写出「新值 + 旧向量」的行）。
+ * <b>偏好与稳定背景都已按它分派落库</b>（{@code MemoryExtractionService#savePreferences} 工单 02、
+ * {@code #saveBackgrounds} 工单 03）；背景的原地更新还要连带刷新 {@code retrieval_text} 与向量，
+ * 否则会写出「新值 + 旧向量」的行。
  */
 public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<BackgroundDraft> backgrounds,
                                      List<ProfileCandidateDraft> candidates) {

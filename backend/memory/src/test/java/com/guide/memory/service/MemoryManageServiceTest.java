@@ -104,9 +104,9 @@ class MemoryManageServiceTest {
         verify(memoryMapper).update(isNull(), captor.capture());
         String sqlSet = captor.getValue().getSqlSet();
         assertThat(sqlSet).contains("mvalue").contains("retrieval_text").contains("updated_at");
-        verify(vectorIndexer).index(row);
-        assertThat(row.getMvalue()).isEqualTo("1型糖尿病");
-        assertThat(row.getRetrievalText()).isEqualTo("1型糖尿病");
+        // 快照刷新 + 重算与抽取改口共用同一处：服务侧只负责落库与委托，不自己再拼一遍
+        verify(vectorIndexer).refreshBackgroundValue(eq(row), eq("1型糖尿病"), any(LocalDateTime.class));
+        verify(vectorIndexer, never()).index(any(Memory.class));
     }
 
     @Test

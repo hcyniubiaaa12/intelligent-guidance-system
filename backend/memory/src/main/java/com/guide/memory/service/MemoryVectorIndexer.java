@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 /**
  * 记忆向量写入：只把**稳定背景**送进 embedding，偏好不向量化（偏好永远全量注入，无需按需召回）。
  *
@@ -16,7 +18,8 @@ import org.springframework.stereotype.Service;
  * 周期性补上，MySQL 与向量库不会长期不一致。
  *
  * <p><b>embedding 文本</b>：优先 {@code retrievalText}（抽取时给出的扩展文本），为空回退 {@code mvalue}。
- * 因此患者编辑记忆时必须同步刷新 {@code retrievalText}，否则重算出来的还是旧文本的向量。
+ * 因此值变了必须同步刷新 {@code retrievalText}，否则重算出来的还是旧文本的向量。
+ * 患者编辑与抽取改口都走 {@link #refreshBackgroundValue(Memory, String, LocalDateTime)}，不各写一份。
  */
 @Slf4j
 @Service
@@ -56,6 +59,28 @@ public class MemoryVectorIndexer {
                     memory.getId(), e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 背景值变了：同步 {@code retrieval_text} / {@code updated_at} 快照并重算向量。
+     *
+     * <p>患者手动编辑（{@code MemoryManageService#updateValue}）与抽取改口
+     * （{@code MemoryExtractionService#applyBackgroundUpdate}）共用这一处——两条路径在 MySQL 里改的列
+     * 不同（编辑只改值，改口还改键/原话/置信度/观察时间），但「{@code retrieval_text} 必须跟着值走、
+     * {@code updated_at} 必须刷新、然后重算向量」是同一件事。写成两份，迟早有一边漏刷
+     * {@code retrieval_text}，重算出来的向量仍指向旧说法（患者改口等于没改）。
+     *
+     * <p>调用前提：MySQL 已经写成新值、{@code updated_at} 也已刷新——本方法只同步内存快照并重算向量。
+     * 重算失败不上抛（{@link #index} 已降级为 WARN），回填任务按 {@code updated_at} 收敛。
+     */
+    public void refreshBackgroundValue(Memory row, String newValue, LocalDateTime now) {
+        if (row == null || !isBackground(row.getType())) {
+            return;
+        }
+        row.setMvalue(newValue);
+        row.setRetrievalText(newValue);
+        row.setUpdatedAt(now);
+        index(row);
     }
 
     /** 删除向量；失败只记 WARN（记忆已经在 MySQL 逻辑删除，残留向量召回时会被回表校验过滤）。 */

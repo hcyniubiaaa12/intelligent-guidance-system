@@ -83,11 +83,10 @@ public class MemoryManageService {
         memoryLogService.append(id, userId, MemoryOp.UPDATE, row.getMvalue(), trimmed, MemoryActor.USER);
 
         // 背景值变了就立刻重算向量；失败由 indexer 降级（WARN），回填任务会按 updated_at 再补。
+        // 快照刷新 + 重算与抽取改口共用同一处（MemoryVectorIndexer#refreshBackgroundValue）：
+        // 两条路径改的列不同，但「retrieval_text 跟着值走 + updated_at 刷新 + 重算向量」必须是同一套。
         if (background) {
-            row.setMvalue(trimmed);
-            row.setRetrievalText(trimmed);
-            row.setUpdatedAt(now);
-            vectorIndexer.index(row);
+            vectorIndexer.refreshBackgroundValue(row, trimmed, now);
         }
     }
 
