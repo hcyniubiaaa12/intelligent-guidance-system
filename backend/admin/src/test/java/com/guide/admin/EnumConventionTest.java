@@ -21,6 +21,12 @@ import com.guide.kb.enums.DocStatus;
 import com.guide.kb.enums.MappingSource;
 import com.guide.kb.enums.TermSource;
 import com.guide.kb.enums.TermType;
+import com.guide.memory.enums.CandidateField;
+import com.guide.memory.enums.CandidateStatus;
+import com.guide.memory.enums.MemoryActor;
+import com.guide.memory.enums.MemoryOp;
+import com.guide.memory.enums.MemoryStatus;
+import com.guide.memory.enums.MemoryType;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -43,13 +49,17 @@ class EnumConventionTest {
             DocStatus.class, DocFailType.class, MappingSource.class, TermType.class, TermSource.class,
             TrackStage.class, FilterAction.class, BucketStatus.class, ReviewStatus.class,
             IngestStage.class, IngestStatus.class,
-            // 健康档案：性别入库（male/female）、标签词表类别（chronic/medication/allergy）。
+            // 健康档案：性别入库（male/female）、标签词表类别（chronic/medication/allergy/surgery）。
             // AgeRange 刻意不在列——年龄段编码天然含数字与连字符（0-3 / 60+），不满足本约定的
             // "全小写字母+下划线"，故按受控字符串处理（见 AgeRange 类注释）。
             Gender.class, HealthTagType.class,
             // 块类型落在 kb_chunk.chunk_type（VARCHAR），新加的 figure/image/formula/code/header/footer
             // 也必须遵守"编码值 = 常量名小写"这条约定，否则库里会出现两套写法的同一个类型
-            LayoutBlock.BlockType.class
+            LayoutBlock.BlockType.class,
+            // 长期记忆：类型 / 状态 / 操作 / 操作者四个入库枚举
+            MemoryType.class, MemoryStatus.class, MemoryOp.class, MemoryActor.class,
+            // 档案候选：目标字段 / 状态（profile_candidate.field / status）
+            CandidateField.class, CandidateStatus.class
     );
 
     @Test

@@ -1,6 +1,8 @@
 package com.guide.rag.dto;
 
 
+import com.guide.common.port.MemoryRecallPort;
+
 import java.util.List;
 
 /**
@@ -13,15 +15,20 @@ import java.util.List;
  * @param topK            单路召回条数（向量 / ES 各取 topK）
  * @param topN            精排后进入 Prompt 的片段数
  * @param profileText     患者健康档案的**待注入文本**（可选背景，非检索语料）；为空即无档案。
- *                        它是患者自述，**不是医学证据**，不进注号体系、不参与排序——
- *                        由 chat 读档组装好传进来，rag 不感知业务状态（单据 02）
- * @param profileQuery    患者健康档案的**检索用串**（性别 + 年龄段 + 命中词表的标签与词）；为空即无档案。
- *                        <b>只用于扩容召回</b>：非空时多开两路召回（向量 + 关键词），与主诉两路一起进 RRF，
- *                        精排 query 仍是主诉改写串——档案没有排序话语权（单据 03）
+ *                        它是患者自述，**不是医学证据**，不进注号体系、<b>不参与检索</b>——
+ *                        由 chat 读档组装好传进来，rag 不感知业务状态。档案已退出检索层：
+ *                        这里只进生成提示词，不产生任何召回通道。
  * @param parts           患者在**人体图**上标明的部位（部位声明，如 {@code ["左腹部"]}）；为空即未声明。
  *                        只服务<b>新会话的首条输入</b>，进模型上下文让模型知道位置已确认、不必再追问部位；
  *                        <b>不参与检索</b>——检索只用 query，患者那句话里已经含部位词。
  *                        它<b>不产生结论权</b>：患者标的位置只是范围信息，推荐哪个科室仍由知识片段与候选清单决定
+ * @param preferences     患者偏好（跨会话、全量注入，最多 5 条）；为空即没有偏好段。
+ *                        由 chat 从 memory 读取后传入，rag 不感知 userId。
+ * @param memoryRecallPort 稳定背景的召回端口（可为 null / 返回空）；rag 用**已算好的 query 向量**回调它，
+ *                        不额外 embedding、不直连向量库，也不感知用户。
+ * @param memoryThreshold 稳定背景召回阈值（来自 {@code memory.background.recall.threshold}）。
+ *                        rag 自己不用它做判定（判定在 memory 侧），它是**证据快照的取证字段**：
+ *                        事后要能复现「当时按多少分算命中」。非法值回落默认 0.70。
  *
  * <p>注意：追问轮次（{@code ask_round}）**不再是入参**——rag 从无任何消费者读它，曾经传进来是死字段
  * （2026-10-14 工单 05 核实后删除）。rag 侧"该不该追问"只由 {@code forceConclusion} 一个开关决定。
@@ -34,11 +41,41 @@ public record RagRequest(
         int topK,
         int topN,
         String profileText,
-        String profileQuery,
-        List<String> parts) {
+        List<String> parts,
+        List<String> preferences,
+        MemoryRecallPort memoryRecallPort,
+        double memoryThreshold,
+        int memoryBlockChars,
+        int memoryPreferenceMax,
+        int memoryBackgroundMaxItems) {
 
     public static final int DEFAULT_TOP_K = 20;
     public static final int DEFAULT_TOP_N = 5;
+    public static final double DEFAULT_MEMORY_THRESHOLD = 0.70;
+    public static final int DEFAULT_MEMORY_BLOCK_CHARS = 500;
+    public static final int DEFAULT_MEMORY_PREFERENCE_MAX = 5;
+    public static final int DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS = 3;
+
+    /**
+     * 兼容构造：不关心记忆块字数的调用方（测试 / 只读回放）走这里，取默认 500。
+     * 生产路径由 chat 读 {@code memory.block.chars} 后显式传入，改库即生效。
+     */
+    public RagRequest(
+            String query,
+            List<RagTurn> history,
+            List<DeptOption> deptOptions,
+            boolean forceConclusion,
+            int topK,
+            int topN,
+            String profileText,
+            List<String> parts,
+            List<String> preferences,
+            MemoryRecallPort memoryRecallPort,
+            double memoryThreshold) {
+        this(query, history, deptOptions, forceConclusion, topK, topN, profileText, parts,
+                preferences, memoryRecallPort, memoryThreshold, DEFAULT_MEMORY_BLOCK_CHARS,
+                DEFAULT_MEMORY_PREFERENCE_MAX, DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS);
+    }
 
     public RagRequest {
         history = history == null ? List.of() : List.copyOf(history);
@@ -48,8 +85,32 @@ public record RagRequest(
         parts = parts == null ? List.of() : parts.stream()
                 .filter(java.util.Objects::nonNull).map(String::strip)
                 .filter(s -> !s.isEmpty()).toList();
+        // 偏好同 parts：只去 null / 空白，不在 rag 层做条数与字数裁剪（那是 PromptBuilder 的注入上限）
+        preferences = preferences == null ? List.of() : preferences.stream()
+                .filter(java.util.Objects::nonNull).map(String::strip)
+                .filter(s -> !s.isEmpty()).toList();
         topK = topK <= 0 ? DEFAULT_TOP_K : topK;
         topN = topN <= 0 ? DEFAULT_TOP_N : topN;
+        // 阈值是配置值，缺省/越界一律回落默认：快照里写一个 0.0 会让事后复现变成假象
+        if (!(memoryThreshold > 0 && memoryThreshold <= 1)) {
+            memoryThreshold = DEFAULT_MEMORY_THRESHOLD;
+        }
+        memoryBlockChars = memoryBlockChars <= 0 ? DEFAULT_MEMORY_BLOCK_CHARS : memoryBlockChars;
+        memoryPreferenceMax = memoryPreferenceMax <= 0 ? DEFAULT_MEMORY_PREFERENCE_MAX : memoryPreferenceMax;
+        memoryBackgroundMaxItems = memoryBackgroundMaxItems <= 0
+                ? DEFAULT_MEMORY_BACKGROUND_MAX_ITEMS : memoryBackgroundMaxItems;
+    }
+
+    /**
+     * 兼容构造：调用方/测试不关心取证阈值时按默认 0.70。
+     * 生产路径（chat）显式传 {@code memory.background.recall.threshold}。
+     */
+    public RagRequest(String query, List<RagTurn> history, List<DeptOption> deptOptions,
+                      boolean forceConclusion, int topK, int topN, String profileText,
+                      List<String> parts, List<String> preferences,
+                      MemoryRecallPort memoryRecallPort) {
+        this(query, history, deptOptions, forceConclusion, topK, topN, profileText, parts,
+                preferences, memoryRecallPort, DEFAULT_MEMORY_THRESHOLD);
     }
 
     /** 是否多轮（有历史才做查询改写） */

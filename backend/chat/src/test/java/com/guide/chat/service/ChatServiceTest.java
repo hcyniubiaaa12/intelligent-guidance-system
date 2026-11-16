@@ -13,7 +13,10 @@ import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatMessageMapper;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
+import com.guide.common.event.TurnCompletedEvent;
+import com.guide.common.port.MemoryRecallPort;
 import com.guide.kb.entity.Dept;
+import com.guide.memory.service.MemoryInjectionService;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.MedicalTermService;
 import com.guide.rag.RagService;
@@ -25,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.List;
@@ -33,12 +37,14 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -86,6 +92,8 @@ class ChatServiceTest {
     private DeptService deptService;
     private MedicalTermService medicalTermService;
     private RecommendableDepts recommendableDepts;
+    private MemoryInjectionService memoryInjectionService;
+    private ApplicationEventPublisher eventPublisher;
     private ChatService chatService;
 
     @BeforeEach
@@ -101,6 +109,8 @@ class ChatServiceTest {
         recommendableDepts = mock(RecommendableDepts.class);
         sysConfigService = mock(SysConfigService.class);
         healthProfileService = mock(HealthProfileService.class);
+        memoryInjectionService = mock(MemoryInjectionService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
 
         // 新会话：insert 时补 id（真实环境由 MyBatis-Plus 生成；turnTag 要读它，null 会 NPE）
@@ -118,8 +128,11 @@ class ChatServiceTest {
         // 默认无档案：两段空串、结构化档案 null ⇒ 不拼 prompt 段、不加推荐卡行、快照节点写空（与本单据前的链路一致）
         when(healthProfileService.assembleForChat(anyString()))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("", "", false), null));
+                        new HealthProfileAssembler.Assembly("", false), null));
         when(ragService.retrieve(any())).thenAnswer(invocation -> new RagContext("q", "q", List.of(), 0, 0));
+        // 默认：自动记忆开启但无偏好、端口为空实现（07 的占位）
+        when(memoryInjectionService.forTurn(anyString(), any()))
+                .thenReturn(new MemoryInjectionService.Injection(List.of(), null));
         // 线程池 mock 成同步执行：编排在调用线程里跑完，断言不必等
         doAnswer(invocation -> {
             invocation.getArgument(0, Runnable.class).run();
@@ -129,7 +142,7 @@ class ChatServiceTest {
         chatService = new ChatService(sessionMapper, messageMapper, guideService, ragService,
                 new AnswerParser(new ObjectMapper()), sensitiveGuard, sufficiencyRule, deptService,
                 medicalTermService, recommendableDepts, sysConfigService, healthProfileService,
-                new ObjectMapper(), executor);
+                memoryInjectionService, new ObjectMapper(), executor, eventPublisher);
     }
 
     @Test
@@ -251,7 +264,7 @@ class ChatServiceTest {
         // 患者确实填了档案
         when(healthProfileService.assembleForChat("u1"))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("糖尿病史", "糖尿病史", false), null));
+                        new HealthProfileAssembler.Assembly("糖尿病史", false), null));
 
         chatService.stream("u1", req("我不舒服", "s1234567890"));
 
@@ -265,12 +278,14 @@ class ChatServiceTest {
     @DisplayName("档案进模型上下文 + 结论载荷：待注入文本既进 RagRequest，也随结论回传推荐卡与证据快照")
     void profileTextFlowsIntoRagAndConclusion() {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
-                "male", "45-59", List.of("2型糖尿病"), null,
-                List.of(), null, List.of(), null);
+                "male", null, "45-59",
+                List.of("2型糖尿病"), null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null);
         when(healthProfileService.assembleForChat("u1"))
                 .thenReturn(new HealthProfileService.ChatProfile(
-                        new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史",
-                                "男、45-59岁、糖尿病史", false), structure));
+                        new HealthProfileAssembler.Assembly("男、45-59岁、糖尿病史", false), structure));
         when(guideService.saveConclusion(any(), any(), any(), any(), any())).thenReturn(conclusion());
         modelReturns(RAW_RECOMMEND);
 
@@ -280,13 +295,12 @@ class ChatServiceTest {
         verify(ragService).retrieve(ragCaptor.capture());
         assertEquals("男、45-59岁、糖尿病史", ragCaptor.getValue().profileText());
 
-        // 结论回传的是「档案快照输入」：待注入文本 + 检索用串 + 结构化档案三者一起进 saveConclusion，
-        // 由 GuideService 落进证据快照 profile 节点（单据 04）
+        // 结论回传的是「档案快照输入」：待注入文本 + 结构化档案一起进 saveConclusion，
+        // 由 GuideService 落进证据快照 profile 节点。档案已退出检索，快照不再有检索用串
         ArgumentCaptor<GuideService.ProfileSnapshot> snapshot =
                 ArgumentCaptor.forClass(GuideService.ProfileSnapshot.class);
         verify(guideService).saveConclusion(any(), any(), any(), any(), snapshot.capture());
         assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().profileText(), "推荐卡档案行来自后端读到的档案");
-        assertEquals("男、45-59岁、糖尿病史", snapshot.getValue().recallQuery(), "检索用串一并进快照");
         assertEquals(structure, snapshot.getValue().structure(), "结构化档案一并进快照");
     }
 
@@ -300,6 +314,41 @@ class ChatServiceTest {
         ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
         verify(ragService).retrieve(ragCaptor.capture());
         assertNull(ragCaptor.getValue().profileText());
+    }
+
+    @Test
+    @DisplayName("自动记忆开启：偏好与召回端口原样进 RagRequest（每次对话都读当前生效记忆）")
+    void memoryPreferencesAndPortReachRag() {
+        MemoryRecallPort port = (query, vector) -> List.of();
+        when(memoryInjectionService.forTurn("u1", "s1234567890"))
+                .thenReturn(new MemoryInjectionService.Injection(List.of("讲慢一点", "先说结论"), port));
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals(List.of("讲慢一点", "先说结论"), ragCaptor.getValue().preferences());
+        assertSame(port, ragCaptor.getValue().memoryRecallPort(), "端口原样交给 rag（由它用已算好的向量回调）");
+    }
+
+    @Test
+    @DisplayName("关闭自动记忆：偏好为空、端口为 null，档案仍进 RagRequest（关记忆不关档案）")
+    void disabledMemoryStillPassesProfile() {
+        when(memoryInjectionService.forTurn(anyString(), any()))
+                .thenReturn(new MemoryInjectionService.Injection(List.of(), null));
+        when(healthProfileService.assembleForChat("u1"))
+                .thenReturn(new HealthProfileService.ChatProfile(
+                        new HealthProfileAssembler.Assembly("男、45-59岁、2型糖尿病", false), null));
+        modelReturns(RAW_ASK);
+
+        chatService.stream("u1", req("胸口闷"));
+
+        ArgumentCaptor<RagRequest> ragCaptor = ArgumentCaptor.forClass(RagRequest.class);
+        verify(ragService).retrieve(ragCaptor.capture());
+        assertEquals("男、45-59岁、2型糖尿病", ragCaptor.getValue().profileText());
+        assertTrue(ragCaptor.getValue().preferences().isEmpty());
+        assertNull(ragCaptor.getValue().memoryRecallPort());
     }
 
     @Test
@@ -379,7 +428,7 @@ class ChatServiceTest {
     }
 
     @Test
-    @DisplayName("部位声明不参与检索：它只是范围信息，不额外开召回通道（档案才有那个权力）")
+    @DisplayName("部位声明不参与检索：它只是范围信息，不额外开召回通道")
     void partsDoNotEnterRetrieval() {
         modelReturns(RAW_ASK);
 
@@ -390,7 +439,7 @@ class ChatServiceTest {
         verify(ragService).retrieve(ragCaptor.capture());
         assertEquals(3, ragCaptor.getValue().topK());
         assertEquals(3, ragCaptor.getValue().topN());
-        assertNull(ragCaptor.getValue().profileQuery());
+        assertEquals("左腹部疼", ragCaptor.getValue().query(), "检索仍只用患者那句话");
     }
 
     @Test
@@ -505,6 +554,33 @@ class ChatServiceTest {
         assertFalse(questions().contains(TEMPLATE_REPEAT), "也不应是第二档模板话术");
     }
 
+    @Test
+    @DisplayName("每轮结束发布 TurnCompletedEvent：userId 与 sessionId 都带对（记忆抽取的唯一触发点）")
+    void publishesTurnCompletedEvent() {
+        modelReturns(RAW_INFO);
+
+        chatService.stream("u1", req("P1事故要记录什么"));
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        TurnCompletedEvent event = (TurnCompletedEvent) captor.getValue();
+        assertEquals("u1", event.userId());
+        assertEquals("s1234567890", event.sessionId());
+    }
+
+    @Test
+    @DisplayName("事件发布失败不影响本轮：SSE 与落库照常完成（旁路信号绝不能反噬主流程）")
+    void eventPublishFailureDoesNotBreakTurn() {
+        doThrow(new IllegalStateException("listener boom"))
+                .when(eventPublisher).publishEvent(any(Object.class));
+        modelReturns(RAW_INFO);
+
+        chatService.stream("u1", req("P1事故要记录什么"));
+
+        // 走到 INFO 分支的落库就是「本轮正常完成」的等价证明
+        assertEquals(MessageRole.INFO, lastMessage().getRole());
+    }
+
     /** 模型原始输出灌进本轮：streamAnswer 把它推给 onDelta 并原样返回 */
     @SuppressWarnings("unchecked")
     private void modelReturns(String raw) {
@@ -545,7 +621,7 @@ class ChatServiceTest {
     /** 结论兜底的返回值（saveConclusion 是 mock，这里只保证 payload 非空，避免 NPE 掩盖断言） */
     private GuideService.Conclusion conclusion() {
         return new GuideService.Conclusion(new GuideRecord(), new ChatDTO.ResultVO("s1234567890", "r1", "d1",
-                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null));
+                "心血管内科", 0.4, List.of(), "信息不足，按检索片段兜底", List.of(), true, null, List.of()));
     }
 
     /** 启用科室夹具（切片数不属于 Dept，由 RecommendableDepts 收敛时判定） */

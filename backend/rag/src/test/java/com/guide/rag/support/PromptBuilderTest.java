@@ -67,7 +67,8 @@ class PromptBuilderTest {
     }
 
     private String system(List<DeptOption> depts) {
-        RagRequest request = new RagRequest("胸闷", List.of(), depts, false, 10, 3, null, null, List.of());
+        RagRequest request = new RagRequest("胸闷", List.of(), depts, false, 10, 3, null, List.of(),
+                List.of(), null);
         RagContext context = new RagContext("胸闷", "胸闷", List.of(), 0, 0);
         List<ChatMsg> messages = builder.build(request, context);
         return messages.get(0).content();

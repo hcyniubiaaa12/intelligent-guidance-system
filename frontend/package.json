@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node scripts/check-body-map.mjs && node scripts/check-chat-body.mjs && node scripts/check-guest-draft.mjs"
+    "check": "node scripts/check-body-map.mjs && node scripts/check-chat-body.mjs && node scripts/check-guest-draft.mjs && node scripts/check-date-picker.mjs"
   },
   "dependencies": {
     "axios": "^1.20.0",

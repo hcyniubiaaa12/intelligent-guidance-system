@@ -6,17 +6,21 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.guide.auth.service.SysConfigService;
 import com.guide.auth.support.HealthProfileAssembler;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
 import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
 import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
+import com.guide.chat.support.ProfileAlertDetector;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.api.ErrorCode;
 import com.guide.common.exception.BizException;
 import com.guide.common.util.TextUtil;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
@@ -27,9 +31,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -65,9 +71,9 @@ public class GuideService {
      * 结论落库 + 组装 result 事件载荷。
      *
      * @param rawOutput 模型原始输出（证据快照用，审核回放）
-     * @param profile   本轮健康档案快照输入（待注入文本 + 检索用串 + 结构化档案，可为空）；
+     * @param profile   本轮健康档案快照输入（待注入文本 + 结构化档案，可为空）；
      *                  其中待注入文本随 result 事件单独下发，供推荐卡「已参考您的健康档案」行——
-     *                  它来自后端读档，**不是模型输出**（单据 02）；三者一并进证据快照 profile 节点（单据 04）
+     *                  它来自后端读档，**不是模型输出**；两者一并进证据快照 profile 节点
      */
     @Transactional(rollbackFor = Exception.class)
     public Conclusion saveConclusion(ChatSession session, RagAnswer answer, RagContext context,
@@ -109,6 +115,10 @@ public class GuideService {
         double threshold = sysConfigService.getDouble(SysConfigService.KEY_LOW_CONFIDENCE, 0.5);
         boolean lowConfidence = confidence == null || confidence < threshold;
 
+        // 顶部警报：规则（档案词面命中召回正文）优先，模型补充在后，合并去重、总量受上限约束。
+        // 只算一次，下发与证据快照共用同一份——两处不一致等于"患者看到的"和"事后回放的"不是一回事。
+        List<ChatDTO.AlertVO> alerts = mergeAlerts(answer, context, profile);
+
         GuideRecord record = new GuideRecord();
         record.setSessionId(session.getId());
         record.setRecDeptId(kept.get(0).dept().getId());
@@ -116,7 +126,7 @@ public class GuideService {
         record.setRecTop3(top3Json(kept));
         record.setLowConfidence(lowConfidence ? 1 : 0);
         record.setAggregated(0);
-        record.setEvidence(evidenceJson(context, answer, rawOutput, profile));
+        record.setEvidence(evidenceJson(context, answer, rawOutput, profile, alerts));
         guideRecordMapper.insert(record);
 
         // 出卡即归零追问预算，并标记"这条会话已经出过结论"（同一次 updateById，两个事实一起落）。
@@ -139,7 +149,108 @@ public class GuideService {
             log.info("低置信度分流：该记录进盲区榜，不参与准确率统计");
         }
         return new Conclusion(record, resultPayload(session.getId(), record, kept, answer, context,
-                lowConfidence, profile));
+                lowConfidence, profile, alerts));
+    }
+
+    /** 模型警报允许锚定的档案字段（与 {@code AnswerParser} 的白名单同源；此处再兜一层防御） */
+    private static final Set<String> MODEL_ALERT_FIELDS = Set.of("allergy", "medication", "surgery");
+
+    /**
+     * 合并三类提示（工单 10 / 11）：档案硬警报（规则 → 模型）与稳定背景相关提醒。
+     *
+     * <p><b>硬警报优先且不可被模型否定</b>：规则警报先全部入列，模型输出只能在其后补充，
+     * 既不能挤掉、也不能覆盖它们。合并顺序固定为「规则 → 记忆提醒 → 模型」，
+     * 总量上限 {@link ProfileAlertDetector#MAX_ALERTS}——规则占满名额时其余两类整体丢弃。
+     *
+     * <p><b>相关提醒只说「相关」</b>：稳定背景是长期背景、不是医学证据，
+     * 文案只写「与您提到的「X」相关」，绝不写「禁忌 / 不能」。
+     * 每条提醒必须带 {@code memoryId} 与 {@code memory:<id>} 锚点——
+     * 指不回具体记忆条目的提醒一律丢弃（患者点不到依据的提示不该出现）。
+     *
+     * <p><b>去重口径</b>：同一文案（trim 后逐字相同）只留一条。规则侧已按「档案值」去重，
+     * 这里再按文案去一次，是为了防止模型把规则那条换个来源重写一遍。
+     *
+     * <p><b>锚点校验</b>：模型警报的注号必须落在本轮实际召回条数内；越界且没有档案字段锚点的，
+     * 丢弃并记 WARN——患者不能收到一条点不到依据的风险提示。
+     */
+    private List<ChatDTO.AlertVO> mergeAlerts(RagAnswer answer, RagContext context,
+                                              ProfileSnapshot profile) {
+        List<ChatDTO.AlertVO> merged = new ArrayList<>();
+        Set<String> texts = new HashSet<>();
+
+        List<ProfileAlertDetector.Alert> ruleAlerts = ProfileAlertDetector.detect(
+                profile == null ? null : profile.structure(), context.chunks());
+        for (ProfileAlertDetector.Alert alert : ruleAlerts) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            if (texts.add(alert.text().trim())) {
+                merged.add(new ChatDTO.AlertVO(alert.level(), alert.text(), alert.anchor(), alert.source()));
+            }
+        }
+
+        // 稳定背景相关提醒：只报「相关」，且必须指回具体记忆条目。
+        // 排在硬警报之后：档案冲突是重事，名额先给它；占满时提醒整体丢弃。
+        List<MemoryHit> memoryHits = context.memoryHits() == null ? List.of() : context.memoryHits();
+        int advisoryCount = 0;
+        for (MemoryHit hit : memoryHits) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            if (hit == null || hit.type() == null || !hit.type().startsWith("background")) {
+                continue;
+            }
+            String memoryId = hit.id() == null ? "" : hit.id().strip();
+            String value = hit.value() == null ? "" : hit.value().strip();
+            if (memoryId.isEmpty() || value.isEmpty()) {
+                log.warn("背景提醒缺少记忆 id 或内容，已丢弃（提醒必须能指回具体条目）：id={}｜值={}",
+                        hit.id(), TextUtil.abbreviate(hit.value(), 40));
+                continue;
+            }
+            String text = "与您提到的「" + value + "」相关";
+            if (texts.add(text)) {
+                merged.add(new ChatDTO.AlertVO("advisory", text, "memory:" + memoryId, "memory", memoryId));
+                advisoryCount++;
+            }
+        }
+
+        int chunkCount = context.chunks() == null ? 0 : context.chunks().size();
+        List<RagAnswer.Alert> modelAlerts = answer.alerts() == null ? List.of() : answer.alerts();
+        for (RagAnswer.Alert alert : modelAlerts) {
+            if (merged.size() >= ProfileAlertDetector.MAX_ALERTS) {
+                break;
+            }
+            String anchor = modelAlertAnchor(alert, chunkCount);
+            if (anchor == null) {
+                log.warn("模型警报锚点不可用已丢弃（注号越界且无档案字段）：{}", TextUtil.abbreviate(alert.text(), 80));
+                continue;
+            }
+            if (texts.add(alert.text().trim())) {
+                merged.add(new ChatDTO.AlertVO("hard", alert.text(), anchor, "model"));
+            }
+        }
+
+        if (!merged.isEmpty()) {
+            log.info("结论警报：规则 {} 条、记忆提醒 {} 条、模型补充 {} 条，合并下发 {} 条（上限 {}）｜锚点 {}",
+                    ruleAlerts.size(), advisoryCount, modelAlerts.size(), merged.size(),
+                    ProfileAlertDetector.MAX_ALERTS,
+                    merged.stream().map(ChatDTO.AlertVO::anchor).toList());
+        }
+        return merged;
+    }
+
+    /**
+     * 模型警报的锚点：注号在本轮召回范围内优先用 {@code cite:N}，否则回落合法档案字段
+     * {@code field:X}；两者都没有返回 null（丢弃）。
+     */
+    private String modelAlertAnchor(RagAnswer.Alert alert, int chunkCount) {
+        if (alert.cite() != null && alert.cite() >= 1 && alert.cite() <= chunkCount) {
+            return "cite:" + alert.cite();
+        }
+        if (alert.field() != null && MODEL_ALERT_FIELDS.contains(alert.field())) {
+            return "field:" + alert.field();
+        }
+        return null;
     }
 
     /**
@@ -209,7 +320,7 @@ public class GuideService {
 
     /** 证据快照（只写）：系统当时看到了什么、怎么答的，供审核回放与根因归因 */
     private String evidenceJson(RagContext context, RagAnswer answer, String rawOutput,
-                                ProfileSnapshot profile) {
+                                ProfileSnapshot profile, List<ChatDTO.AlertVO> alerts) {
         ObjectNode evidence = objectMapper.createObjectNode();
         ArrayNode retrieved = evidence.putArray("retrieved");
         int rank = 1;
@@ -235,6 +346,32 @@ public class GuideService {
         } else {
             evidence.set("profile", profileNode(profile));
         }
+        // 记忆节点同 profile 一样是**只写不读**的当时快照：回放/审核读它，绝不回查当前记忆。
+        // 判「有没有发生过」看**实际注入文本**而不是只看 hits：偏好是全量注入、不产生命中，
+        // 只看 hits 会让"只有偏好"的轮次把模型看到的记忆段丢掉（快照与 prompt 对不上）。
+        // 两者都空（含开关关闭、无召回端口）才写 null——「没有发生过」与「发生了但为空」是两件事。
+        if (context.memoryHits().isEmpty() && isBlank(context.memoryText())) {
+            evidence.putNull("memory");
+        } else {
+            evidence.set("memory", memoryNode(context));
+        }
+        // 警报节点与下发内容逐条一致（含锚点与来源）：事后回放要能还原患者当时看到了什么。
+        // 无警报也写空数组——「空」和「没有这个节点」在回放侧是两件事。
+        ArrayNode alertArray = evidence.putArray("alerts");
+        for (ChatDTO.AlertVO alert : alerts) {
+            ObjectNode node = alertArray.addObject();
+            node.put("level", alert.level());
+            node.put("text", alert.text());
+            node.put("anchor", alert.anchor());
+            node.put("source", alert.source());
+            // 记忆出处在快照里必须留着：回放要能显示"当时是照哪条背景提的醒"，
+            // 而且回放**不回查当前记忆**——id 只在快照里，不在读取时补。
+            if (alert.memoryId() == null) {
+                node.putNull("memoryId");
+            } else {
+                node.put("memoryId", alert.memoryId());
+            }
+        }
         evidence.put("prompt_snippet", TextUtil.abbreviate(snippet.toString(), PROMPT_SNIPPET_MAX));
         evidence.put("model_output_raw", TextUtil.abbreviate(rawOutput, PROMPT_SNIPPET_MAX));
         return evidence.toString();
@@ -245,16 +382,15 @@ public class GuideService {
      * {@code retrieved_query} / {@code prompt_snippet} 同构，落在同一份证据快照 JSON 里，
      * **不新增存储、不新增表、不新增列**。
      *
-     * <p>三样都要，缺一不可：
+     * <p>两样都要，缺一不可：
      * <ul>
      *   <li>{@code text} —— 档案提示文本（模型实际看到的背景）；</li>
-     *   <li>{@code query} —— 档案召回串（检索实际用到的那段）；</li>
      *   <li>{@code content} —— 患者当时填的**结构化档案**（编码 + 标签 + 自由文本）：
      *       只存加工后的文本，审核时就看不出患者当初勾了什么、写了什么。</li>
      * </ul>
      *
-     * <p>节点里的 {@code text}/{@code query} 键是**证据快照的持久化字段名**（词表「档案快照」即以此命名），
-     * 而 Java 记录组件用 {@code profileText}/{@code recallQuery} 消歧（{@code query} 易与主诉串混淆）。
+     * <p><b>不再写 {@code query}</b>：档案已退出检索层，新快照里没有检索用串可记。
+     * 老快照的该键仍原样留在库里、读取侧只取 {@code text}，因此安全可读、不需迁移。
      *
      * <p><b>只写不读</b>：回放与审核读的就是这一份，**绝不**在读取时回查当前档案补全——
      * 档案可变而导诊记录不可改，实时回读等于把历史改掉（患者今天删掉"糖尿病"，
@@ -263,7 +399,6 @@ public class GuideService {
     private ObjectNode profileNode(ProfileSnapshot profile) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("text", profile.profileText());
-        node.put("query", profile.recallQuery());
         HealthProfileAssembler.Profile structure = profile.structure();
         if (structure == null) {
             node.putNull("content");
@@ -271,13 +406,46 @@ public class GuideService {
         }
         ObjectNode content = node.putObject("content");
         content.put("gender", structure.genderCode());
+        content.put("birthYear", structure.birthYear());
+        // 旧字段保留：既让老快照的读取口径一致，也留下迁移前的审计依据（不再进提示词）
         content.put("ageRange", structure.ageRangeCode());
         putTags(content, "historyTags", structure.historyTags());
         content.put("historyOther", structure.historyOther());
-        putTags(content, "medicationTags", structure.medicationTags());
+        putMedicationEntries(content, "medicationTags", structure.medicationEntries());
         content.put("medicationOther", structure.medicationOther());
         putTags(content, "allergyTags", structure.allergyTags());
         content.put("allergyOther", structure.allergyOther());
+        putSurgeryEntries(content, "surgeryTags", structure.surgeryEntries());
+        content.put("surgeryOther", structure.surgeryOther());
+        return node;
+    }
+
+    /**
+     * 记忆快照节点（工单 11）：还原"本轮实际注入了哪一段、命中了哪几条"。
+     *
+     * <p>{@code text} 是 {@code PromptBuilder.memoryBlock} 的**原样产出**（模型真正看到的那一段），
+     * 不是回放时重新拼的——拼一遍就等于用今天的配置改写历史。
+     * {@code query} / {@code threshold} 是取证字段：事后要能复现"当时按什么串、多少分算命中"。
+     *
+     * @param context 检索上下文（memoryHits 非空时才会调用本方法）
+     */
+    private ObjectNode memoryNode(RagContext context) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("text", context.memoryText());
+        ArrayNode hits = node.putArray("hits");
+        for (MemoryHit hit : context.memoryHits()) {
+            if (hit == null) {
+                continue;
+            }
+            ObjectNode item = hits.addObject();
+            item.put("id", hit.id());
+            item.put("type", hit.type());
+            item.put("key", hit.key());
+            item.put("value", hit.value());
+            item.put("score", hit.score());
+        }
+        node.put("query", context.memoryQuery());
+        node.put("threshold", context.memoryThreshold());
         return node;
     }
 
@@ -289,13 +457,53 @@ public class GuideService {
         }
     }
 
+    /**
+     * 用药条目写对象数组（工单 03）：{@code value + startedOn + endedOn}，空时间写 null。
+     * 键名沿用列名 {@code medicationTags}——老快照里是字符串数组，读取侧必须两种都认，
+     * 所以键名不能跟着 DTO 一起改（改了就分不清"这列是什么"）。
+     */
+    private void putMedicationEntries(ObjectNode parent, String field, List<MedicationEntry> entries) {
+        ArrayNode array = parent.putArray(field);
+        if (entries == null) {
+            return;
+        }
+        for (MedicationEntry entry : entries) {
+            ObjectNode node = array.addObject();
+            node.put("value", entry.value());
+            putNullable(node, "startedOn", entry.startedOn());
+            putNullable(node, "endedOn", entry.endedOn());
+        }
+    }
+
+    /** 手术条目写对象数组：{@code value + occurredOn}，空时间写 null。 */
+    private void putSurgeryEntries(ObjectNode parent, String field, List<SurgeryEntry> entries) {
+        ArrayNode array = parent.putArray(field);
+        if (entries == null) {
+            return;
+        }
+        for (SurgeryEntry entry : entries) {
+            ObjectNode node = array.addObject();
+            node.put("value", entry.value());
+            putNullable(node, "occurredOn", entry.occurredOn());
+        }
+    }
+
+    /** 时间字段空即 null：证据快照要能区分"没填时间"与"填了个空串" */
+    private void putNullable(ObjectNode parent, String field, String value) {
+        if (value == null) {
+            parent.putNull(field);
+        } else {
+            parent.put(field, value);
+        }
+    }
+
     private boolean isBlank(String text) {
         return text == null || text.isBlank();
     }
 
     private ChatDTO.ResultVO resultPayload(String sessionId, GuideRecord record, List<Candidate> kept,
                                            RagAnswer answer, RagContext context, boolean lowConfidence,
-                                           ProfileSnapshot profile) {
+                                           ProfileSnapshot profile, List<ChatDTO.AlertVO> alerts) {
         List<ChatDTO.Top3Item> top3 = kept.stream()
                 .map(candidate -> new ChatDTO.Top3Item(candidate.dept().getId(),
                         candidate.dept().getName(), percent(candidate.confidence())))
@@ -310,7 +518,8 @@ public class GuideService {
         }
         return new ChatDTO.ResultVO(sessionId, record.getId(), record.getRecDeptId(),
                 kept.get(0).dept().getName(), record.getConfidence(), top3, answer.note(),
-                cites, lowConfidence, blankToNull(profile == null ? null : profile.profileText()));
+                cites, lowConfidence, blankToNull(profile == null ? null : profile.profileText()),
+                alerts == null ? List.of() : alerts);
     }
 
     /** 空白档案文本归一为 null：前端据此判断"无档案行"，不渲染一个空标签 */
@@ -385,13 +594,12 @@ public class GuideService {
     }
 
     /**
-     * 本轮档案快照输入（证据快照 profile 节点用，单据 04）。
+     * 本轮档案快照输入（证据快照 profile 节点用）。
      *
      * @param profileText 档案提示文本（= 推荐卡「已参考健康档案」行）；空 = 本轮无档案
-     * @param recallQuery 档案召回串（03 起进检索扩容）；空 = 无
      * @param structure   患者当时填的结构化档案（编码 + 标签 + 自由文本）；未建档为 null
      */
-    public record ProfileSnapshot(String profileText, String recallQuery,
+    public record ProfileSnapshot(String profileText,
                                   HealthProfileAssembler.Profile structure) {
     }
 

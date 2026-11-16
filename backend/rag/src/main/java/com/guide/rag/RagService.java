@@ -3,6 +3,8 @@ package com.guide.rag;
 import com.guide.common.config.PromptProperties;
 import com.guide.common.exception.BizException;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
+import com.guide.common.port.MemoryRecallPort;
 import com.guide.common.util.EsChunkUtil;
 import com.guide.common.util.PgVectorUtil;
 import com.guide.llm.client.ChatModel;
@@ -27,13 +29,14 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * RAG 检索层（技术核心）：查询改写 → 双路召回 → RRF 融合 → 精排 → Prompt 拼装。
- * 不感知业务状态（会话、用户）——科室范围、轮次约束与健康档案两段文本均由入参给定。
+ * RAG 检索层（技术核心）：查询改写 → 两路召回（主诉向量 + 主诉关键词）→ RRF 融合 → 精排 → Prompt 拼装。
+ * 不感知业务状态（会话、用户）——科室范围、轮次约束与健康档案文本均由入参给定。
  * 降级策略：ES 不可用退化为向量单路；精排失败退化为 RRF 顺序；改写失败退回原查询。
  * 唯一不可降级的是 embedding——没有查询向量就没有召回，直接抛出由上层转 SSE error。
  *
- * <p>档案召回（单据 03）：{@code profileQuery} 非空时额外开两路召回（向量 + 关键词）一起进 RRF，
- * 只扩容候选池、不参与精排排序；为空则与今天的两路召回完全一致。
+ * <p>健康档案已退出检索层：它只经 {@code profileText} 进生成提示词，
+ * 不产生召回通道，也没有排序话语权。检索固定两路，档案若被重新塞回来会先让
+ * {@code RagServiceTest} 的调用次数断言变红。
  */
 @Slf4j
 @Service
@@ -85,6 +88,13 @@ public class RagService {
         float[] queryVector = embeddingModel.embed(query);
         long embedMs = System.currentTimeMillis() - embedStart;
 
+        // 记忆召回复用**已算好的 query 向量**（端口签名就是为此设计的）：不额外 embedding，
+        // 也仍然不知道 userId。记忆是旁路——端口异常只 WARN，检索照常往下走。
+        List<MemoryHit> memoryHits = recallMemory(request.memoryRecallPort(), query, queryVector);
+        // 实际注入的记忆段文本在这里定稿：prompt 与证据快照都写这一份，不各自再拼一遍。
+        // 即使没有命中也要算（偏好段可能仍会注入）；快照只在有背景命中时才落 memory 节点。
+        String memoryText = promptBuilder.memoryBlock(request, memoryHits);
+
         long recallStart = System.currentTimeMillis();
         List<ChunkHit> vectorHits = pgVectorUtil.searchChunks(queryVector, request.topK());
         List<ChunkHit> esHits = esChunkUtil.searchChunks(query, request.topK());
@@ -94,24 +104,24 @@ public class RagService {
         log.debug("向量路明细：{}", hitSummary(vectorHits));
         log.debug("关键词路明细：{}", hitSummary(esHits));
 
-        // 排名列表：主诉双路 + 档案双路（检索用串非空时才追加）；RrfFuser 本就吃「一个排名列表的列表」
-        List<List<ChunkHit>> rankedLists = new ArrayList<>(4);
+        // 排名列表固定两路：主诉向量 + 主诉关键词；RrfFuser 吃「一个排名列表的列表」
+        List<List<ChunkHit>> rankedLists = new ArrayList<>(2);
         rankedLists.add(vectorHits);
         rankedLists.add(esHits);
-        appendProfileRecall(request, rankedLists);
 
         List<ChunkHit> fused = fillTexts(RrfFuser.fuse(rankedLists, RrfFuser.DEFAULT_K));
         if (fused.isEmpty()) {
             log.info("检索结束：无命中（检查知识库是否有切片 / 索引是否建好）｜总耗时 {} ms",
                     System.currentTimeMillis() - start);
-            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size());
+            return new RagContext(request.query(), query, List.of(), vectorHits.size(), esHits.size(),
+                    memoryHits, memoryText, query, request.memoryThreshold());
         }
         log.info("RRF 融合：{} 个排名列表 → 候选 {} 条（主诉双路同时命中 {} 条）｜Top3 {}",
                 rankedLists.size(), fused.size(), bothPathCount(vectorHits, esHits), rrfSummary(fused, 3));
 
         long rerankStart = System.currentTimeMillis();
-        // 精排 query 仍是主诉改写串——这是「档案不能决定推荐科室」在检索层的结构性保证：
-        // 档案捞回的切片必须靠**主诉相关性**才能挤进前 N，一篇「与主诉无关、只是沾了档案」的切片进不来
+        // 精排 query 只来自主诉改写串——这是「推荐科室只由主诉决定」在检索层的结构性保证。
+        // 档案等其它上下文没有召回通道，自然也无法把「与主诉无关」的切片送进前 N。
         List<ChunkHit> chunks = rerank(query, fused, request.topN());
         long rerankMs = System.currentTimeMillis() - rerankStart;
 
@@ -122,7 +132,29 @@ public class RagService {
             log.info("  精排 #{} score={} chunkId={} 《{}》", i + 1, format(hit.score()), hit.chunkId(), hit.title());
             log.debug("  精排 #{} 正文：{}", i + 1, abbreviate(hit.content(), 200));
         }
-        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size());
+        return new RagContext(request.query(), query, chunks, vectorHits.size(), esHits.size(),
+                memoryHits, memoryText, query, request.memoryThreshold());
+    }
+
+    /**
+     * 稳定背景召回（可选）。端口由 chat 按「用户 + 会话」构造，rag 只把 query 与**已算好的向量**交给它。
+     * 返回 null / 空 / 抛异常一律按「无命中」处理——记忆是增强，不是检索的前置条件。
+     */
+    private List<MemoryHit> recallMemory(MemoryRecallPort port, String query, float[] queryVector) {
+        if (port == null) {
+            return List.of();
+        }
+        try {
+            List<MemoryHit> hits = port.recall(query, queryVector);
+            if (hits == null || hits.isEmpty()) {
+                return List.of();
+            }
+            log.info("记忆召回：{} 条命中｜最高分 {}", hits.size(), format(hits.get(0).score()));
+            return hits;
+        } catch (RuntimeException e) {
+            log.warn("记忆召回失败，本轮按无命中处理（不影响检索主流程）：{}", e.getMessage());
+            return List.of();
+        }
     }
 
     /** 召回最高分：向量路是余弦相似度，关键词路是 BM25 分（量纲不同，只作观测） */
@@ -149,39 +181,6 @@ public class RagService {
     private long bothPathCount(List<ChunkHit> vectorHits, List<ChunkHit> esHits) {
         Set<String> esIds = esHits.stream().map(ChunkHit::chunkId).collect(Collectors.toSet());
         return vectorHits.stream().filter(hit -> esIds.contains(hit.chunkId())).count();
-    }
-
-    /**
-     * 档案召回（单据 03）：检索用串非空 ⇒ 多一次 embedding + 两路召回，为本轮 RRF 追加两个排名列表。
-     *
-     * <p><b>只扩容、不偏置</b>：本方法只往候选池里加片，不改精排 query（仍是主诉改写串）。
-     * 档案捞回的切片必须靠主诉相关性才能进前 N——「不决定性」因此没有变成一堆 if，
-     * 而是变成两个「没做」：没给排序权、没给注号位。
-     *
-     * <p><b>为空即零成本回归</b>：检索用串为空时一个列表都不加、一次 embedding 都不多调，
-     * 恰好与今天的两路召回完全一致。日志只记条数，不落档案原文（档案是患者健康信息，不经日志外泄）。
-     */
-    private void appendProfileRecall(RagRequest request, List<List<ChunkHit>> rankedLists) {
-        String profileQuery = request.profileQuery();
-        if (!StringUtils.hasText(profileQuery)) {
-            return;
-        }
-        long embedStart = System.currentTimeMillis();
-        float[] profileVector = embeddingModel.embed(profileQuery);
-        long embedMs = System.currentTimeMillis() - embedStart;
-
-        long recallStart = System.currentTimeMillis();
-        List<ChunkHit> profileVectorHits = pgVectorUtil.searchChunks(profileVector, request.topK());
-        List<ChunkHit> profileEsHits = esChunkUtil.searchChunks(profileQuery, request.topK());
-        long recallMs = System.currentTimeMillis() - recallStart;
-        log.info("档案召回：向量 {} 条{}｜关键词 {} 条{}｜embedding {} ms 召回 {} ms",
-                profileVectorHits.size(), topScore(profileVectorHits),
-                profileEsHits.size(), topScore(profileEsHits), embedMs, recallMs);
-        log.debug("档案向量路明细：{}", hitSummary(profileVectorHits));
-        log.debug("档案关键词路明细：{}", hitSummary(profileEsHits));
-
-        rankedLists.add(profileVectorHits);
-        rankedLists.add(profileEsHits);
     }
 
     private String format(double score) {

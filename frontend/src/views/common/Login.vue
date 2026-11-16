@@ -43,6 +43,27 @@
         />
       </div>
 
+      <div v-if="mode === 'register'" class="p-login__field">
+        <label id="p-login-l-gender" class="p-eyebrow">性别（选填）</label>
+        <PatientSelect
+          id="p-login-gender"
+          label-id="p-login-l-gender"
+          v-model="form.gender"
+          :options="genderOptions"
+          placeholder="选填，可不选"
+        />
+      </div>
+
+      <div v-if="mode === 'register'" class="p-login__field">
+        <label id="p-login-l-birth" class="p-eyebrow">出生日期（选填）</label>
+        <PatientDatePicker
+          id="p-login-birth"
+          label-id="p-login-l-birth"
+          v-model="form.birthDate"
+          placeholder="选择出生日期（选填）"
+        />
+      </div>
+
       <p v-if="error" class="p-login__err">{{ error }}</p>
 
       <button class="p-btn p-login__submit" :disabled="loading" @click="submit">
@@ -63,6 +84,9 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { login, register } from '../../api/auth'
+import { toBirthYear } from '../../utils/datePicker'
+import PatientDatePicker from '../../components/patient/PatientDatePicker.vue'
+import PatientSelect from '../../components/patient/PatientSelect.vue'
 import '../../styles/patient.css'
 
 const router = useRouter()
@@ -71,7 +95,14 @@ const user = useUserStore()
 
 const mode = ref('login') // login / register（注册默认患者角色，链路 D）
 const loading = ref(false)
-const form = ref({ username: '', password: '', nickname: '' })
+const form = ref({ username: '', password: '', nickname: '', gender: '', birthDate: '' })
+
+// 注册页未登录，取不到 `/api/profile` 的 options；性别只有两个固定值，就地列出。
+// 档案浮层（已登录）仍从后端读回体拿，不在前端重复定义。
+const genderOptions = [
+  { value: 'male', label: '男' },
+  { value: 'female', label: '女' }
+]
 
 /**
  * 登录后的落点：**由角色决定，redirect 只在它指向该角色有意义的页面时才算数**。
@@ -111,6 +142,15 @@ async function submit() {
     error.value = '密码长度需在 6-64 位之间'
     return
   }
+  // 日历选的是完整日期；服务端只保存年份（`birth_year`），这里换算后再提交
+  let birthYear = null
+  if (mode.value === 'register' && form.value.birthDate) {
+    birthYear = toBirthYear(form.value.birthDate)
+    if (birthYear == null) {
+      error.value = '请选择 1900 年到今天的出生日期'
+      return
+    }
+  }
   loading.value = true
   error.value = ''
   try {
@@ -120,7 +160,10 @@ async function submit() {
       : await register({
           username: form.value.username,
           password: form.value.password,
-          nickname: form.value.nickname || undefined
+          nickname: form.value.nickname || undefined,
+          // 选填：填了就随注册在同一事务里写进健康档案
+          gender: form.value.gender || undefined,
+          birthYear: birthYear ?? undefined
         })
     user.setLogin(vo)
     router.push(landingPath(vo.role))

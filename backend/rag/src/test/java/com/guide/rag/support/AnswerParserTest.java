@@ -269,6 +269,77 @@ class AnswerParserTest {
         assertThat(answer.confidenceValid()).isTrue();
     }
 
+    // —— 模型补充警报（工单 10）——
+    // 锚点是硬门槛：没有注号、也没有白名单档案字段的警报一律丢弃，
+    // 否则模型可以凭空给患者加一条无处可查的"警告"
+
+    @Test
+    @DisplayName("模型警报带 cite 注号：保留")
+    void keepsModelAlertWithCite() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"verdict\":\"RECOMMEND\",\"dept\":\"心血管内科\",\"confidence\":0.82,"
+                + "\"alerts\":[{\"text\":\"片段提到的阿莫西林与您的青霉素过敏可能交叉过敏\",\"cite\":1}]}");
+
+        assertThat(answer.alerts()).hasSize(1);
+        assertThat(answer.alerts().get(0).text()).contains("青霉素");
+        assertThat(answer.alerts().get(0).cite()).isEqualTo(1);
+        assertThat(answer.alerts().get(0).field()).isNull();
+    }
+
+    @Test
+    @DisplayName("模型警报带白名单档案字段：保留（field 锚点）")
+    void keepsModelAlertWithProfileField() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"verdict\":\"RECOMMEND\",\"dept\":\"骨科\",\"confidence\":0.7,"
+                + "\"alerts\":[{\"text\":\"与您的近期手术相关\",\"field\":\"surgery\"}]}");
+
+        assertThat(answer.alerts()).hasSize(1);
+        assertThat(answer.alerts().get(0).field()).isEqualTo("surgery");
+        assertThat(answer.alerts().get(0).cite()).isNull();
+    }
+
+    @Test
+    @DisplayName("模型警报无锚点：丢弃；field 不在白名单也丢弃")
+    void dropsModelAlertWithoutUsableAnchor() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"verdict\":\"RECOMMEND\",\"dept\":\"骨科\",\"confidence\":0.7,"
+                + "\"alerts\":[{\"text\":\"请注意一下\"},{\"text\":\"与既往病史相关\",\"field\":\"history\"}]}");
+
+        assertThat(answer.alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("模型警报文案为空：丢弃（锚点合法也不保留一条空警报）")
+    void dropsBlankModelAlertText() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"verdict\":\"RECOMMEND\",\"dept\":\"骨科\",\"confidence\":0.7,"
+                + "\"alerts\":[{\"text\":\"   \",\"cite\":1}]}");
+
+        assertThat(answer.alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("老输出没有 alerts 字段：不报错，警报为空")
+    void legacyOutputWithoutAlertsIsFine() {
+        RagAnswer answer = parser.parse(AnswerParser.MARKER
+                + "\n{\"dept\":\"骨科\",\"confidence\":0.6}");
+
+        assertThat(answer.verdict()).isEqualTo(RagAnswer.Verdict.RECOMMEND);
+        assertThat(answer.alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("非结论轮（ASK / INFO）不携带结构化警报：即使模型写了 alerts 也丢弃")
+    void nonConclusionRoundsNeverCarryAlerts() {
+        RagAnswer ask = parser.parse("持续多久了？\n" + AnswerParser.MARKER
+                + "\n{\"verdict\":\"ASK\",\"alerts\":[{\"text\":\"与过敏史相关\",\"field\":\"allergy\"}]}");
+        RagAnswer info = parser.parse("根据片段……\n" + AnswerParser.MARKER
+                + "\n{\"verdict\":\"INFO\",\"alerts\":[{\"text\":\"与过敏史相关\",\"field\":\"allergy\"}]}");
+
+        assertThat(ask.alerts()).isEmpty();
+        assertThat(info.alerts()).isEmpty();
+    }
+
     @Test
     @DisplayName("归一化⑦：归一化后顺序合法，原非递减的输出不再被误判为不可信")
     void normalizationRepairsNonMonotonicOrder() {

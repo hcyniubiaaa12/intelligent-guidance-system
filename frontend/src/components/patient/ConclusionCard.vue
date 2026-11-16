@@ -1,5 +1,17 @@
 <template>
   <section class="p-card">
+    <!-- 档案硬警报：先说冲突，再给结论。无 alerts 不渲染空条（工单 10） -->
+    <div v-if="card.alerts && card.alerts.length" class="p-card__alerts">
+      <p
+        v-for="(a, i) in card.alerts.slice(0, 3)"
+        :key="i"
+        class="p-card__alert"
+        :class="`p-card__alert--${a.level || 'hard'}`"
+      >
+        {{ a.text }}
+      </p>
+    </div>
+
     <div class="p-card__head">
       <div>
         <div class="p-eyebrow">给您的分诊结论</div>

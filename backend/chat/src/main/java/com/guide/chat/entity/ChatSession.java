@@ -38,6 +38,15 @@ public class ChatSession extends BaseEntity {
     private Integer archived;
 
     /**
+     * 本会话已被记忆抽取消费的次数（每会话最多 {@code memory.extract.session.max} 次，默认 3）。
+     *
+     * <p>只做配额计数、不表达「抽到了什么」：配额由 {@code ChatSessionActivityAdapter} 用一条
+     * 条件 UPDATE 原子递增（{@code WHERE memory_extract_count < max}），先查再更会并发超限。
+     * 新会话由库默认值 0 起步。
+     */
+    private Integer memoryExtractCount;
+
+    /**
      * 是否可续聊：**只看 status==ONGOING**（挂号置 CLOSED 是唯一的结束信号）。
      *
      * <p>出结论（has_result=1）不再是边界——患者可以紧接着补一句「那我该注意什么」，

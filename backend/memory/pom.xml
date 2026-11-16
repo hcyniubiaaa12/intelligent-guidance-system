@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.guide</groupId>
+        <artifactId>guide-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>memory</artifactId>
+    <name>memory</name>
+    <description>长期记忆：存储、抽取、召回端口的实现与控制面（用户级偏好与稳定背景）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+        <!-- 开关读取（user.memory_enabled）与运行时参数（sys_config）都经 auth；memory 不直连 UserMapper -->
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>auth</artifactId>
+        </dependency>
+        <!-- 模型适配层：抽取与合并在这里消费，不在业务模块直连外部 API -->
+        <dependency>
+            <groupId>com.guide</groupId>
+            <artifactId>llm</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

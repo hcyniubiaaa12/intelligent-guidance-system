@@ -2,7 +2,7 @@ package com.guide.common.api;
 
 /**
  * 错误码枚举：code 统一按模块分段。
- * common 1xxx / auth 2xxx / chat 3xxx / rag 4xxx / kb 5xxx / feedback 6xxx / llm 7xxx。
+ * common 1xxx / auth 2xxx / chat 3xxx / rag 4xxx / kb 5xxx / feedback 6xxx / llm 7xxx / memory 8xxx。
  */
 public enum ErrorCode {
 
@@ -53,7 +53,12 @@ public enum ErrorCode {
 
     // llm 7xxx（LLM 适配层：DeepSeek 对话 / 阿里 embedding / 阿里 rerank）
     LLM_NOT_CONFIGURED(7000, "模型服务未配置，请在 application-local.yml 填写 API Key"),
-    LLM_CALL_FAILED(7001, "模型调用失败，请稍后重试");
+    LLM_CALL_FAILED(7001, "模型调用失败，请稍后重试"),
+
+    // memory 8xxx（长期记忆）
+    // 归属校验失败一律按「不存在」返回：不泄露他人数据是否存在
+    MEMORY_NOT_FOUND(8000, "记忆不存在"),
+    MEMORY_CANDIDATE_NOT_FOUND(8001, "待确认项不存在");
 
     private final int code;
     private final String message;

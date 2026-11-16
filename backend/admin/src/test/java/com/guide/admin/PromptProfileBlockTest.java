@@ -57,7 +57,7 @@ class PromptProfileBlockTest {
     private RagRequest request(String profileText, List<String> parts) {
         return new RagRequest("胸闷", List.of(),
                 List.of(new DeptOption("d1", "心血管内科", "诊治心脏与血管疾病。")),
-                false, 10, 3, profileText, null, parts);
+                false, 10, 3, profileText, parts, List.of(), null);
     }
 
     private String system(RagRequest request) {

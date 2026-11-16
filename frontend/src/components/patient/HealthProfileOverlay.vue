@@ -5,7 +5,7 @@
         <header class="p-overlay__head">
           <div>
             <div class="p-overlay__title">健康档案</div>
-            <p class="p-overlay__sub">选填 · 帮分诊结合您的既往情况，随时可改</p>
+            <p class="p-overlay__sub">您填写的 + 我记住的</p>
           </div>
           <button class="p-overlay__close" aria-label="关闭健康档案" @click="close">关闭</button>
         </header>
@@ -13,7 +13,9 @@
         <div v-if="loading" class="p-prof__loading">正在加载…</div>
 
         <div v-else class="p-overlay__body">
-          <!-- 性别 / 年龄段：选项由读回体的 options 下发，**前端不写死** -->
+          <!-- 性别 / 出生年：性别选项由读回体的 options 下发，**前端不写死**；
+               性别是选填，但不提供「不填」选项——没选过就是空，选了以后不靠这里清空。
+               出生日期用日历（服务端只存年份），不再编辑旧年龄段 -->
           <div class="p-prof__row">
             <label id="p-prof-l-gender" class="p-prof__label">性别</label>
             <PatientSelect
@@ -21,49 +23,194 @@
               label-id="p-prof-l-gender"
               v-model="form.gender"
               :options="options.genders"
-              none-label="不填"
-              placeholder="暂无可选项"
+              placeholder="请选择"
             />
           </div>
           <div class="p-prof__row">
-            <label id="p-prof-l-age" class="p-prof__label">年龄段</label>
-            <PatientSelect
-              id="p-prof-age"
-              label-id="p-prof-l-age"
-              v-model="form.ageRange"
-              :options="options.ageRanges"
-              none-label="不填"
-              placeholder="暂无可选项"
+            <label id="p-prof-l-birth" class="p-prof__label">出生日期</label>
+            <PatientDatePicker
+              id="p-prof-birth"
+              label-id="p-prof-l-birth"
+              v-model="form.birthDate"
+              :year-only="!form.birthDateExact"
+              placeholder="选择出生日期（选填）"
+              @update:model-value="onBirthDate"
             />
           </div>
+          <!-- 只读兜底：出生年缺失时展示旧档案年龄段，并说清补出生年后就改用它 -->
+          <p v-if="showLegacyAgeRange" class="p-prof__legacy">
+            旧档案年龄段：{{ legacyAgeRangeLabel }}
+            <span>补上出生年后自动改用出生年</span>
+          </p>
 
-          <section v-for="grp in groups" :key="grp.key" class="p-prof__group">
+          <!-- 过敏：仍是多选标签 + 其他（没有时间语义） -->
+          <section class="p-prof__group">
             <div class="p-prof__ghead">
-              <span class="p-prof__glabel">{{ grp.label }}</span>
-              <span class="p-prof__quota">已选 {{ form[grp.tags].length }} / 最多 {{ limits.tagMax }} 项</span>
+              <span class="p-prof__glabel">过敏史</span>
+              <span class="p-prof__quota">已选 {{ form.allergyTags.length }} / 最多 {{ limits.tagMax }} 项</span>
             </div>
             <div class="p-prof__chips">
               <button
-                v-for="t in grp.options"
+                v-for="t in allergyOptions"
                 :key="t.id"
                 type="button"
                 class="p-prof__chip"
-                :class="{ 'is-on': form[grp.tags].includes(t.term) }"
-                @click="toggleTag(grp.tags, t.term)"
+                :class="{ 'is-on': form.allergyTags.includes(t.term) }"
+                @click="toggleAllergy(t.term)"
               >{{ t.term }}</button>
-              <p v-if="!grp.options.length" class="p-prof__none">词表暂无可选项，可在下方自由填写</p>
+              <p v-if="!allergyOptions.length" class="p-prof__none">词表暂无可选项，可在下方自由填写</p>
             </div>
             <div class="p-prof__other">
               <input
-                v-model="form[grp.other]"
+                v-model="form.allergyOther"
                 class="p-prof__input"
                 type="text"
-                :placeholder="grp.placeholder"
-                :maxlength="textFieldMax(grp.other)"
+                placeholder="具体药名或过敏物，在这里补充"
+                :maxlength="textFieldMax('allergyOther')"
               />
-              <span class="p-prof__left">{{ textFieldRemaining(grp.other) }} 字</span>
+              <span class="p-prof__left">{{ textFieldRemaining('allergyOther') }} 字</span>
             </div>
           </section>
+
+          <!-- 用药 / 手术：条目行 = 值 + 年月（YYYY-MM），可增删；点标签把该词加为一条。
+               时间用年月选择器（§3.10 month 粒度），手打四位数字与连字符最容易错；
+               用药「仍在用」= 结束时间选「至今」（后端本来就按 endedOn 为空算至今）。 -->
+          <section class="p-prof__group">
+            <div class="p-prof__ghead">
+              <span class="p-prof__glabel">近期用药</span>
+              <span class="p-prof__quota">已填 {{ filledCount('medicationEntries') }} / 最多 {{ limits.tagMax }} 项</span>
+            </div>
+            <div class="p-prof__chips">
+              <button
+                v-for="t in medicationOptions"
+                :key="t.id"
+                type="button"
+                class="p-prof__chip"
+                :class="{ 'is-on': hasEntry('medicationEntries', t.term) }"
+                @click="toggleEntry('medicationEntries', t.term, medicationEntry)"
+              >{{ t.term }}</button>
+              <p v-if="!medicationOptions.length" class="p-prof__none">词表暂无可选项，可在下面直接添加</p>
+            </div>
+            <div v-if="form.medicationEntries.length" class="p-prof__entries">
+              <div v-for="(entry, i) in form.medicationEntries" :key="i" class="p-prof__entry">
+                <input
+                  v-model="entry.value"
+                  class="p-prof__input p-prof__entry-name"
+                  type="text"
+                  placeholder="药名"
+                />
+                <button type="button" class="p-prof__del" @click="form.medicationEntries.splice(i, 1)">删除</button>
+                <div class="p-prof__times">
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">开始</span>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.startedOn"
+                      :max="entry.endedOn || currentMonth"
+                      placeholder="选月份"
+                      hint="只填到月份"
+                      @update:model-value="(v) => (entry.startedOn = v)"
+                    />
+                  </div>
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">结束</span>
+                    <button
+                      type="button"
+                      class="p-prof__ongoing"
+                      :class="{ 'is-on': !entry.endedOn }"
+                      :aria-pressed="!entry.endedOn"
+                      @click="entry.endedOn = ''"
+                    >至今</button>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.endedOn"
+                      :min="entry.startedOn"
+                      :max="currentMonth"
+                      placeholder="选月份"
+                      hint="「至今」= 仍在使用"
+                      @update:model-value="(v) => (entry.endedOn = v)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-if="form.medicationEntries.length" class="p-prof__hint">结束选「至今」表示仍在使用，会算「近期用药」；时间只填到月份就行。</p>
+            <button type="button" class="p-prof__add" @click="addEntry('medicationEntries', medicationEntry)">＋ 添加一条用药</button>
+            <div class="p-prof__other">
+              <input
+                v-model="form.medicationOther"
+                class="p-prof__input"
+                type="text"
+                placeholder="词表里没有的药物，在这里补充"
+                :maxlength="textFieldMax('medicationOther')"
+              />
+              <span class="p-prof__left">{{ textFieldRemaining('medicationOther') }} 字</span>
+            </div>
+          </section>
+
+          <section class="p-prof__group">
+            <div class="p-prof__ghead">
+              <span class="p-prof__glabel">近期手术</span>
+              <span class="p-prof__quota">已填 {{ filledCount('surgeryEntries') }} / 最多 {{ limits.tagMax }} 项</span>
+            </div>
+            <div class="p-prof__chips">
+              <button
+                v-for="t in surgeryOptions"
+                :key="t.id"
+                type="button"
+                class="p-prof__chip"
+                :class="{ 'is-on': hasEntry('surgeryEntries', t.term) }"
+                @click="toggleEntry('surgeryEntries', t.term, surgeryEntry)"
+              >{{ t.term }}</button>
+              <p v-if="!surgeryOptions.length" class="p-prof__none">词表暂无可选项，可在下面直接添加</p>
+            </div>
+            <div v-if="form.surgeryEntries.length" class="p-prof__entries">
+              <div v-for="(entry, i) in form.surgeryEntries" :key="i" class="p-prof__entry">
+                <input
+                  v-model="entry.value"
+                  class="p-prof__input p-prof__entry-name"
+                  type="text"
+                  placeholder="手术名称"
+                />
+                <button type="button" class="p-prof__del" @click="form.surgeryEntries.splice(i, 1)">删除</button>
+                <div class="p-prof__times">
+                  <div class="p-prof__tf">
+                    <span class="p-prof__tfl">发生</span>
+                    <PatientDatePicker
+                      class="p-prof__month"
+                      granularity="month"
+                      :model-value="entry.occurredOn"
+                      placeholder="选月份"
+                      hint="只填到月份"
+                      @update:model-value="(v) => (entry.occurredOn = v)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-if="form.surgeryEntries.length" class="p-prof__hint">超过 12 个月的手术会自动算「既往手术」，不再写成近期。</p>
+            <button type="button" class="p-prof__add" @click="addEntry('surgeryEntries', surgeryEntry)">＋ 添加一条手术</button>
+            <div class="p-prof__other">
+              <input
+                v-model="form.surgeryOther"
+                class="p-prof__input"
+                type="text"
+                placeholder="词表里没有的手术，在这里补充"
+                :maxlength="textFieldMax('surgeryOther')"
+              />
+              <span class="p-prof__left">{{ textFieldRemaining('surgeryOther') }} 字</span>
+            </div>
+          </section>
+
+          <!-- 第二段「我记住的」：长期记忆只读列表。放在「您填写的」之后——
+               先说患者确认过的，再说系统自动记下的，顺序本身就是两层信息的优先级。 -->
+          <MemorySection />
+
+          <!-- 第三段「待确认」：档案候选。接受后才写进上面的「您填写的」；
+               接受事件要并回表单缓存，否则随后「保存档案」会用旧表单覆盖刚确认的值。 -->
+          <CandidateSection @accepted="onCandidateAccepted" />
 
           <p v-if="error" class="p-prof__err">{{ error }}</p>
         </div>
@@ -81,24 +228,39 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getHealthProfile, saveHealthProfile, listHealthTags } from '../../api/profile'
+import CandidateSection from './CandidateSection.vue'
+import MemorySection from './MemorySection.vue'
 import PatientSelect from './PatientSelect.vue'
+import PatientDatePicker from './PatientDatePicker.vue'
+import { fromBirthYear, parseDate, todayMonth } from '../../utils/datePicker'
 
 /**
  * 健康档案（选填浮层）。
  *
+ * 缩表后只问「性别 / 出生年 / 过敏 / 近期用药 / 近期手术」。旧年龄段在出生年缺失时
+ * **只读展示**（补出生年后自动改用它）；既往病史不再展示、不再提交——库里保留原值
+ * 只作迁移与回滚依据。
+ *
+ * 时间语义（工单 03）：用药条目 = 药名 + 开始/结束月份，结束月份留空表示仍在使用；
+ * 手术条目 = 名称 + 发生月份，超过 12 个月由后端组装成「既往手术」。时间一律用
+ * **年月选择器**（`PatientDatePicker` 的 month 粒度，只到 `YYYY-MM`），不用原生
+ * month/date 控件——后者的长相由浏览器决定，同一套界面换台机器就变了（§3.9 同一理由）。
+ * 「仍在用」不是一个额外字段：结束时间选「至今」就是把 `endedOn` 置空，与后端口径一致。
+ *
  * 浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）走共享件 `.p-overlay*` 与
- * `.p-fade-*`——见设计文档 §3.8；本页只管表单本身。
+ * `.p-fade-*`——见设计文档患者端 §3.8；本页只管表单本身。
  *
- * 上限直接在源头挡住：标签多选到顶写不进、自由文本走 maxlength，并显示剩余额度。
+ * 上限直接在源头挡住：标签 / 条目到顶写不进、自由文本走 maxlength，并显示剩余额度。
  * **前端硬限只是提示**，后端还会二次校验兜底。
- *
- * 数据全部由本组件自己取：打开 → 拉读回体（含 limits 与 options），保存 → 整份覆盖写。
- * 调用方只管 `open` 一个布尔，不需要知道里面有哪些字段。
  */
 const props = defineProps({
   open: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:open'])
+
+const currentYear = new Date().getFullYear()
+/** 现在的月份（`YYYY-MM`）：用药/手术都不允许选未来 */
+const currentMonth = todayMonth()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -107,34 +269,41 @@ const tags = ref([])
 // 上限来自后端受管参数；这里的默认值只在前端首次渲染、尚未拿到响应时兜底
 const limits = ref({ tagMax: 10, textMax: 50, textTotalMax: 120 })
 const options = ref({ genders: [], ageRanges: [] })
+const legacyAgeRange = ref('')
 const form = ref(emptyProfile())
 
 // 三个自由文本框共用一条合计额度：写满一个，另外两个的可写空间随之收窄
-const OTHER_FIELDS = ['historyOther', 'medicationOther', 'allergyOther']
+const OTHER_FIELDS = ['allergyOther', 'medicationOther', 'surgeryOther']
 
 function emptyProfile() {
   return {
     gender: '',
-    ageRange: '',
-    historyTags: [],
-    historyOther: '',
-    medicationTags: [],
-    medicationOther: '',
+    // 服务端只存 birth_year；birthDate 是日历的完整值，birthDateExact 表示「本次选了完整日期」
+    birthYear: '',
+    birthDate: '',
+    birthDateExact: false,
     allergyTags: [],
-    allergyOther: ''
+    allergyOther: '',
+    medicationEntries: [],
+    medicationOther: '',
+    surgeryEntries: [],
+    surgeryOther: ''
   }
 }
 
-/**
- * 三组「多选标签 + 其他自由文本」：标签按 type 从词表过滤。
- * 分组名与后端 `HealthTagType.label`（既往病史/长期用药/过敏史）各持一份——跨了语言边界
- * （后端 Java 枚举 / 前端展示文案），无法共享同一常量，故保留；改文案时两处一起改。
- */
-const groups = computed(() => [
-  { key: 'history', label: '既往病史', tags: 'historyTags', other: 'historyOther', type: 'chronic', placeholder: '词表里没有的病史，在这里补充' },
-  { key: 'medication', label: '长期用药', tags: 'medicationTags', other: 'medicationOther', type: 'medication', placeholder: '词表里没有的药物，在这里补充' },
-  { key: 'allergy', label: '过敏史', tags: 'allergyTags', other: 'allergyOther', type: 'allergy', placeholder: '具体药名或过敏物，在这里补充' }
-].map((g) => ({ ...g, options: tags.value.filter((t) => t.type === g.type) })))
+// 词表按类别过滤（只列启用项；前端不写死任何词条）
+const allergyOptions = computed(() => tags.value.filter((t) => t.type === 'allergy'))
+const medicationOptions = computed(() => tags.value.filter((t) => t.type === 'medication'))
+const surgeryOptions = computed(() => tags.value.filter((t) => t.type === 'surgery'))
+
+const legacyAgeRangeLabel = computed(() => {
+  if (!legacyAgeRange.value) return ''
+  const found = (options.value.ageRanges || []).find((o) => o.value === legacyAgeRange.value)
+  return found ? found.label : legacyAgeRange.value
+})
+const showLegacyAgeRange = computed(
+  () => !String(form.value.birthYear ?? '').trim() && !!legacyAgeRangeLabel.value
+)
 
 // 打开就拉：每次打开都是最新的读回体（可能刚在另一处改过），不做缓存
 watch(
@@ -149,6 +318,47 @@ function close() {
   emit('update:open', false)
 }
 
+/**
+ * 候选接受后把事实并回「您填写的」表单缓存。
+ *
+ * <p>为什么必须并回：接受是后端直接写档案，而本表单是**整份覆盖写**——如果表单不知道
+ * 刚写进去的值，患者随后点「保存档案」就会把它覆盖掉。这里只做本地合并、不重拉表单，
+ * 以免冲掉患者正在填写但尚未保存的其它内容。
+ *
+ * <p>落点与后端同一口径：过敏值在启用词表里进标签、否则进自由文本；用药/手术进条目。
+ */
+function onCandidateAccepted(fact) {
+  const value = String(fact?.value || '').trim()
+  if (!value) return
+  if (fact.field === 'allergy') {
+    if (allergyOptions.value.some((t) => t.term === value)) {
+      if (!form.value.allergyTags.includes(value)) form.value.allergyTags.push(value)
+    } else {
+      appendOther('allergyOther', value)
+    }
+    return
+  }
+  if (fact.field === 'medication') {
+    if (!form.value.medicationEntries.some((e) => (e.value || '').trim() === value)) {
+      form.value.medicationEntries.push({ value, startedOn: fact.occurredOn || '', endedOn: '' })
+    }
+    return
+  }
+  if (fact.field === 'surgery') {
+    if (!form.value.surgeryEntries.some((e) => (e.value || '').trim() === value)) {
+      form.value.surgeryEntries.push({ value, occurredOn: fact.occurredOn || '' })
+    }
+  }
+}
+
+/** 自由文本追加：按顿号/逗号/分号判重，与后端 appendProfileFact 的幂等口径一致 */
+function appendOther(key, value) {
+  const current = String(form.value[key] || '').trim()
+  const parts = current ? current.split(/[、,，;；]/).map((part) => part.trim()) : []
+  if (parts.includes(value)) return
+  form.value[key] = current ? `${current}、${value}` : value
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -161,15 +371,25 @@ async function load() {
       textTotalMax: data.limits?.textTotalMax ?? 120
     }
     options.value = data.options || { genders: [], ageRanges: [] }
+    legacyAgeRange.value = data.ageRange || ''
     form.value = {
       gender: data.gender || '',
-      ageRange: data.ageRange || '',
-      historyTags: data.historyTags || [],
-      medicationTags: data.medicationTags || [],
+      birthYear: data.birthYear ?? '',
+      birthDate: fromBirthYear(data.birthYear),
+      birthDateExact: false,
       allergyTags: data.allergyTags || [],
-      historyOther: data.historyOther || '',
+      allergyOther: data.allergyOther || '',
+      medicationEntries: (data.medicationEntries || []).map((e) => ({
+        value: e.value || '',
+        startedOn: e.startedOn || '',
+        endedOn: e.endedOn || ''
+      })),
       medicationOther: data.medicationOther || '',
-      allergyOther: data.allergyOther || ''
+      surgeryEntries: (data.surgeryEntries || []).map((e) => ({
+        value: e.value || '',
+        occurredOn: e.occurredOn || ''
+      })),
+      surgeryOther: data.surgeryOther || ''
     }
   } catch (e) {
     console.error('[profile] 健康档案加载失败', e)
@@ -179,9 +399,9 @@ async function load() {
   }
 }
 
-/** 多选标签：超上限**当场写不进**（后端仍会二次校验，前端只是即时提示） */
-function toggleTag(field, term) {
-  const list = form.value[field]
+/** 过敏多选：超上限**当场写不进**（后端仍会二次校验，前端只是即时提示） */
+function toggleAllergy(term) {
+  const list = form.value.allergyTags
   const idx = list.indexOf(term)
   if (idx >= 0) {
     list.splice(idx, 1)
@@ -193,6 +413,48 @@ function toggleTag(field, term) {
   }
   error.value = ''
   list.push(term)
+}
+
+/** 条目工厂：点标签时加一条时间空的记录 */
+function medicationEntry(value) {
+  return { value, startedOn: '', endedOn: '' }
+}
+function surgeryEntry(value) {
+  return { value, occurredOn: '' }
+}
+
+function hasEntry(field, term) {
+  return form.value[field].some((e) => (e.value || '').trim() === term)
+}
+
+/** 额度只数**填了名的**条目：空行还没成为一条记录，不该占患者的额度 */
+function filledCount(field) {
+  return form.value[field].filter((e) => (e.value || '').trim()).length
+}
+
+/** 点标签：已存在同值条目则移除，否则加一条（时间空，患者可再补月份） */
+function toggleEntry(field, term, factory) {
+  const list = form.value[field]
+  const idx = list.findIndex((e) => (e.value || '').trim() === term)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+    return
+  }
+  if (filledCount(field) >= limits.value.tagMax) {
+    error.value = `每类最多填 ${limits.value.tagMax} 项，先删一条再添加`
+    return
+  }
+  error.value = ''
+  list.push(factory(term))
+}
+
+function addEntry(field, factory) {
+  if (filledCount(field) >= limits.value.tagMax) {
+    error.value = `每类最多填 ${limits.value.tagMax} 项`
+    return
+  }
+  error.value = ''
+  form.value[field].push(factory(''))
 }
 
 /**
@@ -210,15 +472,121 @@ function textFieldRemaining(field) {
   return Math.max(0, textFieldMax(field) - (form.value[field]?.length || 0))
 }
 
+/** 日历选值 → 只把年份写进表单；清除时两处一起清空 */
+function onBirthDate(value) {
+  const parsed = parseDate(value)
+  if (!parsed) {
+    form.value.birthYear = ''
+    form.value.birthDate = ''
+    form.value.birthDateExact = false
+    return
+  }
+  form.value.birthYear = String(parsed.year)
+  form.value.birthDateExact = true
+}
+
+/** 出生年：空 = 未填；填了就必须是 1900–当前年（后端还会二次校验） */
+function birthYearOf(formValue) {
+  const raw = String(formValue.birthYear ?? '').trim()
+  if (!raw) return null
+  const year = Number(raw)
+  if (!Number.isInteger(year) || year < 1900 || year > currentYear) {
+    error.value = `出生年需在 1900 到 ${currentYear} 之间`
+    return undefined
+  }
+  return year
+}
+
+/**
+ * 月份即时校验（与后端同一口径）：空 = 未填；否则必须是 YYYY-MM 且不是未来月份。
+ * 返回 null 表示通过，返回字符串表示可展示的错误。
+ */
+function monthError(raw, label) {
+  const value = (raw || '').trim()
+  if (!value) return null
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+    return `${label}格式应为 YYYY-MM（如 2024-03）`
+  }
+  const [year, month] = value.split('-').map(Number)
+  const now = new Date()
+  if (year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth() + 1)) {
+    return `${label}不能是未来月份`
+  }
+  return null
+}
+
+/** 组装用药提交体：完全空的行跳过；半填行（有时间没药名）拒绝，不静默丢数据 */
+function buildMedicationEntries() {
+  const result = []
+  for (const entry of form.value.medicationEntries) {
+    const value = (entry.value || '').trim()
+    const startedOn = (entry.startedOn || '').trim()
+    const endedOn = (entry.endedOn || '').trim()
+    if (!value && !startedOn && !endedOn) continue
+    if (!value) {
+      error.value = '请填写用药名称'
+      return null
+    }
+    const invalid = monthError(startedOn, '用药开始时间') || monthError(endedOn, '用药结束时间')
+    if (invalid) {
+      error.value = invalid
+      return null
+    }
+    if (startedOn && endedOn && endedOn < startedOn) {
+      error.value = `用药「${value}」的结束时间不能早于开始时间`
+      return null
+    }
+    result.push({ value, startedOn: startedOn || null, endedOn: endedOn || null })
+  }
+  return result
+}
+
+/** 组装手术提交体（口径同上） */
+function buildSurgeryEntries() {
+  const result = []
+  for (const entry of form.value.surgeryEntries) {
+    const value = (entry.value || '').trim()
+    const occurredOn = (entry.occurredOn || '').trim()
+    if (!value && !occurredOn) continue
+    if (!value) {
+      error.value = '请填写手术名称'
+      return null
+    }
+    const invalid = monthError(occurredOn, '手术发生时间')
+    if (invalid) {
+      error.value = invalid
+      return null
+    }
+    result.push({ value, occurredOn: occurredOn || null })
+  }
+  return result
+}
+
 async function save() {
   if (saving.value) return
   error.value = ''
+  const birthYear = birthYearOf(form.value)
+  if (birthYear === undefined) return
+  const medicationEntries = buildMedicationEntries()
+  if (medicationEntries === null) return
+  const surgeryEntries = buildSurgeryEntries()
+  if (surgeryEntries === null) return
   saving.value = true
   try {
-    await saveHealthProfile(form.value)
+    // 只提交缩表后的可编辑字段：旧年龄段与既往病史留在库里，不由前端回写
+    await saveHealthProfile({
+      gender: form.value.gender || null,
+      birthYear,
+      allergyTags: form.value.allergyTags,
+      allergyOther: form.value.allergyOther,
+      medicationEntries,
+      medicationOther: form.value.medicationOther,
+      surgeryEntries,
+      surgeryOther: form.value.surgeryOther
+    })
     emit('update:open', false)
   } catch (e) {
-    // 后端二次校验拒绝（超条数 / 超字数）会给可展示的 message
+    // 后端二次校验拒绝（超条数 / 超字数 / 时间越界）会给可展示的 message
     error.value = e.message || '保存失败，请稍后重试'
   } finally {
     saving.value = false
@@ -229,8 +597,8 @@ async function save() {
 <style scoped>
 /* ---------- 健康档案：表单内部 ----------
    浮层**外壳**（遮罩 / 容器 / 抬头 / 关闭 / 进出节奏）走共享件 `.p-overlay*` 与
-   `.p-fade-*`，本组件只留表单——见设计文档 §3.8。
-   性别 / 年龄段用自绘下拉 `PatientSelect`，样式在共享件 `.p-sel*` 里（§3.9）。 */
+   `.p-fade-*`，本组件只留表单——见设计文档患者端 §3.8。
+   性别用自绘下拉 `PatientSelect`，样式在共享件 `.p-sel*` 里（§3.9）。 */
 .p-prof__loading {
   padding: 48px 16px;
   font-family: var(--sans);
@@ -253,6 +621,17 @@ async function save() {
   letter-spacing: .08em;
   color: var(--ink-2);
 }
+/* 旧年龄段只读兜底：与表单文字同列，不抢主信息 */
+.p-prof__legacy {
+  margin: 4px 0 0;
+  /* 与右侧输入列对齐：标签宽 64 + 行内间隙 12 */
+  padding-left: calc(64px + 12px);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.p-prof__legacy span { color: var(--ink-3); }
 .p-prof__group {
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
@@ -302,6 +681,101 @@ async function save() {
 .p-prof__none {
   font-family: var(--sans);
   font-size: 12px;
+  color: var(--ink-3);
+}
+/* 条目行 = 一张小卡：名称 + 删除在上，年月选择在下。
+   两个年月选择器并排会挤，`.p-prof__times` 允许换行，各控件仍 ≥44px。 */
+.p-prof__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 12px;
+}
+.p-prof__entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.p-prof__input.p-prof__entry-name { grid-column: 1; min-width: 0; }
+.p-prof__times {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.p-prof__tf { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.p-prof__tfl {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+}
+/* 年月选择器在条目里按内容收窄（共享件 `.p-dp` 默认填满一行）。
+   176px = 图标/箭头 42 + 内边距 24 + 「2024 年 12 月」约 110——再窄就会截成「2024 年…」 */
+.p-prof__month { flex: 0 0 176px; width: 176px; }
+/* 「至今」= endedOn 为空：与年月选择器互斥的两个状态，靠选中态区分 */
+.p-prof__ongoing {
+  flex: none;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--surface);
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, color .18s ease;
+}
+.p-prof__ongoing:hover { border-color: var(--line-2); }
+.p-prof__ongoing.is-on {
+  border-color: var(--leaf);
+  background: var(--leaf-soft);
+  color: var(--leaf-deep);
+  font-weight: 600;
+}
+.p-prof__del {
+  flex: none;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease;
+}
+.p-prof__del:hover { border-color: var(--alert); color: var(--alert); }
+.p-prof__add {
+  min-height: 44px; /* 触控目标 ≥ 44px */
+  margin-top: 12px;
+  padding: 0 16px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--leaf-deep);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
+}
+.p-prof__add:hover { border-color: var(--leaf); background: var(--leaf-soft); }
+.p-prof__hint {
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.7;
   color: var(--ink-3);
 }
 .p-prof__other { display: flex; align-items: center; gap: 8px; margin-top: 12px; }

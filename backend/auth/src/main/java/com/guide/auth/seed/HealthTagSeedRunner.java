@@ -48,6 +48,11 @@ public class HealthTagSeedRunner implements ApplicationRunner {
     private static final List<String> ALLERGY = List.of(
             "青霉素类", "头孢类", "磺胺类", "阿司匹林", "海鲜", "花粉", "尘螨", "鸡蛋");
 
+    /** 近期手术：常见手术史（缩表后档案只问近期手术） */
+    private static final List<String> SURGERY = List.of(
+            "阑尾切除术", "胆囊切除术", "剖宫产", "骨折内固定术",
+            "疝修补术", "甲状腺手术", "白内障手术");
+
     private final HealthTagMapper healthTagMapper;
 
     @Override
@@ -55,9 +60,10 @@ public class HealthTagSeedRunner implements ApplicationRunner {
         int chronic = seed(CHRONIC, HealthTagType.CHRONIC);
         int medication = seed(MEDICATION, HealthTagType.MEDICATION);
         int allergy = seed(ALLERGY, HealthTagType.ALLERGY);
-        if (chronic + medication + allergy > 0) {
-            log.info("健康档案标签词表种子装载完成：新增慢病 {} 条、用药 {} 条、过敏 {} 条（已存在的不重复插入），管理端可启停",
-                    chronic, medication, allergy);
+        int surgery = seed(SURGERY, HealthTagType.SURGERY);
+        if (chronic + medication + allergy + surgery > 0) {
+            log.info("健康档案标签词表种子装载完成：新增慢病 {} 条、用药 {} 条、过敏 {} 条、手术 {} 条（已存在的不重复插入），管理端可启停",
+                    chronic, medication, allergy, surgery);
         }
     }
 

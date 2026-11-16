@@ -16,10 +16,12 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.chat.support.StreamGate;
 import com.guide.common.api.ErrorCode;
+import com.guide.common.event.TurnCompletedEvent;
 import com.guide.common.exception.BizException;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.kb.service.MedicalTermService;
+import com.guide.memory.service.MemoryInjectionService;
 import com.guide.rag.RagService;
 import com.guide.rag.dto.DeptOption;
 import com.guide.rag.dto.RagAnswer;
@@ -30,6 +32,7 @@ import com.guide.rag.support.AnswerParser;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -75,8 +78,10 @@ public class ChatService {
     private final RecommendableDepts recommendableDepts;
     private final SysConfigService sysConfigService;
     private final HealthProfileService healthProfileService;
+    private final MemoryInjectionService memoryInjectionService;
     private final ObjectMapper objectMapper;
     private final ThreadPoolTaskExecutor chatSseExecutor;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ChatService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
                        GuideService guideService, RagService ragService,
@@ -84,8 +89,10 @@ public class ChatService {
                        SufficiencyRule sufficiencyRule, DeptService deptService,
                        MedicalTermService medicalTermService,
                        RecommendableDepts recommendableDepts, SysConfigService sysConfigService,
-                       HealthProfileService healthProfileService, ObjectMapper objectMapper,
-                       @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor) {
+                       HealthProfileService healthProfileService,
+                       MemoryInjectionService memoryInjectionService, ObjectMapper objectMapper,
+                       @Qualifier(ChatExecutorConfig.CHAT_SSE_EXECUTOR) ThreadPoolTaskExecutor chatSseExecutor,
+                       ApplicationEventPublisher eventPublisher) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.guideService = guideService;
@@ -98,8 +105,10 @@ public class ChatService {
         this.recommendableDepts = recommendableDepts;
         this.sysConfigService = sysConfigService;
         this.healthProfileService = healthProfileService;
+        this.memoryInjectionService = memoryInjectionService;
         this.objectMapper = objectMapper;
         this.chatSseExecutor = chatSseExecutor;
+        this.eventPublisher = eventPublisher;
     }
 
     /** 建立 SSE 流：立即返回 emitter，编排在线程池中执行（与离线入库线程隔离） */
@@ -170,6 +179,16 @@ public class ChatService {
             emitError(emitter, sessionId, "系统繁忙，请稍后重试；您也可以重新描述一次症状。");
         } finally {
             log.info("本轮结束：总耗时 {} ms", System.currentTimeMillis() - start);
+            // 轮次完成是**旁路信号**（memory 的抽取入口）：发布失败绝不能影响本轮的 SSE 与落库。
+            // 放在 MDC.remove 之前，让监听器日志也带得上本轮标记；sessionId 为空说明会话都没落定，
+            // 没有可抽取的对象，不发。
+            try {
+                if (sessionId != null) {
+                    eventPublisher.publishEvent(new TurnCompletedEvent(userId, sessionId));
+                }
+            } catch (Exception e) {
+                log.warn("轮次完成事件发布失败（不影响本轮对话）：sessionId={} 原因={}", sessionId, e.getMessage());
+            }
             MDC.remove(TURN_KEY);
             safeComplete(emitter);
         }
@@ -197,6 +216,16 @@ public class ChatService {
             return List.of();
         }
         return requested;
+    }
+
+    /** 记忆注入的旁路兜底：失败按「没有记忆」处理，绝不让记忆库抖动拖垮本轮回答 */
+    private MemoryInjectionService.Injection safeMemoryInjection(String userId, String sessionId) {
+        try {
+            return memoryInjectionService.forTurn(userId, sessionId);
+        } catch (RuntimeException e) {
+            log.warn("长期记忆读取失败，本轮按无记忆处理（档案不受影响）：{}", e.getMessage());
+            return new MemoryInjectionService.Injection(List.of(), null);
+        }
     }
 
     /** 单轮编排主体：会话落定后执行（sessionId 已确定，异常由外层统一转 SSE error） */
@@ -258,26 +287,39 @@ public class ChatService {
             // （高置信度）卡的入口挡掉——前端只有最后一张卡能挂号（Chat.vue 的 can-register）。
             boolean hasResult = session.getHasResult() != null && session.getHasResult() == 1;
             boolean forceConclusion = !hasResult && askRound >= askMaxRounds;
-            // 健康档案由 chat 读档组装成两段文本再传进 rag（rag 不感知业务状态，不查档案）：
-            //   profileText —— 进 prompt 的背景；profileQuery —— 进检索的召回串（非空才多开档案两路）。
+            // 健康档案由 chat 读档后只把**待注入文本**传进 rag（rag 不感知业务状态，不查档案）：
+            // 档案已退出检索层，不再有召回串——它只进生成提示词，召回固定两路（主诉向量 + 主诉关键词）。
             // 放在规则门槛之后：被门槛拦下的输入（含"首条主诉过于笼统"）根本不读档案，
             // 档案无从让它们跳过门槛直接出结论。为空即无档案，链路与今天一致。
             HealthProfileService.ChatProfile profile = healthProfileService.assembleForChat(userId);
             String profileText = profile.assembly().profileText().isBlank() ? null : profile.assembly().profileText();
-            String profileQuery = profile.assembly().recallQuery().isBlank() ? null : profile.assembly().recallQuery();
+            // 长期记忆（偏好 + 背景召回端口）：关掉自动记忆时两者都为空/空端口，档案完全不受影响。
+            // 记忆是旁路：读库失败不能把本轮导诊变成 error（rag 侧召回已有兜底，注入侧也要有）。
+            MemoryInjectionService.Injection memory = safeMemoryInjection(userId, sessionId);
             // 候选科室 = 可推荐科室（启用且有切片）：零切片科室对模型不可见，日志一并给出收敛口径
             RecommendableDepts.Snapshot depts = recommendableDepts.snapshot();
-            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）｜健康档案 {}（召回串 {}）｜部位声明 {}",
+            log.info("进入检索：追问轮次 {}/{}｜强制结论={}｜候选科室 {} 个（启用 {}｜可推荐 {}｜无切片剔除 {}）"
+                            + "｜健康档案 {}｜记忆偏好 {} 条（背景召回 {}）｜部位声明 {}",
                     askRound, askMaxRounds, forceConclusion, depts.recommendableCount(),
                     depts.enabledCount(), depts.recommendableCount(), depts.filtered(),
                     profileText == null ? "无" : profileText.length() + " 字",
-                    profileQuery == null ? "无" : profileQuery.length() + " 字",
+                    memory.preferences().size(), memory.recallPort() == null ? "关" : "开",
                     parts.isEmpty() ? "无" : String.join("、", parts));
             RagRequest ragRequest = new RagRequest(content, loadHistory(sessionId), deptOptions(depts.recommendable()),
                     forceConclusion,
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_K, SysConfigService.DEFAULT_RETRIEVE_TOP_K),
                     sysConfigService.getInt(SysConfigService.KEY_RETRIEVE_TOP_N, SysConfigService.DEFAULT_RETRIEVE_TOP_N),
-                    profileText, profileQuery, parts);
+                    profileText, parts, memory.preferences(), memory.recallPort(),
+                    // 与 memory 召回判定读同一个键：快照里记的阈值必须是本轮真正用的那个
+                    sysConfigService.getDouble(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_THRESHOLD,
+                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_THRESHOLD),
+                    // 记忆注入上限：rag 不依赖 auth，故由 chat 读配置后传入（改库即生效）
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_BLOCK_CHARS,
+                            SysConfigService.DEFAULT_MEMORY_BLOCK_CHARS),
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_PREFERENCE_MAX,
+                            SysConfigService.DEFAULT_MEMORY_PREFERENCE_MAX),
+                    sysConfigService.getInt(SysConfigService.KEY_MEMORY_BACKGROUND_RECALL_TOP_K,
+                            SysConfigService.DEFAULT_MEMORY_BACKGROUND_RECALL_TOP_K));
             RagContext context = ragService.retrieve(ragRequest);
 
             // ④ 流式生成：闸门分流——自然语言进气泡，结论 JSON 截留待解析
@@ -348,7 +390,7 @@ public class ChatService {
 
             // ⑥ 结论：科室校验 + 导诊记录落库 + result/done
             GuideService.Conclusion conclusion = guideService.saveConclusion(session, answer, context,
-                    rawOutput, new GuideService.ProfileSnapshot(profileText, profileQuery, profile.structure()));
+                    rawOutput, new GuideService.ProfileSnapshot(profileText, profile.structure()));
             saveMessage(sessionId, MessageRole.AI, answer.reply());
             send(emitter, SseEvents.RESULT, conclusion.payload());
             send(emitter, SseEvents.DONE, new SseEvents.DoneEvent(sessionId, true));

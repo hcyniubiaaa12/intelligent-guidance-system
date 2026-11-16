@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.auth.service.SysConfigService;
 import com.guide.auth.support.HealthProfileAssembler;
+import com.guide.auth.support.MedicationEntry;
+import com.guide.auth.support.SurgeryEntry;
+import com.guide.chat.dto.ChatDTO;
 import com.guide.chat.entity.ChatSession;
 import com.guide.chat.entity.GuideRecord;
 import com.guide.chat.enums.SessionStatus;
@@ -11,6 +14,7 @@ import com.guide.chat.mapper.ChatSessionMapper;
 import com.guide.chat.mapper.GuideRecordMapper;
 import com.guide.chat.support.RecommendableDepts;
 import com.guide.common.model.ChunkHit;
+import com.guide.common.model.MemoryHit;
 import com.guide.kb.entity.Dept;
 import com.guide.kb.service.DeptService;
 import com.guide.rag.dto.RagAnswer;
@@ -66,39 +70,50 @@ class GuideServiceTest {
     }
 
     @Test
-    @DisplayName("profile 节点三要素齐全：待注入文本 + 检索用串 + 结构化档案内容")
-    void writesProfileNodeWithAllThree() {
+    @DisplayName("profile 节点：待注入文本 + 结构化档案内容；档案退出检索后不再写检索用串")
+    void writesProfileNodeWithoutRecallQuery() {
         HealthProfileAssembler.Profile structure = new HealthProfileAssembler.Profile(
-                "male", "45-59",
+                "male", 1980, "45-59",
                 List.of("2型糖尿病"), null,
-                List.of(), null,
-                List.of("青霉素类"), "对海鲜过敏");
+                List.of(new MedicationEntry("二甲双胍", "2024-03", null)), null,
+                List.of("青霉素类"), "对海鲜过敏",
+                List.of(new SurgeryEntry("阑尾切除术", "2024-05")), null);
         GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
-                "男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏",
-                "男、45-59岁、2型糖尿病、青霉素类", structure);
+                "男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期用药：二甲双胍（2024-03 至今）", structure);
 
         service.saveConclusion(session("s1"), answer(), context(), "raw-output", snapshot);
 
         JsonNode profile = capturedEvidence(1).path("profile");
         assertThat(profile.isObject()).isTrue();
-        assertThat(profile.path("text").asText()).isEqualTo("男、45-59岁、2型糖尿病、青霉素类、对海鲜过敏");
-        assertThat(profile.path("query").asText()).isEqualTo("男、45-59岁、2型糖尿病、青霉素类");
+        assertThat(profile.path("text").asText())
+                .isEqualTo("男、1980 年出生、过敏：青霉素类、对海鲜过敏、近期用药：二甲双胍（2024-03 至今）");
+        // 新快照不再写 profile.query：档案已退出检索，留一个检索用串只会诱导后人把它重新接回去。
+        // 老快照里的 query 仍可安全读取（RecordService 只读 text，见 RecordServiceTest）。
+        assertThat(profile.has("query")).isFalse();
 
         JsonNode content = profile.path("content");
         assertThat(content.path("gender").asText()).isEqualTo("male");
+        assertThat(content.path("birthYear").asInt()).isEqualTo(1980);
         assertThat(content.path("ageRange").asText()).isEqualTo("45-59");
         assertThat(content.path("historyTags").get(0).asText()).isEqualTo("2型糖尿病");
         assertThat(content.path("allergyTags").get(0).asText()).isEqualTo("青霉素类");
         assertThat(content.path("allergyOther").asText()).isEqualTo("对海鲜过敏");
         assertThat(content.path("historyOther").isNull()).isTrue();
-        assertThat(content.path("medicationTags").isArray()).isTrue();
+        // 用药/手术写对象数组（含时间）：审核回放要看得出"当时说的是近期还是已停/既往"
+        JsonNode medication = content.path("medicationTags").get(0);
+        assertThat(medication.path("value").asText()).isEqualTo("二甲双胍");
+        assertThat(medication.path("startedOn").asText()).isEqualTo("2024-03");
+        assertThat(medication.path("endedOn").isNull()).isTrue();
+        JsonNode surgery = content.path("surgeryTags").get(0);
+        assertThat(surgery.path("value").asText()).isEqualTo("阑尾切除术");
+        assertThat(surgery.path("occurredOn").asText()).isEqualTo("2024-05");
     }
 
     @Test
     @DisplayName("无档案：profile 节点为 null（回归——快照除多一个空节点外与今天一致）")
     void emptyProfileYieldsNullNode() {
         service.saveConclusion(session("s1"), answer(), context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         JsonNode evidence = capturedEvidence(1);
         assertThat(evidence.has("profile")).isTrue();
@@ -109,9 +124,9 @@ class GuideServiceTest {
     @DisplayName("档案快照是「当时那一份」：两次导诊用不同档案，各留各的（改档案不回改历史）")
     void eachRecordKeepsItsOwnProfile() {
         service.saveConclusion(session("s1"), answer(), context(), "raw-1",
-                new GuideService.ProfileSnapshot("糖尿病史", "糖尿病史", structure("2型糖尿病")));
+                new GuideService.ProfileSnapshot("糖尿病史", structure("2型糖尿病")));
         service.saveConclusion(session("s2"), answer(), context(), "raw-2",
-                new GuideService.ProfileSnapshot("高血压史", "高血压史", structure("高血压")));
+                new GuideService.ProfileSnapshot("高血压史", structure("高血压")));
 
         List<JsonNode> evidences = capturedEvidences(2);
         assertThat(evidences.get(0).path("profile").path("text").asText()).isEqualTo("糖尿病史");
@@ -132,7 +147,7 @@ class GuideServiceTest {
                 "老年多病共存", List.of(), 0.7, true);
 
         service.saveConclusion(session("s1"), answer, context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         GuideRecord record = capturedRecord(1);
         assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
@@ -148,7 +163,7 @@ class GuideServiceTest {
         when(deptService.getById("d-cardio")).thenReturn(dept("d-cardio", "心血管内科"));
 
         service.saveConclusion(session("s1"), answer, contextWithCardioChunk(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         GuideRecord record = capturedRecord(1);
         assertThat(record.getRecDeptId()).isEqualTo("d-cardio");
@@ -163,7 +178,7 @@ class GuideServiceTest {
         asked.setAskRound(3); // 常见路径：预算用满才拿到结论
 
         service.saveConclusion(asked, answer(), context(), "raw-output",
-                new GuideService.ProfileSnapshot(null, null, null));
+                new GuideService.ProfileSnapshot(null, null));
 
         // 同一个 updateById 里两个事实一起落：has_result=1 与 ask_round=0
         ArgumentCaptor<ChatSession> captor = ArgumentCaptor.forClass(ChatSession.class);
@@ -173,11 +188,256 @@ class GuideServiceTest {
         assertThat(asked.getAskRound()).isZero();
     }
 
+    // —— 档案硬警报（工单 10）——
+
+    @Test
+    @DisplayName("规则警报随 result 下发，并原样写进证据快照 alerts 节点")
+    void ruleAlertIsPublishedAndSnapshotted() {
+        GuideService.ProfileSnapshot snapshot = new GuideService.ProfileSnapshot(
+                "男、过敏：青霉素类", profileWithAllergy("青霉素类"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWith("青霉素皮试阳性者禁用阿莫西林。"), "raw-output", snapshot);
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(1);
+        ChatDTO.AlertVO alert = alerts.get(0);
+        assertThat(alert.level()).isEqualTo("hard");
+        assertThat(alert.source()).isEqualTo("rule");
+        assertThat(alert.anchor()).isEqualTo("field:allergy");
+        assertThat(alert.text()).contains("过敏史").contains("青霉素类").contains("青霉素");
+
+        JsonNode snapshotAlerts = capturedEvidence(1).path("alerts");
+        assertThat(snapshotAlerts.isArray()).as("快照必须有 alerts 节点（空也写空数组）").isTrue();
+        assertThat(snapshotAlerts.get(0).path("text").asText()).isEqualTo(alert.text());
+        assertThat(snapshotAlerts.get(0).path("level").asText()).isEqualTo("hard");
+        assertThat(snapshotAlerts.get(0).path("anchor").asText()).isEqualTo("field:allergy");
+    }
+
+    @Test
+    @DisplayName("无冲突：结果体与快照都不出警报，前端不渲染空警示条")
+    void noConflictYieldsEmptyAlerts() {
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot("过敏：青霉素类", profileWithAllergy("青霉素类")));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+        JsonNode snapshotAlerts = capturedEvidence(1).path("alerts");
+        assertThat(snapshotAlerts.isArray()).isTrue();
+        assertThat(snapshotAlerts).isEmpty();
+    }
+
+    @Test
+    @DisplayName("模型警报注号越界：丢弃（解析层看不到召回条数，范围校验在 chat 层）")
+    void modelAlertWithOutOfRangeCiteIsDropped() {
+        RagAnswer answer = answerWithAlerts(new RagAnswer.Alert("片段提示与过敏史冲突", 9, null));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("模型警报带档案字段锚点：保留并转成 field 锚点，来源标 model")
+    void modelAlertWithFieldAnchorIsKept() {
+        RagAnswer answer = answerWithAlerts(
+                new RagAnswer.Alert("片段提到的手术与您的近期手术相关", null, "surgery"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("上腹部疼痛可考虑胃炎。"), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).hasSize(1);
+        ChatDTO.AlertVO alert = conclusion.payload().alerts().get(0);
+        assertThat(alert.level()).isEqualTo("hard");
+        assertThat(alert.source()).isEqualTo("model");
+        assertThat(alert.anchor()).isEqualTo("field:surgery");
+        assertThat(alert.text()).contains("近期手术");
+    }
+
+    @Test
+    @DisplayName("合并：规则警报优先；模型与规则同文案去重；模型补充排后；总上限 3 条")
+    void ruleAlertsFirstDedupedAndCapped() {
+        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null, List.of(), null,
+                List.of("青霉素类", "磺胺类"), null, List.of(), null);
+        RagAnswer answer = answerWithAlerts(
+                // 与规则第 1 条逐字相同 ⇒ 必须去重，不能出现两条一样的警报
+                new RagAnswer.Alert("与您的过敏史「青霉素类」相关：知识片段提到青霉素，请务必向医生说明过敏史。", 1, null),
+                new RagAnswer.Alert("模型补充：片段还提到磺胺类", null, "allergy"));
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWith("青霉素、磺胺都在这一段里。"), "raw-output",
+                new GuideService.ProfileSnapshot("过敏：青霉素类、磺胺类", profile));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source)
+                .as("两条规则在前，模型补充在后")
+                .containsExactly("rule", "rule", "model");
+        assertThat(alerts.get(0).text()).contains("青霉素类");
+        assertThat(alerts.get(1).text()).contains("磺胺类");
+        assertThat(alerts.get(2).text()).contains("模型补充");
+    }
+
+    // —— 稳定背景相关提醒（工单 11）——
+
+    @Test
+    @DisplayName("背景命中产出一条「相关」提醒：advisory、带 memoryId 与 memory 锚点，不写禁忌")
+    void memoryHitYieldsAdvisory() {
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, "我有糖尿病", null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70, memory),
+                "raw-output", new GuideService.ProfileSnapshot(null, null));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(1);
+        ChatDTO.AlertVO alert = alerts.get(0);
+        assertThat(alert.level()).isEqualTo("advisory");
+        assertThat(alert.source()).isEqualTo("memory");
+        assertThat(alert.memoryId()).isEqualTo("m1");
+        assertThat(alert.anchor()).isEqualTo("memory:m1");
+        assertThat(alert.text()).contains("相关").contains("2型糖尿病");
+        // 只报「相关」：一句背景不是医学结论，绝不能写成禁忌
+        assertThat(alert.text()).doesNotContain("禁忌").doesNotContain("不能");
+
+        JsonNode snapshotAlert = capturedEvidence(1).path("alerts").get(0);
+        assertThat(snapshotAlert.path("memoryId").asText()).isEqualTo("m1");
+        assertThat(snapshotAlert.path("anchor").asText()).isEqualTo("memory:m1");
+    }
+
+    @Test
+    @DisplayName("指不回具体记忆条目的提醒丢弃：id 为空/空白都不成提醒")
+    void memoryHitWithoutIdIsDropped() {
+        MemoryHit noId = new MemoryHit(null, "background_health", "慢病", "2型糖尿病", 0.9, null, null);
+        MemoryHit blankId = new MemoryHit("  ", "background_health", "慢病", "高血压", 0.8, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        noId, blankId),
+                "raw-output", new GuideService.ProfileSnapshot(null, null));
+
+        assertThat(conclusion.payload().alerts()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("硬警报优先占名额：规则 3 条已满时，记忆提醒整体丢弃")
+    void hardAlertsTakePrecedenceOverAdvisories() {
+        HealthProfileAssembler.Profile profile = new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null, List.of(), null,
+                List.of("青霉素类", "磺胺类", "头孢类"), null, List.of(), null);
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer(),
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        "青霉素、磺胺、头孢都在这一段里。", memory),
+                "raw-output", new GuideService.ProfileSnapshot("过敏：青霉素类、磺胺类、头孢类", profile));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source).containsOnly("rule");
+    }
+
+    @Test
+    @DisplayName("合并顺序：规则 → 记忆提醒 → 模型补充；合计 3 条，满了模型也丢")
+    void advisoriesSitBetweenRuleAndModelAlerts() {
+        RagAnswer answer = answerWithAlerts(
+                new RagAnswer.Alert("模型补充：片段提到磺胺类", null, "allergy"));
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86, null, null);
+
+        GuideService.Conclusion conclusion = service.saveConclusion(session("s1"), answer,
+                contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病", "胸口闷", 0.70,
+                        "青霉素皮试阳性者禁用阿莫西林。", memory),
+                "raw-output", new GuideService.ProfileSnapshot("过敏：青霉素类", profileWithAllergy("青霉素类")));
+
+        List<ChatDTO.AlertVO> alerts = conclusion.payload().alerts();
+        assertThat(alerts).hasSize(3);
+        assertThat(alerts).extracting(ChatDTO.AlertVO::source)
+                .containsExactly("rule", "memory", "model");
+        assertThat(alerts.get(1).memoryId()).isEqualTo("m1");
+        assertThat(alerts.get(1).level()).isEqualTo("advisory");
+        assertThat(alerts.get(2).level()).isEqualTo("hard");
+    }
+
+    @Test
+    @DisplayName("证据快照 memory 节点：注入文本 + 命中条目 + 查询串 + 阈值，只写不读")
+    void memoryNodeRecordsInjectedTextAndHits() {
+        MemoryHit memory = new MemoryHit("m1", "background_health", "慢病", "2型糖尿病", 0.86,
+                "我有糖尿病", null);
+        RagContext context = contextWithMemory("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病",
+                "胸口闷 心慌", 0.72, memory);
+
+        service.saveConclusion(session("s1"), answer(), context, "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        JsonNode memoryNode = capturedEvidence(1).path("memory");
+        assertThat(memoryNode.isObject()).isTrue();
+        assertThat(memoryNode.path("text").asText())
+                .isEqualTo("\n\n【长期记忆】\n- 患者长期背景：2型糖尿病");
+        assertThat(memoryNode.path("query").asText()).isEqualTo("胸口闷 心慌");
+        assertThat(memoryNode.path("threshold").asDouble()).isEqualTo(0.72);
+        JsonNode hit = memoryNode.path("hits").get(0);
+        assertThat(hit.path("id").asText()).isEqualTo("m1");
+        assertThat(hit.path("type").asText()).isEqualTo("background_health");
+        assertThat(hit.path("key").asText()).isEqualTo("慢病");
+        assertThat(hit.path("value").asText()).isEqualTo("2型糖尿病");
+        assertThat(hit.path("score").asDouble()).isEqualTo(0.86);
+    }
+
+    @Test
+    @DisplayName("无背景命中（含开关关闭 / 无端口）：memory 节点写 null，不写空对象")
+    void noMemoryHitsYieldsNullMemoryNode() {
+        service.saveConclusion(session("s1"), answer(), context(), "raw-output",
+                new GuideService.ProfileSnapshot(null, null));
+
+        JsonNode memoryNode = capturedEvidence(1).path("memory");
+        assertThat(memoryNode.isNull()).as("空节点是 null，不是一个 {} 占位").isTrue();
+    }
+
     // ---------------------------------------------------------------- 夹具
+
+    private RagContext contextWithMemory(String memoryText, String memoryQuery, double threshold,
+                                         MemoryHit... hits) {
+        return contextWithMemory(memoryText, memoryQuery, threshold, null, hits);
+    }
+
+    private RagContext contextWithMemory(String memoryText, String memoryQuery, double threshold,
+                                         String chunkContent, MemoryHit... hits) {
+        List<ChunkHit> chunks = chunkContent == null ? List.of()
+                : List.of(new ChunkHit("c1", "d-cardio", "胸痛鉴别", chunkContent, 0.9));
+        return new RagContext("胸口闷", "胸口闷", chunks, chunks.size(), 0,
+                List.of(hits), memoryText, memoryQuery, threshold);
+    }
+
+    private HealthProfileAssembler.Profile profileWithAllergy(String... allergyTags) {
+        return new HealthProfileAssembler.Profile(
+                null, null, null, List.of(), null,
+                List.of(), null,
+                List.of(allergyTags), null,
+                List.of(), null);
+    }
+
+    private RagAnswer answerWithAlerts(RagAnswer.Alert... alerts) {
+        return new RagAnswer(RagAnswer.Verdict.RECOMMEND, "建议先到心血管内科。",
+                List.of(new RagAnswer.DeptCandidate("心血管内科", 0.82)),
+                "结合既往史优先排查心血管来源", List.of(), 0.82, true, List.of(alerts));
+    }
+
+    private RagContext contextWith(String content) {
+        return new RagContext("胸口闷", "胸口闷",
+                List.of(new ChunkHit("c1", "d-cardio", "胸痛鉴别", content, 0.9)), 1, 1);
+    }
 
     private HealthProfileAssembler.Profile structure(String historyTag) {
         return new HealthProfileAssembler.Profile(
-                null, null, List.of(historyTag), null, List.of(), null, List.of(), null);
+                null, null, null,
+                List.of(historyTag), null,
+                List.of(), null,
+                List.of(), null,
+                List.of(), null);
     }
 
     private Dept dept(String id, String name) {
