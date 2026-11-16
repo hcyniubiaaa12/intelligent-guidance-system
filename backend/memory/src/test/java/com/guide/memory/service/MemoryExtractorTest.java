@@ -5,7 +5,11 @@ import com.guide.common.config.PromptProperties;
 import com.guide.llm.client.ChatModel;
 import com.guide.llm.client.ChatMsg;
 import com.guide.memory.dto.MemoryExtractionResult;
+import com.guide.memory.enums.MemoryDedupAction;
+import com.guide.memory.enums.MemoryType;
+import com.guide.memory.service.MemoryExtractor.ExistingMemory;
 import com.guide.memory.service.MemoryExtractor.MergedPreference;
+import com.guide.memory.service.MemoryExtractor.PreferenceItem;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,7 +43,7 @@ class MemoryExtractorTest {
         chatModel = mock(ChatModel.class);
         prompts = new PromptProperties();
         prompts.getMemoryExtract().setSystem("记忆抽取系统提示");
-        prompts.getMemoryExtract().setUserTemplate("对话记录：\n{dialogue}");
+        prompts.getMemoryExtract().setUserTemplate("已记住：\n{remembered}\n对话记录：\n{dialogue}");
         prompts.getMemoryMerge().setSystem("偏好合并系统提示");
         prompts.getMemoryMerge().setUserTemplate("已记住：\n{existing}\n新抽到：\n{incoming}");
         sysConfigService = mock(SysConfigService.class);
@@ -57,7 +61,8 @@ class MemoryExtractorTest {
                  "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null}]}
                 """);
 
-        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，希望你讲慢一点");
+        // quote 必须是对话里的原话片段（工单 02 起偏好也校验这一条）：fixture 与 quote 对齐
+        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，我希望你讲慢一点");
 
         assertThat(result.preferences()).extracting(p -> p.value()).containsExactly("讲慢一点");
         assertThat(result.backgrounds()).extracting(b -> b.value()).containsExactly("2型糖尿病");
@@ -67,7 +72,7 @@ class MemoryExtractorTest {
         ArgumentCaptor<List<ChatMsg>> captor = ArgumentCaptor.forClass(List.class);
         verify(chatModel).chat(captor.capture());
         assertThat(captor.getValue().get(0).content()).isEqualTo("记忆抽取系统提示");
-        assertThat(captor.getValue().get(1).content()).contains("患者：我有2型糖尿病，希望你讲慢一点");
+        assertThat(captor.getValue().get(1).content()).contains("患者：我有2型糖尿病，我希望你讲慢一点");
     }
 
     @Test
@@ -188,20 +193,137 @@ class MemoryExtractorTest {
     }
 
     @Test
-    @DisplayName("合并成功：解析合并后的 key/value，并校验两个占位符都替换成清单")
+    @DisplayName("判重协议：action=update 带 target、action=skip 读出来；target 只对 update 有意义，其余动作清空")
+    void parsesDedupActions() {
+        when(chatModel.chat(any())).thenReturn("""
+                {"preferences":[
+                  {"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点","confidence":0.9,
+                   "action":"update","target":1}],
+                 "background":[
+                  {"key":"慢病","value":"2型糖尿病，控制良好","type":"health","quote":"我有2型糖尿病，控制良好",
+                   "confidence":0.9,"validTo":null,"action":"skip","target":2}]}
+                """);
+
+        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，控制良好，我希望你讲慢一点",
+                List.of(new ExistingMemory(MemoryType.PREFERENCE, "回答方式", "讲慢一点"),
+                        new ExistingMemory(MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病")));
+
+        assertThat(result.preferences()).hasSize(1);
+        assertThat(result.preferences().get(0).action()).isEqualTo(MemoryDedupAction.UPDATE);
+        assertThat(result.preferences().get(0).target()).isEqualTo(1);
+        assertThat(result.backgrounds()).hasSize(1);
+        assertThat(result.backgrounds().get(0).action()).isEqualTo(MemoryDedupAction.SKIP);
+        // skip 什么都不写，序号留着只会让下游以为它指得到某条旧记忆
+        assertThat(result.backgrounds().get(0).target()).isNull();
+    }
+
+    @Test
+    @DisplayName("判重协议降级：action 非法 / 缺失、target 缺失 / 越界 / 非数字，一律按 new 且 target 清空")
+    void dedupProtocolFallsBackToNew() {
+        when(chatModel.chat(any())).thenReturn("""
+                {"preferences":[
+                  {"key":"a","value":"甲","quote":"我希望甲","confidence":0.9,"action":"merge","target":1},
+                  {"key":"b","value":"乙","quote":"我希望乙","confidence":0.9,"action":"update"},
+                  {"key":"c","value":"丙","quote":"我希望丙","confidence":0.9,"action":"update","target":9},
+                  {"key":"d","value":"丁","quote":"我希望丁","confidence":0.9,"action":"update","target":0},
+                  {"key":"e","value":"戊","quote":"我希望戊","confidence":0.9,"action":"update","target":"第一条"},
+                  {"key":"g","value":"庚","quote":"我希望庚","confidence":0.9,"action":"update","target":1.5},
+                  {"key":"f","value":"己","quote":"我希望己","confidence":0.9}],
+                 "background":[]}
+                """);
+
+        MemoryExtractionResult result = extractor.extract(
+                "患者：我希望甲。我希望乙。我希望丙。我希望丁。我希望戊。我希望庚。我希望己",
+                List.of(new ExistingMemory(MemoryType.PREFERENCE, "回答方式", "讲慢一点")));
+
+        assertThat(result.preferences()).hasSize(7);
+        assertThat(result.preferences()).allSatisfy(p -> {
+            assertThat(p.action()).isEqualTo(MemoryDedupAction.NEW);
+            assertThat(p.target()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("判重协议：旧清单为空时 update 必然越界 ⇒ 也是 new")
+    void updateWithoutExistingFallsBackToNew() {
+        when(chatModel.chat(any())).thenReturn("""
+                {"preferences":[{"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点",
+                 "confidence":0.9,"action":"update","target":1}],"background":[]}
+                """);
+
+        MemoryExtractionResult result = extractor.extract("患者：我希望你讲慢一点");
+
+        assertThat(result.preferences()).hasSize(1);
+        assertThat(result.preferences().get(0).action()).isEqualTo(MemoryDedupAction.NEW);
+        assertThat(result.preferences().get(0).target()).isNull();
+    }
+
+    @Test
+    @DisplayName("已记住的记忆：按序号编号、分组标注 [偏好] / [背景]，无条目写「（无）」")
+    @SuppressWarnings("unchecked")
+    void existingMemoriesEnterUserMessage() {
+        when(chatModel.chat(any())).thenReturn("{\"preferences\":[],\"background\":[]}");
+
+        extractor.extract("患者：说慢点",
+                List.of(new ExistingMemory(MemoryType.PREFERENCE, "回答方式", "讲慢一点"),
+                        new ExistingMemory(MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病")));
+
+        ArgumentCaptor<List<ChatMsg>> captor = ArgumentCaptor.forClass(List.class);
+        verify(chatModel).chat(captor.capture());
+        String user = captor.getValue().get(1).content();
+        assertThat(user).contains("1. [偏好] 回答方式：讲慢一点");
+        assertThat(user).contains("2. [背景] 慢病：2型糖尿病");
+        assertThat(user).contains("患者：说慢点");
+
+        resetChat();
+        when(chatModel.chat(any())).thenReturn("{\"preferences\":[],\"background\":[]}");
+        extractor.extract("患者：说慢点");
+
+        ArgumentCaptor<List<ChatMsg>> emptyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatModel).chat(emptyCaptor.capture());
+        assertThat(emptyCaptor.getValue().get(1).content()).contains("（无）");
+    }
+
+    @Test
+    @DisplayName("只收对话文本的重载：等价于旧清单为空（金标集与既有单测据此沿用）")
+    void singleArgOverloadEqualsEmptyExisting() {
+        when(chatModel.chat(any())).thenReturn("{\"preferences\":[],\"background\":[]}");
+
+        extractor.extract("患者：说慢点");
+
+        assertThat(extractor.extract("患者：说慢点", List.of())).isNotNull();
+    }
+
+    @Test
+    @DisplayName("合并成功：解析合并后的 key/value，并校验两个占位符都替换成「键：值」清单")
     @SuppressWarnings("unchecked")
     void mergeParsesResult() {
         when(chatModel.chat(any())).thenReturn(
                 "{\"preferences\":[{\"key\":\"回答方式\",\"value\":\"讲慢一点\"},{\"key\":\"称呼\",\"value\":\"叫我老王\"}]}");
 
-        List<MergedPreference> merged = extractor.merge(List.of("讲慢一点"), List.of("叫我老王"));
+        List<MergedPreference> merged = extractor.merge(
+                List.of(new PreferenceItem("回答方式", "讲慢一点")),
+                List.of(new PreferenceItem("称呼", "叫我老王")));
 
         assertThat(merged).extracting(MergedPreference::value).containsExactly("讲慢一点", "叫我老王");
         ArgumentCaptor<List<ChatMsg>> captor = ArgumentCaptor.forClass(List.class);
         verify(chatModel).chat(captor.capture());
         String user = captor.getValue().get(1).content();
-        assertThat(user).contains("- 讲慢一点", "- 叫我老王");
+        assertThat(user).contains("- 回答方式：讲慢一点", "- 称呼：叫我老王");
         assertThat(user).doesNotContain("{existing}", "{incoming}");
+    }
+
+    @Test
+    @DisplayName("合并结果的 key 不靠模型编：值能对上输入项时沿用输入项的 key")
+    void mergeReusesKeyFromInputs() {
+        when(chatModel.chat(any())).thenReturn(
+                "{\"preferences\":[{\"key\":\"我自己编的\",\"value\":\"讲慢一点\"}]}");
+
+        List<MergedPreference> merged = extractor.merge(
+                List.of(new PreferenceItem("回答方式", "讲慢一点")),
+                List.of(new PreferenceItem("语速", "慢点")));
+
+        assertThat(merged).extracting(MergedPreference::key).containsExactly("回答方式");
     }
 
     @Test
@@ -211,11 +333,17 @@ class MemoryExtractorTest {
                 .thenThrow(new RuntimeException("boom"))
                 .thenReturn("不是 JSON");
 
-        assertThatThrownBy(() -> extractor.merge(List.of("a"), List.of("b")))
+        assertThatThrownBy(() -> extractor.merge(
+                List.of(new PreferenceItem("回答方式", "a")), List.of(new PreferenceItem("称呼", "b"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("合并模型调用失败");
-        assertThatThrownBy(() -> extractor.merge(List.of("a"), List.of("b")))
+        assertThatThrownBy(() -> extractor.merge(
+                List.of(new PreferenceItem("回答方式", "a")), List.of(new PreferenceItem("称呼", "b"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("合并输出不可解析");
+    }
+
+    private void resetChat() {
+        org.mockito.Mockito.reset(chatModel);
     }
 }

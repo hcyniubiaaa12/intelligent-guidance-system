@@ -102,9 +102,15 @@
 
 - **触发两路**：① chat 在每轮 `finally` 发布 `TurnCompletedEvent(userId, sessionId)`，memory 的监听器投递到独立 `memoryExecutor` 异步处理——事件发布与抽取失败都只 WARN，绝不影响本轮 SSE 与落库；② 会话**空闲 30 分钟**兜底扫描（`SessionActivityPort.findIdleSessions`），补规则预筛漏掉的长对话。两路**共用** `chat_session.memory_extract_count` 配额：`UPDATE … WHERE count < max` 原子递增，每会话最多 `memory.extract.session.max`（默认 3）次。
 - **规则预筛**：只看最后一条患者消息，命中「我 / 喜欢 / 希望 / 有 / 做过 / 吃 / 过敏 / 不能 / 记得 / 讲 / 说」才值得调模型；空闲兜底跳过预筛。
-- **模型**：`ChatModel.chat`，提示词 `memory-extract.*`，一次输出 `preferences` / `background` / `profile_candidates` 三组 JSON；偏好满额时再调 `memory-merge.*` 合并去重（失败则**丢弃本批新偏好、保留旧偏好**）。
+- **模型**：`ChatModel.chat`，提示词 `memory-extract.*`，一次输出 `preferences` / `background` / `profile_candidates` 三组 JSON。**判重与抽取在同一次调用里完成**（2026-11-15 起，替代原先「满额才合并」）：送进提示词的「已记住的记忆」按序号编号、分 [偏好] / [背景] 两组（偏好与背景混排，序号从 1 起），每条偏好 / 背景回两个字段——`action` 与 `target`：
+  - `action`：`new`（没说过的）/ `update`（就是清单里的那一条）/ `skip`（旧值更好或等价，零写入）；
+  - `target`：旧清单序号，仅 `update` 需要填，其余为 null。跨类不许 update——偏好说的是「怎么回答我」、背景说的是「我是谁」，两者永远不是同一件事。
+  - **判据在模型**：只有明确是同一件事才 update（措辞相近但说的不是一回事按 new）；update 的 value 取**信息量更大**的那个，旧值本来更具体、新说法没带新信息则 skip；新说法与旧说法**相反或改口**（「讲慢一点」→「不要太慢」）也按 update，以新说法为准；**判断依据是「患者这句话在说什么」，不是抽出来的 value 字面**——「不要太慢了 / 正常语速就行 / 快一点」都是对「讲慢一点」改口，value 会被改写成「正常语速」，不能因为与旧值字面不同就判 new（2026-11-16 真机暴露：多轮对话里一度判成 new、两条偏好并存；单句样本反而判对，因为 value 没被改写）。**「取信息量更大的」必须限定在 update 内**（提示词已写死「仅当 action=update 时」）：不加作用域时模型会把它用到 `new` 上，value 开始带括号补语与病程，背景/手术的精确率掉、金标集 F1 从 0.87 掉到 0.78（2026-11-16 实测）。`new` / `skip` 仍取最短能独立说清这件事的表述。
+  - **「拿不准就 new」是安全性选择**：多记一条患者看得见、能自己删；漏记或误合并一条，他永远不知道自己被记错了。这是医疗场景下唯一安全的默认，也是解析层与分派层降级的同一个方向。
+  - **降级链**：解析层把缺失 / 非法 `action`、非整数或越界 `target` 一律降级为 `new`；分派层（`MemoryDedupPlanner`）再校验「目标行仍生效、与本条同类、同一行本批只改一次」，任一不成立同样按新增落下。**判重失败不会丢草稿**。
+  - 偏好满额（`memory.preference.max`）时仍调一次 `memory-merge.*` 兜底合并（失败则**丢弃本批新偏好、保留旧偏好**）——它已降为兜底，不再是去重的唯一手段。
 - **校验（代码兜底，纯函数）**：缺原话 `quote` 或置信度低于 `memory.extract.confidence.min` 丢弃；key > 8 字 / value > 60 字丢弃；否定句丢弃；**禁止推断**（原话里既没有值、也没有稳定标记则丢弃——不能从「吃二甲双胍」推出「糖尿病」）；当前主诉不作为长期事实；档案事实（过敏 / 手术 / 服药）不得进背景，只走候选；候选 `field` 只允许 `allergy/medication/surgery`，月份只允许 `YYYY-MM` 且不得是未来。
-- **落库**：偏好直接写 `user_memory`；稳定背景写 `user_memory` 并**同步写向量**（失败由回填任务补）；候选写 `profile_candidate`（同值已在档案 / 已被拒绝 / 已有 pending 则不重复插入，30 天未处理自动 expired）。全部写 `user_memory_log` 审计。
+- **落库**：偏好直接写 `user_memory`（`update` 原地改旧行：**id 不变**，改值 / 原话 / 置信度 / 观察时间；`skip` 零写入、零审计——值没变却刷新观察时间会让它无理由跳到「我记住的」最前面）；稳定背景写 `user_memory` 并**同步写向量**（`update` 时同时刷新 `retrieval_text` 并重算向量，否则召回继续用旧文本的向量、改口等于没改；失败由回填任务补）；候选写 `profile_candidate`（同值已在档案 / 已被拒绝 / 已有 pending 则不重复插入，30 天未处理自动 expired）。新增 / 更新 / 删除都写 `user_memory_log` 审计（`update` 记 `op=update` 并保留新旧值）。
 - **控制面**：`GET /api/memory`（开关 + 偏好 + 背景 + 候选 + 上限）、`PUT /api/memory/setting`、`PUT/DELETE /api/memory/{id}`、`DELETE /api/memory`、候选 accept/reject；userId 只从登录态取，游客 401。编辑只改值并刷新背景向量，删除是逻辑删除 + 审计。
 
 **存量迁移**：旧 `history_tags` / `history_other` → `user_memory` 稳定背景（`actor=migration`、原话「来自旧档案：…」），按**物理行**判存在保证幂等；旧用药字符串数组 → 对象数组（时间空）；旧列保留不删、不回改历史快照。

@@ -8,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
@@ -111,6 +113,36 @@ class MemoryVectorIndexerTest {
         assertThat(indexer.index(memory)).isFalse();
 
         verify(vectorStore, never()).upsert(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("背景改口：retrieval_text / updated_at 快照同步，embedding 按新文本重算")
+    void refreshBackgroundValueReindexesNewText() {
+        Memory memory = memory("m1", MemoryType.BACKGROUND_HEALTH, MemoryStatus.ACTIVE);
+        memory.setMvalue("2型糖尿病");
+        memory.setRetrievalText("2型糖尿病");
+        LocalDateTime now = LocalDateTime.of(2026, 11, 16, 10, 0);
+        float[] vector = {0.4f};
+        when(embeddingModel.embed("2型糖尿病，控制良好")).thenReturn(vector);
+
+        indexer.refreshBackgroundValue(memory, "2型糖尿病，控制良好", now);
+
+        assertThat(memory.getMvalue()).isEqualTo("2型糖尿病，控制良好");
+        assertThat(memory.getRetrievalText()).isEqualTo("2型糖尿病，控制良好");
+        assertThat(memory.getUpdatedAt()).isEqualTo(now);
+        verify(vectorStore).upsert("m1", "u1", "background_health", vector);
+    }
+
+    @Test
+    @DisplayName("偏好不走向量刷新：refreshBackgroundValue 对偏好是空操作（偏好永远全量注入）")
+    void refreshBackgroundValueSkipsPreference() {
+        Memory memory = memory("m1", MemoryType.PREFERENCE, MemoryStatus.ACTIVE);
+        memory.setMvalue("讲慢一点");
+
+        indexer.refreshBackgroundValue(memory, "讲快一点", LocalDateTime.now());
+
+        verifyNoInteractions(embeddingModel);
+        verifyNoInteractions(vectorStore);
     }
 
     @Test

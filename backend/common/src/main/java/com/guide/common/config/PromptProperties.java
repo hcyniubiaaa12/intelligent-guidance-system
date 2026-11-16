@@ -55,6 +55,8 @@ public class PromptProperties {
     public static final String PLACEHOLDER_EXISTING = "{existing}";
     /** 记忆合并：本批新偏好清单 */
     public static final String PLACEHOLDER_INCOMING = "{incoming}";
+    /** 记忆抽取：已记住的记忆清单（按序号编号，供模型回 `target`；无条目时写「（无）」） */
+    public static final String PLACEHOLDER_REMEMBERED = "{remembered}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -157,11 +159,11 @@ public class PromptProperties {
     @Data
     public static class MemoryExtract {
         private String system;
-        /** 必含 {dialogue} */
+        /** 必含 {remembered} {dialogue} */
         private String userTemplate;
     }
 
-    /** 偏好满额时的合并去重提示词：输入既有与新抽到的偏好，只要合并后的清单 */
+    /** 偏好满额时的合并去重提示词：输入既有与新抽到的偏好（均为「键：值」），只要合并后的清单 */
     @Data
     public static class MemoryMerge {
         private String system;
@@ -193,7 +195,7 @@ public class PromptProperties {
         require(termExtract.getUserTemplate(), "prompts.term-extract.user-template", List.of(PLACEHOLDER_TEXT));
         require(memoryExtract.getSystem(), "prompts.memory-extract.system", List.of());
         require(memoryExtract.getUserTemplate(), "prompts.memory-extract.user-template",
-                List.of(PLACEHOLDER_DIALOGUE));
+                List.of(PLACEHOLDER_REMEMBERED, PLACEHOLDER_DIALOGUE));
         require(memoryMerge.getSystem(), "prompts.memory-merge.system", List.of());
         require(memoryMerge.getUserTemplate(), "prompts.memory-merge.user-template",
                 List.of(PLACEHOLDER_EXISTING, PLACEHOLDER_INCOMING));

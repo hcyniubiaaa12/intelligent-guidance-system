@@ -15,17 +15,24 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>每条规则一个用例——医疗场景里「记错了还一直用」比「没记住」更危险，
  * 过滤规则失效的代价远高于多丢一条记忆。
+ *
+ * <p><b>偏好与背景的依据口径不同</b>（工单 02）：偏好允许改写表述，只要求**原话整体出现在
+ * 本轮对话原文里**；背景仍要求「值出现在原话里」或有稳定标记——背景是要注入的诊断背景，
+ * 措辞被模型改写就等于替患者编了一条病史。
  */
 class MemoryExtractValidatorTest {
 
     private static final double MIN = 0.6;
     private static final BigDecimal OK = new BigDecimal("0.9");
 
+    /** 大多数用例共用的一轮对话：够短，能把「原话在不在里面」一眼看出来 */
+    private static final String DIALOGUE = "患者：我希望你讲慢一点，叫我老王就行\n助手：好的，我讲慢一些";
+
     @Test
     @DisplayName("合法偏好与背景都保留：带原话、置信度达标、类型按模型声明归一")
     void keepsValidDrafts() {
         List<PreferenceDraft> preferences = MemoryExtractValidator.validPreferences(List.of(
-                new PreferenceDraft("回答方式", "讲慢一点", "我希望你讲慢一点", OK)), MIN);
+                new PreferenceDraft("回答方式", "讲慢一点", "我希望你讲慢一点", OK)), MIN, DIALOGUE);
         List<BackgroundDraft> backgrounds = MemoryExtractValidator.validBackgrounds(List.of(
                 new BackgroundDraft("慢病", "2型糖尿病", "health", "我有2型糖尿病", OK, null),
                 new BackgroundDraft("生活", "长期夜班", "other", "我一直上夜班", OK, null)), MIN);
@@ -36,11 +43,50 @@ class MemoryExtractValidatorTest {
     }
 
     @Test
+    @DisplayName("偏好允许改写表述：值不出现在原话里，只要原话在对话原文中就落库（工单 02 放宽）")
+    void keepsParaphrasedPreference() {
+        List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
+                new PreferenceDraft("语速", "语速要慢", "你讲话不要太慢了", OK)),
+                MIN, "患者：你讲话不要太慢了\n助手：好的");
+
+        // 改口的典型形态：新说法与旧的相反，措辞与原话也不一致——旧的逐字比对会把它整条丢掉
+        assertThat(kept).extracting(PreferenceDraft::value).containsExactly("语速要慢");
+    }
+
+    @Test
+    @DisplayName("偏好的依据不能是编的：原话不在本轮对话原文里 ⇒ 丢弃")
+    void dropsPreferenceWhoseQuoteIsNotInDialogue() {
+        List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
+                new PreferenceDraft("回答方式", "讲慢一点", "我希望你讲慢一点", OK)),
+                MIN, "患者：我这两天有点咳嗽\n助手：多久了？");
+
+        assertThat(kept).isEmpty();
+    }
+
+    @Test
+    @DisplayName("对话原文为空：偏好一律丢弃（没有原文就没有依据，不猜）")
+    void dropsPreferencesWithoutDialogue() {
+        assertThat(MemoryExtractValidator.validPreferences(List.of(
+                new PreferenceDraft("回答方式", "讲慢一点", "我希望你讲慢一点", OK)), MIN, null)).isEmpty();
+        assertThat(MemoryExtractValidator.validPreferences(List.of(
+                new PreferenceDraft("回答方式", "讲慢一点", "我希望你讲慢一点", OK)), MIN, "  ")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("背景不跟着放宽：值不在原话里、也没有稳定标记 ⇒ 仍被丢弃（不许替患者编病史）")
+    void backgroundParaphraseStillDropped() {
+        List<BackgroundDraft> kept = MemoryExtractValidator.validBackgrounds(List.of(
+                new BackgroundDraft("慢病", "高血糖", "health", "我最近血糖偏高", OK, null)), MIN);
+
+        assertThat(kept).isEmpty();
+    }
+
+    @Test
     @DisplayName("缺患者原话：直接丢弃，不修补、不拿其它字段顶上")
     void dropsMissingQuote() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
                 new PreferenceDraft("回答方式", "讲慢一点", "  ", OK),
-                new PreferenceDraft("回答方式", "讲慢一点", null, OK)), MIN);
+                new PreferenceDraft("回答方式", "讲慢一点", null, OK)), MIN, DIALOGUE);
 
         assertThat(kept).isEmpty();
     }
@@ -51,7 +97,7 @@ class MemoryExtractValidatorTest {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
                 new PreferenceDraft("回答方式", "讲慢一点", "我希望慢一点", new BigDecimal("0.59")),
                 new PreferenceDraft("称呼", "叫我老王", "叫我老王", new BigDecimal("0.6")),
-                new PreferenceDraft("长度", "短一点", "短一点", null)), MIN);
+                new PreferenceDraft("长度", "短一点", "短一点", null)), MIN, DIALOGUE);
 
         assertThat(kept).extracting(PreferenceDraft::value).containsExactly("叫我老王");
     }
@@ -60,8 +106,9 @@ class MemoryExtractValidatorTest {
     @DisplayName("key / value 超长：丢弃（落库列宽与页面展示共同决定的上限）")
     void dropsOverlongFields() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
-                new PreferenceDraft("这是一个超过八个字的键", "慢一点", "我希望慢一点", OK),
-                new PreferenceDraft("回答方式", "一".repeat(61), "我希望讲得慢一点", OK)), MIN);
+                new PreferenceDraft("这是一个超过八个字的键", "慢一点", "我希望讲得慢一点", OK),
+                new PreferenceDraft("回答方式", "一".repeat(61), "我希望讲得慢一点", OK)),
+                MIN, "患者：我希望讲得慢一点");
 
         assertThat(kept).isEmpty();
     }
@@ -128,7 +175,8 @@ class MemoryExtractValidatorTest {
     void dedupesWithinBatch() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
                 new PreferenceDraft("回答方式", "讲慢一点", "我希望讲慢一点", OK),
-                new PreferenceDraft("回答方式", "讲慢一点", "讲慢一点吧", OK)), MIN);
+                new PreferenceDraft("回答方式", "讲慢一点", "讲慢一点吧", OK)),
+                MIN, "患者：我希望讲慢一点，讲慢一点吧");
 
         assertThat(kept).hasSize(1);
         assertThat(kept.get(0).quote()).isEqualTo("我希望讲慢一点");
@@ -164,7 +212,7 @@ class MemoryExtractValidatorTest {
     void dropsBlankFields() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(
                 new PreferenceDraft("", "讲慢一点", "我希望讲慢一点", OK),
-                new PreferenceDraft("回答方式", "  ", "我希望讲慢一点", OK)), MIN);
+                new PreferenceDraft("回答方式", "  ", "我希望讲慢一点", OK)), MIN, DIALOGUE);
 
         assertThat(kept).isEmpty();
     }
