@@ -1,6 +1,6 @@
 # 记忆判重前置（spec）
 
-Status: ready-for-agent
+Status: resolved
 
 > 类型：**修 bug + 补功能**。修的是「改口后旧偏好不覆盖」与「同义记忆并存」，补的是「落库前判重」这条缺失的环节。
 > 前置：`feat/health-profile-memory` 分支，`171f812` 之后。历史上下文见 `.scratch/health-profile-memory/`。

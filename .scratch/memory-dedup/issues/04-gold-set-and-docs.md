@@ -93,3 +93,28 @@
 **结论**：回归由判重规则的 **value 口径外溢**导致（规则 2 的「信息量更大」被模型用到 `new` 上），限定作用域后消失，偏好/背景/手术三项同时回到甚至超过基线。**门禁本身贴噪声边缘这件事仍然成立**（同日基线两次差 4 个点，单次 0.805 分不清回归与波动），已写进 `进度.md`「已知坑」与 `docs/memory-gold-set.md` §6.1——后续改提示词至少跑 2 次取均值。
 
 **验证**：`mvn -o -B -pl memory -am test`、`mvn -o -B test` 均 **BUILD SUCCESS、0 failures**；金标集默认跳过。`npm run check` 不适用（未改 `frontend/`）。
+
+### 2026-11-16 code review 修复
+
+审查提了 6 条，修了 5 条、刻意不改 1 条 + 另有 4 条明确不动（判断题）。
+
+**已修**
+
+1. **更新失败降级为新增（spec 漏了一处）**：`MemoryExtractionService.applyPreferenceUpdate` / `applyBackgroundUpdate` 接住 `memoryMapper.update(...)` 的受影响行数，`<= 0` 视为没改成并返回 `false`，由调用方把该草稿塞进 `toInsert`；只有真正命中并修改时才更新内存快照、写 `update` 审计。
+2. **审计失败不造成重复落库**：新增 `auditUpdate(...)` 私有方法，审计单独 try/catch，失败只 `log.warn`（带 `userId` / `memoryId` / `op=update`）。是否降级为新增**只由 UPDATE 结果决定**；背景路径的向量刷新也单独兜住（MySQL 已更新，向量失败由回填任务收敛）。
+3. **D05 与 spec 口径冲突**：样本改为「旧=高血压，新=除了高血压还有糖尿病」，期望值 `高血压和糖尿病`，`aliases` 只放保留旧事实的写法，**不放裸「糖尿病」**。D02 / D08 同属「补充 / 更具体」类 update，期望值一并改成合并值并清掉裸新值；D04 是 new 不受影响。反向改口 D01 / D07 是 spec 明确允许的**替换**，期望值取新说法，但 `aliases` 保留含旧事实的改写（D07 的「不再独居」、D01 的「别讲那么慢」），不做合并（合并会得到自相矛盾的值）。
+4. **评估侧 `existingMemories` 丢 `background_other`**：按 `type` 支持 `preference` / `background_health`（`health` / `background`）/ `background_other`（`other`），缺省仍按 health；D07 的 `existing` 改为 `background_other` 以覆盖该分支。
+5. **死代码**：删掉 `MemoryDedupAction.label` 与其构造器，`@Getter` / `@RequiredArgsConstructor` 一并移除（`getLabel()` 全仓无调用点）。
+6. **轻量去重**：`backgroundRows` 改为复用 `filterType` 两次，不引入新抽象。
+
+新增用例（`MemoryExtractionServiceTest`，先红后绿）：偏好 / 背景「更新命中 0 行」各 1 条（断言无 `update` 审计、草稿走插入）、偏好 / 背景「审计抛异常」各 1 条（断言无额外 insert、不上抛；背景仍重算向量）。测试基线里 `memoryMapper.update` 默认返回 1。
+
+**刻意不改**
+
+- 不把 `savePreferences` / `saveBackgrounds` 抽成泛型模板：两条路径的 update 副作用与满额策略不同，抽模板会变成传策略参数，更难读。
+- 日志里的记忆值 `old→new` 保持原样：与 `retractCorrectedBackgrounds` 等既有代码同惯例，审查里只是提醒，不改。
+- 不删 DTO 的兼容构造重载：既有测试与校验器重建草稿在用。
+- 不动 `.gitignore` 的 `.worktrees/`：本地工作目录需要。
+- 不扩大范围到档案候选、前端、表结构。
+
+**验证**：`mvn -o -B test` **BUILD SUCCESS**，746 用例、0 failures / 0 errors / 1 skipped（金标集 `@EnabledIfEnvironmentVariable` 默认跳过）。金标集**未重跑**（本次只改样本与离线评分口径，不产生模型费用）；`docs/memory-gold-set.jsonl` 仍为 90 条、一行一条合法 JSON。
