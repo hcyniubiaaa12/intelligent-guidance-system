@@ -22,6 +22,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * 背景召回 gold set 评估（默认不跑，避免常规测试产生模型费用）。
  *
@@ -36,13 +38,39 @@ import java.util.Map;
  * <p><b>为什么正样本刻意让 query 不含 mvalue 原文</b>：词面路两轮都一样，只有向量文本变了。
  * 如果 query 是 mvalue 的原文子串，两轮都靠词面命中，看不出扩写到底有没有用。
  */
-@EnabledIfEnvironmentVariable(named = "MEMORY_RECALL_EVAL", matches = "true")
 class MemoryRecallEvalTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int TOP_K = 3;
 
+    /**
+     * 评估逻辑自检（**不联网**）：假向量验证「向量过阈值进 top-3 / 词面只吃 mvalue /
+     * 否定句不命中」。真实评估被账户余额或网络挡住时，至少这一段逻辑不会被悄悄写错。
+     */
     @Test
+    @DisplayName("评估逻辑自检（假向量）：向量排序、词面只比 mvalue、否定句拦截")
+    void recallLogicWorksOffline() {
+        List<Memory> memories = List.of(
+                new Memory("慢病", "2型糖尿病", "2型糖尿病；糖尿病、血糖高"),
+                new Memory("慢病", "高血压", "高血压；血压高、血压偏高"));
+        List<float[]> vectors = List.of(new float[]{1f, 0f}, new float[]{0f, 1f});
+
+        // 向量路：query 与第一条同向 → 只命中第一条
+        assertThat(recall(new float[]{1f, 0f}, "血糖高", vectors, memories, 0.7, false))
+                .containsExactly(0);
+        // 词面路只比 mvalue：query 含「高血压」→ 命中第二条（扩写不参与词面）
+        assertThat(recall(new float[]{0f, 0f}, "高血压", vectors, memories, 0.7, true))
+                .containsExactly(1);
+        // 否定句拦截：「我没有高血压」不能把高血压当成相关背景
+        assertThat(recall(new float[]{0f, 0f}, "我没有高血压", vectors, memories, 0.7, true))
+                .isEmpty();
+        // 纯向量模式不吃词面
+        assertThat(recall(new float[]{0f, 0f}, "高血压", vectors, memories, 0.7, false))
+                .isEmpty();
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "MEMORY_RECALL_EVAL", matches = "true")
     @DisplayName("背景召回：mvalue 基线 vs retrievalText 扩写（正样本命中率 / 负样本误召回率）")
     void evaluate() throws Exception {
         Path root = repoRoot();
