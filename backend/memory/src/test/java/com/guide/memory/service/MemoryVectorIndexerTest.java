@@ -134,38 +134,6 @@ class MemoryVectorIndexerTest {
     }
 
     @Test
-    @DisplayName("改口带新扩写：retrieval_text 用扩写，embedding 也按扩写算")
-    void refreshBackgroundValueUsesEnrichment() {
-        Memory memory = memory("m1", MemoryType.BACKGROUND_HEALTH, MemoryStatus.ACTIVE);
-        memory.setMvalue("2型糖尿病");
-        LocalDateTime now = LocalDateTime.of(2026, 11, 17, 9, 0);
-        String enriched = "2型糖尿病；糖尿病、血糖高；我血糖高要注意什么";
-        float[] vector = {0.5f};
-        when(embeddingModel.embed(enriched)).thenReturn(vector);
-
-        indexer.refreshBackgroundValue(memory, "2型糖尿病", enriched, now);
-
-        assertThat(memory.getMvalue()).isEqualTo("2型糖尿病");
-        assertThat(memory.getRetrievalText()).isEqualTo(enriched);
-        assertThat(memory.getUpdatedAt()).isEqualTo(now);
-        verify(vectorStore).upsert("m1", "u1", "background_health", vector);
-    }
-
-    @Test
-    @DisplayName("改口时扩写为空：retrieval_text 回退新值，不能用空白覆盖")
-    void refreshBackgroundValueFallsBackWhenEnrichmentBlank() {
-        Memory memory = memory("m1", MemoryType.BACKGROUND_HEALTH, MemoryStatus.ACTIVE);
-        memory.setMvalue("旧值");
-        float[] vector = {0.6f};
-        when(embeddingModel.embed("新值")).thenReturn(vector);
-
-        indexer.refreshBackgroundValue(memory, "新值", "  ", LocalDateTime.now());
-
-        assertThat(memory.getRetrievalText()).isEqualTo("新值");
-        verify(vectorStore).upsert("m1", "u1", "background_health", vector);
-    }
-
-    @Test
     @DisplayName("偏好不走向量刷新：refreshBackgroundValue 对偏好是空操作（偏好永远全量注入）")
     void refreshBackgroundValueSkipsPreference() {
         Memory memory = memory("m1", MemoryType.PREFERENCE, MemoryStatus.ACTIVE);

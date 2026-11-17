@@ -81,27 +81,22 @@ public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<Bac
     /**
      * 稳定背景草稿。
      *
-     * @param type          health / other（其余值按 health 处理）
-     * @param validTo       可选结束日期（已结束的长期用药等）
-     * @param retrievalText 供 embedding 的检索扩展文本（只换说法、不新增事实；空 ⇒ 回退 value）。
-     *                      **不注入 prompt、不给患者看**，见 {@code MemoryVectorIndexer}。
-     * @param target        旧清单序号，仅 {@code action=update} 时有值
+     * <p>**不含检索扩展文本**：抽取只负责「抽什么」，`retrieval_text` 由落库后的
+     * {@code MemoryEnricher} 异步补写（在抽取同一次调用里让模型多写一个字段会挤占抽取质量，
+     * 2026-11-17 金标集实测 F1 从 0.871 降到 0.824）。
+     *
+     * @param type    health / other（其余值按 health 处理）
+     * @param validTo 可选结束日期（已结束的长期用药等）
+     * @param target  旧清单序号，仅 {@code action=update} 时有值
      */
     public record BackgroundDraft(String key, String value, String type, String quote,
-                                  BigDecimal confidence, LocalDate validTo, String retrievalText,
+                                  BigDecimal confidence, LocalDate validTo,
                                   MemoryDedupAction action, Integer target) implements DedupDraft {
 
         /** 兼容不关心判重的调用方：等价于 {@code action=new} */
         public BackgroundDraft(String key, String value, String type, String quote,
                                BigDecimal confidence, LocalDate validTo) {
-            this(key, value, type, quote, confidence, validTo, null, MemoryDedupAction.NEW, null);
-        }
-
-        /** 兼容不关心扩写文本与判重的调用方（测试 / 校验器内部重建） */
-        public BackgroundDraft(String key, String value, String type, String quote,
-                               BigDecimal confidence, LocalDate validTo,
-                               MemoryDedupAction action, Integer target) {
-            this(key, value, type, quote, confidence, validTo, null, action, target);
+            this(key, value, type, quote, confidence, validTo, MemoryDedupAction.NEW, null);
         }
 
         public BackgroundDraft {

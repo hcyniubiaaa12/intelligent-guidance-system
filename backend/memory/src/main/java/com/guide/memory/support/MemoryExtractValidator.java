@@ -135,8 +135,7 @@ public final class MemoryExtractValidator {
             String type = "other".equalsIgnoreCase(cleaned.type()) ? "other" : "health";
             if (seen.add(key(type, cleaned.key(), cleaned.value()))) {
                 result.add(new BackgroundDraft(cleaned.key(), cleaned.value(), type, cleaned.quote(),
-                        cleaned.confidence(), cleaned.validTo(), cleaned.retrievalText(),
-                        cleaned.action(), cleaned.target()));
+                        cleaned.confidence(), cleaned.validTo(), cleaned.action(), cleaned.target()));
             }
         }
         return result;
@@ -270,8 +269,7 @@ public final class MemoryExtractValidator {
         }
         String type = draft.type() == null ? "health" : draft.type().trim().toLowerCase(Locale.ROOT);
         return new BackgroundDraft(trim(draft.key()), trim(draft.value()), type, trim(draft.quote()),
-                draft.confidence(), draft.validTo(), cleanRetrievalText(draft.retrievalText()),
-                draft.action(), draft.target());
+                draft.confidence(), draft.validTo(), draft.action(), draft.target());
     }
 
     /** 模型常把「没有答案」写成这些占位词：它们嵌入后会让这条背景再也匹配不到任何 query */
@@ -285,7 +283,7 @@ public final class MemoryExtractValidator {
      * 用规则去判「有没有编造事实」既不可靠、又会误杀合法同义词（如「血糖高」不含「2型糖尿病」）。
      * 事实边界靠提示词约束 + 评估集观察。
      *
-     * <p>公开给 {@code MemoryEnricher} 复用：抽取与手动编辑后的补写必须走同一套清理口径，
+     * <p>公开给 {@code MemoryEnricher} 复用：背景落库后的补写必须走同一套清理口径，
      * 否则同一条模型输出在一处能落库、在另一处被当成有效文本。
      */
     public static String cleanRetrievalText(String raw) {

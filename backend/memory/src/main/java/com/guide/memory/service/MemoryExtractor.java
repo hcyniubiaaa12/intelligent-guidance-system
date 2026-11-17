@@ -179,7 +179,7 @@ public class MemoryExtractor {
             Dedup dedup = dedup(node, existingCount);
             drafts.add(new BackgroundDraft(text(node, "key"), text(node, "value"),
                     text(node, "type"), text(node, "quote"), decimal(node, "confidence"),
-                    date(node, "validTo"), text(node, "retrievalText"), dedup.action(), dedup.target()));
+                    date(node, "validTo"), dedup.action(), dedup.target()));
         }
         return drafts;
     }

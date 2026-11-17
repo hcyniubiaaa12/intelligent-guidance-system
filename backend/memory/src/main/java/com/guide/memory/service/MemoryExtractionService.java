@@ -55,7 +55,9 @@ import java.util.regex.Pattern;
  * 满额合并降为兜底。
  *
  * <p><b>背景的 {@code update} 多一步</b>：同步刷新 {@code retrieval_text} / {@code updated_at} 并重算向量，
- * 否则召回继续用旧文本的向量（改口等于没改）。偏好永远全量注入、不向量化，没有这一步。
+ * 否则召回继续用旧文本的向量（改口等于没改）。{@code retrieval_text} 先写新值，
+ * 检索扩展文本由落库后的 {@link MemoryEnricher} 异步覆盖（抽取提示词不生成它——同次生成会挤占抽取质量）。
+ * 偏好永远全量注入、不向量化，没有这一步。
  */
 @Slf4j
 @Service
@@ -80,6 +82,7 @@ public class MemoryExtractionService {
     private final SysConfigService sysConfigService;
     private final MemoryVectorIndexer vectorIndexer;
     private final ProfileCandidateService profileCandidateService;
+    private final MemoryEnricher memoryEnricher;
 
     /** 轮次完成入口（由 {@code MemoryExtractionListener} 在线程池里调用） */
     public void onTurnCompleted(TurnCompletedEvent event) {
@@ -134,7 +137,9 @@ public class MemoryExtractionService {
         }
 
         List<Memory> remembered = rememberedRows(userId);
-        MemoryExtractionResult result = memoryExtractor.extract(dialogueText(turns), existingMemories(remembered));
+        // 上下文既给抽取模型，也给落库后的异步扩写（扩写只用来理解患者怎么表达，不据此新增事实）
+        String dialogue = dialogueText(turns);
+        MemoryExtractionResult result = memoryExtractor.extract(dialogue, existingMemories(remembered));
         if (result == null || result.isEmpty()) {
             log.info("本轮未抽到可落库的记忆：sessionId={}", sessionId);
             return;
@@ -142,7 +147,7 @@ public class MemoryExtractionService {
         // 判重候选就是**送进提示词的那一份清单**：模型回的 target 是它的序号，
         // 另查一次等于换了一套编号，会把患者的一条偏好改成另一条。
         savePreferences(userId, remembered, result.preferences());
-        saveBackgrounds(userId, remembered, result.backgrounds());
+        saveBackgrounds(userId, remembered, result.backgrounds(), dialogue);
         // 档案事实（过敏/用药/手术）只进候选表：未确认前不注入、不预警，患者接受后才写档案
         profileCandidateService.recordCandidates(userId, result.candidates());
     }
@@ -284,7 +289,7 @@ public class MemoryExtractionService {
             if (existing.size() + toInsert.size() <= max) {
                 for (PreferenceDraft draft : toInsert) {
                     Memory saved = insert(userId, MemoryType.PREFERENCE, draft.key(), draft.value(),
-                            draft.quote(), draft.confidence(), null, null);
+                            draft.quote(), draft.confidence(), null);
                     audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 }
                 return;
@@ -410,7 +415,7 @@ public class MemoryExtractionService {
             String quote = bestQuote(item.value(), existing, fresh);
             BigDecimal confidence = bestConfidence(item.value(), existing, fresh);
             Memory saved = insert(userId, MemoryType.PREFERENCE, item.key(), item.value(),
-                    quote, confidence, null, null);
+                    quote, confidence, null);
             audit(saved, userId, MemoryOp.MERGE, null, item.value());
         }
         // 合并结果已写入后再清旧行：审计逐条留痕，谁被合并掉了可追溯
@@ -438,7 +443,8 @@ public class MemoryExtractionService {
      *
      * @param remembered **送进提示词的那份清单**（同一个顺序）——target 的序号就是它的下标
      */
-    private void saveBackgrounds(String userId, List<Memory> remembered, List<BackgroundDraft> drafts) {
+    private void saveBackgrounds(String userId, List<Memory> remembered, List<BackgroundDraft> drafts,
+                                 String dialogue) {
         if (drafts == null || drafts.isEmpty()) {
             return;
         }
@@ -460,7 +466,7 @@ public class MemoryExtractionService {
                 toInsert = new ArrayList<>(fresh);
             }
             for (MemoryDedupPlanner.Update<BackgroundDraft> update : updates) {
-                if (!applyBackgroundUpdate(userId, update)) {
+                if (!applyBackgroundUpdate(userId, update, dialogue)) {
                     // 这一条改不动就改成新增：整批丢掉患者永远不知道自己被漏记了
                     toInsert.add(update.draft());
                 }
@@ -478,11 +484,15 @@ public class MemoryExtractionService {
             }
             for (BackgroundDraft draft : toInsert) {
                 Memory saved = insert(userId, backgroundType(draft), draft.key(), draft.value(),
-                        draft.quote(), draft.confidence(), draft.validTo(), draft.retrievalText());
+                        draft.quote(), draft.confidence(), draft.validTo());
                 audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 // 稳定背景需要向量才能被按需召回；写入失败由 indexer 降级（WARN + 回填任务补），
                 // 抽取本身已在线程池里，这里同步调用即可，不再多包一层异步。
                 vectorIndexer.index(saved);
+                // 落库成功后再异步生成检索扩展文本：先写 mvalue 保证召回不回退，
+                // 扩写成功才覆盖 retrieval_text。上下文只用来理解患者怎么表达，不据此新增事实。
+                memoryEnricher.scheduleAfterExtract(userId, saved.getId(), draft.key(), draft.value(),
+                        draft.quote(), dialogue);
             }
             log.info("稳定背景已写入 {} 条：userId={}", toInsert.size(), userId);
         } catch (RuntimeException e) {
@@ -546,13 +556,11 @@ public class MemoryExtractionService {
      *
      * @return 是否改成功（false ⇒ 调用方把这条改成新增，不丢）
      */
-    private boolean applyBackgroundUpdate(String userId, MemoryDedupPlanner.Update<BackgroundDraft> update) {
+    private boolean applyBackgroundUpdate(String userId, MemoryDedupPlanner.Update<BackgroundDraft> update,
+                                          String dialogue) {
         Memory row = update.row();
         BackgroundDraft draft = update.draft();
         String oldValue = row.getMvalue();
-        // 新值必须带新扩写：扩写文本跟着值走，缺失时回退新值（绝不让检索继续用旧说法的文本）
-        String retrievalText = (draft.retrievalText() == null || draft.retrievalText().isBlank())
-                ? draft.value() : draft.retrievalText().trim();
         LocalDateTime now = LocalDateTime.now();
         int affected;
         try {
@@ -563,7 +571,8 @@ public class MemoryExtractionService {
                     .set(Memory::getConfidence, draft.confidence())
                     .set(Memory::getObservedAt, now)
                     .set(Memory::getUpdatedAt, now)
-                    .set(Memory::getRetrievalText, retrievalText)
+                    // 先回退成新值：扩写由落库后的 MemoryEnricher 异步补，成功才覆盖
+                    .set(Memory::getRetrievalText, draft.value())
                     .eq(Memory::getId, row.getId())
                     .eq(Memory::getUserId, userId)
                     .eq(Memory::getStatus, MemoryStatus.ACTIVE));
@@ -586,11 +595,14 @@ public class MemoryExtractionService {
         auditUpdate(row.getId(), userId, oldValue, draft.value());
         // 向量重算是旁路：MySQL 已写成新值，这里失败只 WARN，回填任务会按 updated_at 补
         try {
-            vectorIndexer.refreshBackgroundValue(row, draft.value(), retrievalText, now);
+            vectorIndexer.refreshBackgroundValue(row, draft.value(), now);
         } catch (RuntimeException e) {
             log.warn("稳定背景向量刷新失败（记忆本身已更新，回填任务会补）：userId={} memoryId={}｜原因={}",
                     userId, row.getId(), e.getMessage());
         }
+        // 改口后异步补扩写：先写新值保证向量不指向旧说法，扩写成功再覆盖 retrieval_text
+        memoryEnricher.scheduleAfterExtract(userId, row.getId(), draft.key(), draft.value(),
+                draft.quote(), dialogue);
         log.info("稳定背景已按新说法原地更新：userId={} memoryId={} {} → {}",
                 userId, row.getId(), oldValue, draft.value());
         return true;
@@ -599,16 +611,16 @@ public class MemoryExtractionService {
     // ---------------- 公共落库 ----------------
 
     private Memory insert(String userId, MemoryType type, String key, String value, String quote,
-                          BigDecimal confidence, LocalDate validTo, String retrievalText) {
+                          BigDecimal confidence, LocalDate validTo) {
         LocalDateTime now = LocalDateTime.now();
         Memory memory = new Memory();
         memory.setUserId(userId);
         memory.setType(type);
         memory.setMkey(key);
         memory.setMvalue(value);
-        // retrieval_text 是「供 embedding 的检索扩展文本」：背景用模型给的扩写（缺失/超长已在校验层
-        // 置 null，这里回退 value）；偏好不向量化，与 value 同值即可。
-        memory.setRetrievalText(retrievalText == null || retrievalText.isBlank() ? value : retrievalText);
+        // retrieval_text 先与 value 同值（召回行为与没有扩写时一致）；
+        // 背景落库后由 MemoryEnricher 异步补真正的扩展文本，成功才覆盖
+        memory.setRetrievalText(value);
         memory.setSourceQuote(quote);
         memory.setConfidence(confidence);
         memory.setObservedAt(now);

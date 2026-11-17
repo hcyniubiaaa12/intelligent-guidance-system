@@ -25,9 +25,11 @@ import java.util.List;
 /**
  * 稳定背景的检索扩展文本生成（患者手动改值后的异步补写）。
  *
- * <p><b>只换说法、不补充事实</b>：输入只有条目本身的 key / value / quote（不给整段对话），
- * 输出用于 embedding 的 {@code retrieval_text}——不注入 prompt、不展示给患者、不进证据快照。
- * 它存在的唯一理由是「患者换一种说法时，背景还能被向量路找回来」。
+ * <p><b>只换说法、不补充事实</b>：输入是条目本身的 key / value / quote + 本轮对话上下文
+ * （上下文只用来理解患者怎么表达，不得据此新增事实），输出用于 embedding 的 {@code retrieval_text}——
+ * 不注入 prompt、不展示给患者、不进证据快照。它存在的唯一理由是「患者换一种说法时，背景还能被向量路找回来」。
+ *
+ * <p><b>两条入口</b>：抽取落库后（带对话上下文）与患者手动改值后（无上下文，避免旧原话锚定改口前的说法）。
  *
  * <p><b>失败是旁路</b>：模型失败、空输出、超长一律只 WARN；编辑时已经把 {@code retrieval_text}
  * 回退成新值，召回行为与没有扩写时完全一致。**不重试**（回填任务只补向量，不生成扩写）。
@@ -48,6 +50,9 @@ import java.util.List;
 @Slf4j
 @Component
 public class MemoryEnricher {
+
+    /** 对话上下文截断长度（约 8 条对话），防止整段历史把 prompt 撑爆 */
+    private static final int MAX_CONTEXT_CHARS = 2000;
 
     private final ChatModel chatModel;
     private final PromptProperties prompts;
@@ -77,16 +82,32 @@ public class MemoryEnricher {
      * 它对同一行的写会与事务抢锁 / 读到旧值，症状是「改口后扩写文本还是旧说法的」。
      */
     public void scheduleAfterEdit(String userId, String memoryId, String key, String value, String quote) {
+        // 手动编辑没有新的对话上下文：旧原话可能指向改口前的说法，不能当上下文喂给模型
+        schedule(userId, memoryId, key, value, quote, null);
+    }
+
+    /**
+     * 抽取落库后：带着本轮对话上下文异步补一次扩写。
+     *
+     * <p>上下文只用来理解「患者是怎么表达这件事的」，不得据此新增事实；手动编辑路径上下文为空。
+     */
+    public void scheduleAfterExtract(String userId, String memoryId, String key, String value,
+                                     String quote, String context) {
+        schedule(userId, memoryId, key, value, quote, context);
+    }
+
+    private void schedule(String userId, String memoryId, String key, String value,
+                          String quote, String context) {
         if (userId == null || userId.isBlank() || memoryId == null || memoryId.isBlank()) {
             return;
         }
-        // 调度本身也是旁路：开关查询 / 事务同步注册失败不能把患者已经改好的记忆回滚
+        // 调度本身也是旁路：开关查询 / 事务同步注册失败不能把已经落库的记忆回滚
         try {
             // 关闭自动记忆：不生成、不补（关掉后系统不再为记忆调模型）
             if (!memorySettingService.isEnabled(userId)) {
                 return;
             }
-            Runnable task = () -> enrichAndSave(userId, memoryId, key, value, quote);
+            Runnable task = () -> enrichAndSave(userId, memoryId, key, value, quote, context);
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
@@ -98,7 +119,7 @@ public class MemoryEnricher {
                 submit(task);
             }
         } catch (RuntimeException e) {
-            log.warn("记忆扩写调度失败（不影响编辑，保持回退文案）：userId={} memoryId={}｜原因={}",
+            log.warn("记忆扩写调度失败（不影响主流程，保持回退文案）：userId={} memoryId={}｜原因={}",
                     userId, memoryId, e.getMessage());
         }
     }
@@ -112,14 +133,15 @@ public class MemoryEnricher {
         }
     }
 
-    /** 生成并写回；失败保持编辑时写入的回退值（新 mvalue） */
-    void enrichAndSave(String userId, String memoryId, String key, String value, String quote) {
+    /** 生成并写回；失败保持落库时写入的回退值（新 mvalue） */
+    void enrichAndSave(String userId, String memoryId, String key, String value,
+                       String quote, String context) {
         // 任务排队期间患者可能已经关掉自动记忆：执行前再确认一次，
         // 「关掉后系统不再为记忆调模型」不能只在入队那一刻成立
         if (!memorySettingService.isEnabled(userId)) {
             return;
         }
-        String retrievalText = enrich(key, value, quote);
+        String retrievalText = enrich(key, value, quote, context);
         if (retrievalText == null) {
             return;
         }
@@ -153,10 +175,10 @@ public class MemoryEnricher {
      * <p>代码只校验非空与长度：事实边界靠提示词约束——用规则判「有没有编造事实」不可靠，
      * 还会误杀合法同义词（「血糖高」不含「2型糖尿病」）。
      */
-    String enrich(String key, String value, String quote) {
+    String enrich(String key, String value, String quote, String context) {
         String output;
         try {
-            output = chatModel.chat(messages(key, value, quote));
+            output = chatModel.chat(messages(key, value, quote, context));
         } catch (RuntimeException e) {
             log.warn("记忆扩写模型调用失败（保持回退文案）：{}", e.getMessage());
             return null;
@@ -172,14 +194,27 @@ public class MemoryEnricher {
         }
     }
 
-    private List<ChatMsg> messages(String key, String value, String quote) {
+    private List<ChatMsg> messages(String key, String value, String quote, String context) {
         String user = prompts.getMemoryEnrich().getUserTemplate();
         user = PromptProperties.render(user, PromptProperties.PLACEHOLDER_ENRICH_KEY, key);
         user = PromptProperties.render(user, PromptProperties.PLACEHOLDER_ENRICH_VALUE, value);
         user = PromptProperties.render(user, PromptProperties.PLACEHOLDER_ENRICH_QUOTE, quote);
+        user = PromptProperties.render(user, PromptProperties.PLACEHOLDER_ENRICH_CONTEXT, contextText(context));
         return List.of(
                 ChatMsg.system(prompts.getMemoryEnrich().getSystem()),
                 ChatMsg.user(user));
+    }
+
+    /**
+     * 上下文截断：最多 2000 字（约 8 条对话），防止整段历史把 prompt 撑爆。
+     * 只用于理解患者怎么表达，不进入任何展示或事实存储。
+     */
+    private String contextText(String context) {
+        if (context == null) {
+            return "";
+        }
+        String text = context.strip();
+        return text.length() > MAX_CONTEXT_CHARS ? text.substring(0, MAX_CONTEXT_CHARS) + "…" : text;
     }
 
     private String abbreviate(String text) {

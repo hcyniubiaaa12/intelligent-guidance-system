@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.guide.auth.service.MemorySettingService;
 import com.guide.common.config.PromptProperties;
 import com.guide.llm.client.ChatModel;
+import com.guide.llm.client.ChatMsg;
 import com.guide.memory.MpTableInfoTestSupport;
 import com.guide.memory.entity.Memory;
 import com.guide.memory.enums.MemoryStatus;
@@ -58,7 +59,7 @@ class MemoryEnricherTest {
         chatModel = mock(ChatModel.class);
         prompts = new PromptProperties();
         prompts.getMemoryEnrich().setSystem("system");
-        prompts.getMemoryEnrich().setUserTemplate("键：{key}\n值：{value}\n原话：{quote}");
+        prompts.getMemoryEnrich().setUserTemplate("键：{key} 值：{value} 原话：{quote} 上下文：{context}");
         memorySettingService = mock(MemorySettingService.class);
         memoryMapper = mock(MemoryMapper.class);
         vectorIndexer = mock(MemoryVectorIndexer.class);
@@ -78,29 +79,43 @@ class MemoryEnricherTest {
         when(chatModel.chat(any())).thenReturn(
                 "```json\n{\"retrievalText\":\"  2型糖尿病；糖尿病、血糖高  \"}\n```");
 
-        String text = enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病");
+        String text = enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null);
 
         assertThat(text).isEqualTo("2型糖尿病；糖尿病、血糖高");
+    }
+
+    @Test
+    @DisplayName("对话上下文进入提示词：用来理解患者怎么表达，不替代值本身")
+    void includesContextInPrompt() {
+        when(chatModel.chat(any())).thenReturn("{\"retrievalText\":\"2型糖尿病；血糖高\"}");
+
+        enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", "患者：我有糖尿病五年了，助手：好的");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ChatMsg>> captor = ArgumentCaptor.forClass(List.class);
+        verify(chatModel).chat(captor.capture());
+        String user = captor.getValue().get(1).content();
+        assertThat(user).contains("我有2型糖尿病").contains("五年");
     }
 
     @Test
     @DisplayName("扩写为空 / 占位词 / 超长 / 模型异常：一律返回 null（调用方保持回退值）")
     void invalidEnrichmentReturnsNull() {
         when(chatModel.chat(any())).thenReturn("{\"retrievalText\":\"\"}");
-        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病")).isNull();
+        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null)).isNull();
 
         // 「无 / null / N/A」是模型没答案时的常见占位：嵌进去会让这条背景再也匹配不到任何 query
         when(chatModel.chat(any())).thenReturn("{\"retrievalText\":\"无\"}");
-        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病")).isNull();
+        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null)).isNull();
         when(chatModel.chat(any())).thenReturn("{\"retrievalText\":\"N/A\"}");
-        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病")).isNull();
+        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null)).isNull();
 
         when(chatModel.chat(any())).thenReturn(
                 "{\"retrievalText\":\"" + "长".repeat(121) + "\"}");
-        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病")).isNull();
+        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null)).isNull();
 
         when(chatModel.chat(any())).thenThrow(new RuntimeException("超时"));
-        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病")).isNull();
+        assertThat(enricher.enrich("慢病", "2型糖尿病", "我有2型糖尿病", null)).isNull();
     }
 
     @Test

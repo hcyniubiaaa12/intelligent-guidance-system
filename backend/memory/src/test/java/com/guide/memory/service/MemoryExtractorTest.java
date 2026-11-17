@@ -53,25 +53,6 @@ class MemoryExtractorTest {
     }
 
     @Test
-    @DisplayName("背景的 retrievalText 解析：有就带出，缺失就为 null（不补默认值）")
-    void parsesBackgroundRetrievalText() {
-        when(chatModel.chat(any())).thenReturn("""
-                {"preferences":[],
-                 "background":[
-                   {"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,
-                    "retrievalText":"2型糖尿病；糖尿病、血糖高"},
-                   {"key":"生活","value":"长期夜班","type":"other","quote":"我一直上夜班","confidence":0.9}]}
-                """);
-
-        MemoryExtractionResult result = extractor.extract("患者：我有2型糖尿病，我一直上夜班");
-
-        assertThat(result.backgrounds()).hasSize(2);
-        assertThat(result.backgrounds().get(0).retrievalText())
-                .isEqualTo("2型糖尿病；糖尿病、血糖高");
-        assertThat(result.backgrounds().get(1).retrievalText()).isNull();
-    }
-
-    @Test
     @DisplayName("合法 JSON：偏好与背景两类都解析出来，对话原文进 user 消息")
     @SuppressWarnings("unchecked")
     void parsesPreferencesAndBackground() {
