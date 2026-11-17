@@ -9,12 +9,14 @@ scripts/update_kaibao_figure.py
 # AI 工作记忆目录（本地数据，不入库）
 .workbuddy/
 
-# 构建产物与运行日志
+# 构建产物
 node_modules/
 dist/
 target/
 *.class
-logs/
+
+# 本地临时文件与运行日志（排查产物、一次性脚本输出，一律放这里，不入库）
+temp/
 
 # 本地测试工具：根目录的 playwright-core（跑 e2e 脚本用），不是项目依赖。
 # 开头的 / 限定只忽略根目录，不影响 frontend/package.json

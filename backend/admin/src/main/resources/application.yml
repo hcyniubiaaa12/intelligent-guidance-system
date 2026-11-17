@@ -60,7 +60,7 @@ logging:
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level %-34.34logger{34} [%X{turn:-}] %msg%n"
   file:
-    name: logs/guide.log
+    name: temp/logs/guide.log
 
 # 演示种子数据（开发夹具）：默认关闭，开启后启动时装载 12 个科室蓝本及其鉴别语料（逐科室按名判存在，幂等）
 # 种子不含术语白名单——术语由管理端人工维护，空表是合法状态

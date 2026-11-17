@@ -41,6 +41,10 @@ backend/
 └── admin/      # 启动器：聚合全部模块、controller 层、application.yml
 ```
 
+### 1.3 本地临时文件
+
+`temp/`：**临时文件、排查日志、一次性脚本产物一律放这里**（已 gitignore，不入库）；应用日志也写 `temp/logs/guide.log`。不要放在仓库根、桌面或系统临时目录——清理时找不到，提交时又容易误带。
+
 ## 2. 依赖规范（单向，禁止循环）
 
 - 依赖方向：admin → 各业务模块 → rag → llm；所有模块 → common；禁止反向与循环。`chat → memory → auth/llm`（记忆读取与控制面），`memory` 不依赖 chat/rag/kb（会话与消息经 common 的 `SessionActivityPort` 由 chat 实现）
@@ -81,15 +85,26 @@ scope：common / chat / kb / feedback / auth / admin / patient / rag / llm / asy
 ## 6. 功能完成后的校验（提交前逐项过）
 
 - 数据流：entity / mapper / dto / 前端 api / 页面五处同步；检查统计看板、导出、关联页面是否漏改
+
 - 检索存储双写：chunk 改动必须同步 pgvector 与 ES 两路，外加 MySQL 里的切片正文副本（三处）；**不是同一事务**——MySQL 在事务内，pgvector 与 ES 不在，失败靠写时补偿（回删已写向量）与删除补偿顺序收敛
+
 - 约束：无新中间件；依赖方向未破坏；未绕过 LLM 适配层；埋点未侵入主流程；线程池未混用
+
 - 健康档案与记忆：档案只进 prompt / 快照、**不进检索**；`memory` 的抽取与召回是旁路（失败只 WARN，不阻塞对话）；**关闭自动记忆只停记忆、不停档案**；**未确认候选不进 prompt、不预警**；`user_memory_vec` 只写 `background_*`、不建 HNSW，写失败靠 `MemoryVectorBackfillJob` 回填
+
 - 验证：后端编译通过；接口真实请求跑通；涉及链路 A/B/C/D 时核对基线文档对齐点
+
 - 前端：改完 `frontend/` 跑 `npm run check`（人体图纯规则自检）。它已接进 **pre-commit 硬闸**——暂存区含 `frontend/` 才触发，断言失败拒绝提交；一次性启用 `git config core.hooksPath .githooks`（见 `.githooks/README.md`）
+
 - 文档：涉及链路对齐点、参数、模块边界的改动，同步更新《总体架构与链路设计.md》（**总册**：全局约定 + 分册清单；四条链路与敏感词、管理端控制面各在 `docs/architecture/` 的一册里，改哪条链路就改哪一册）
+
 - 进度：功能完成后立即回写——**过程记录**（完成内容、耗时、困难点与解法）写 `进度-施工日志.md`；**「总览」「已知坑」「下一步」三节**更新在 `进度.md`
+
 - 术语：新增/变更领域概念时同步更新 `CONTEXT.md`
+
 - 校验：功能修改后检查 `.claude/rules/` 下**全部**文档是否过时（清单与触发条件见 §0 导入的索引，新增文档也要登记进去），CLAUDE.md 本身同样校验；过时即同步更新
+
+
 
 ## Agent skills
 
