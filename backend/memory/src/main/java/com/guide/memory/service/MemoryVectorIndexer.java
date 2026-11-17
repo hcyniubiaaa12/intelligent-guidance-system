@@ -78,6 +78,8 @@ public class MemoryVectorIndexer {
             return;
         }
         row.setMvalue(newValue);
+        // 先回退成新值：检索扩展文本由背景落库后的 MemoryEnricher 异步覆盖，
+        // 在它成功之前，召回行为与「没有扩写」完全一致
         row.setRetrievalText(newValue);
         row.setUpdatedAt(now);
         index(row);

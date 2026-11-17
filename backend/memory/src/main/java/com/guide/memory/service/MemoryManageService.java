@@ -43,6 +43,7 @@ public class MemoryManageService {
     private final MemoryMapper memoryMapper;
     private final MemoryLogService memoryLogService;
     private final MemoryVectorIndexer vectorIndexer;
+    private final MemoryEnricher memoryEnricher;
 
     /**
      * 改一条记忆的值。
@@ -61,6 +62,10 @@ public class MemoryManageService {
         }
 
         Memory row = requireEditable(userId, id);
+        // 值没变：不写库、不写审计、不花一次扩写调用（前端「点保存但没改字」是常见动作）
+        if (trimmed.equals(row.getMvalue())) {
+            return;
+        }
         boolean background = row.getType() == MemoryType.BACKGROUND_HEALTH
                 || row.getType() == MemoryType.BACKGROUND_OTHER;
         LocalDateTime now = LocalDateTime.now();
@@ -78,7 +83,11 @@ public class MemoryManageService {
         if (background) {
             update.set(Memory::getRetrievalText, trimmed);
         }
-        memoryMapper.update(null, update);
+        // 条件更新命中 0 行 = 这一行在读取后被并发删除 / 置为失效：
+        // 不能当成功——否则会写一条没发生的审计、给已删除的记忆补回向量、还白花一次扩写调用
+        if (memoryMapper.update(null, update) <= 0) {
+            throw new BizException(ErrorCode.MEMORY_NOT_FOUND);
+        }
 
         memoryLogService.append(id, userId, MemoryOp.UPDATE, row.getMvalue(), trimmed, MemoryActor.USER);
 
@@ -86,7 +95,12 @@ public class MemoryManageService {
         // 快照刷新 + 重算与抽取改口共用同一处（MemoryVectorIndexer#refreshBackgroundValue）：
         // 两条路径改的列不同，但「retrieval_text 跟着值走 + updated_at 刷新 + 重算向量」必须是同一套。
         if (background) {
+            // 先回退成新值并重算向量（保证向量不指向旧说法）；事务提交后再异步补一次扩写。
+            // 扩写失败保持这个回退值，召回与没有扩写时一致。
             vectorIndexer.refreshBackgroundValue(row, trimmed, now);
+            // **不传旧原话**：编辑只改值，source_quote 仍是改口前那句话；把它喂给扩写模型，
+            // 模型会锚定旧说法（「高血压」→「低血压」时仍扩出「血压高」），正是本功能要避免的错。
+            memoryEnricher.scheduleAfterEdit(userId, id, row.getMkey(), trimmed, null);
         }
     }
 

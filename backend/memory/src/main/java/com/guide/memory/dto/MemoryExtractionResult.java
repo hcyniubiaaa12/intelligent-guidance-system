@@ -81,6 +81,10 @@ public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<Bac
     /**
      * 稳定背景草稿。
      *
+     * <p>**不含检索扩展文本**：抽取只负责「抽什么」，`retrieval_text` 由落库后的
+     * {@code MemoryEnricher} 异步补写（在抽取同一次调用里让模型多写一个字段会挤占抽取质量，
+     * 2026-11-17 金标集实测 F1 从 0.871 降到 0.824）。
+     *
      * @param type    health / other（其余值按 health 处理）
      * @param validTo 可选结束日期（已结束的长期用药等）
      * @param target  旧清单序号，仅 {@code action=update} 时有值

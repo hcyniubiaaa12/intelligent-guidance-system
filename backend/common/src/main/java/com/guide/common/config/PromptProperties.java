@@ -57,6 +57,11 @@ public class PromptProperties {
     public static final String PLACEHOLDER_INCOMING = "{incoming}";
     /** 记忆抽取：已记住的记忆清单（按序号编号，供模型回 `target`；无条目时写「（无）」） */
     public static final String PLACEHOLDER_REMEMBERED = "{remembered}";
+    /** 记忆扩写：背景的键 / 值 / 患者原话 / 对话上下文（上下文只用于理解说法，不得新增事实） */
+    public static final String PLACEHOLDER_ENRICH_KEY = "{key}";
+    public static final String PLACEHOLDER_ENRICH_VALUE = "{value}";
+    public static final String PLACEHOLDER_ENRICH_QUOTE = "{quote}";
+    public static final String PLACEHOLDER_ENRICH_CONTEXT = "{context}";
 
     private Diagnosis diagnosis = new Diagnosis();
 
@@ -73,6 +78,8 @@ public class PromptProperties {
     private MemoryExtract memoryExtract = new MemoryExtract();
 
     private MemoryMerge memoryMerge = new MemoryMerge();
+
+    private MemoryEnrich memoryEnrich = new MemoryEnrich();
 
     /** 导诊主提示词（rag 检索层拼装） */
     @Data
@@ -171,6 +178,19 @@ public class PromptProperties {
         private String userTemplate;
     }
 
+    /**
+     * 稳定背景的检索扩展文本（患者手动改值后异步补一次）。
+     *
+     * <p>只给条目本身的 key / value / quote，不给整段对话——扩写的职责是「同一件事的别的说法」，
+     * 不是「补充背景」，看整段对话只会把当次主诉的病程、用药写进检索文本。
+     */
+    @Data
+    public static class MemoryEnrich {
+        private String system;
+        /** 必含 {key} {value} {quote} */
+        private String userTemplate;
+    }
+
     @PostConstruct
     void validate() {
         require(diagnosis.getSystemTemplate(), "prompts.diagnosis.system-template",
@@ -199,6 +219,10 @@ public class PromptProperties {
         require(memoryMerge.getSystem(), "prompts.memory-merge.system", List.of());
         require(memoryMerge.getUserTemplate(), "prompts.memory-merge.user-template",
                 List.of(PLACEHOLDER_EXISTING, PLACEHOLDER_INCOMING));
+        require(memoryEnrich.getSystem(), "prompts.memory-enrich.system", List.of());
+        require(memoryEnrich.getUserTemplate(), "prompts.memory-enrich.user-template",
+                List.of(PLACEHOLDER_ENRICH_KEY, PLACEHOLDER_ENRICH_VALUE,
+                        PLACEHOLDER_ENRICH_QUOTE, PLACEHOLDER_ENRICH_CONTEXT));
         log.info("提示词配置已加载：{}", "prompts.yml");
     }
 

@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
@@ -66,6 +67,7 @@ class MemoryExtractionServiceTest {
     private SysConfigService sysConfigService;
     private MemoryVectorIndexer vectorIndexer;
     private ProfileCandidateService profileCandidateService;
+    private MemoryEnricher memoryEnricher;
     private MemoryExtractionService service;
     private final AtomicInteger idSeq = new AtomicInteger();
 
@@ -85,8 +87,10 @@ class MemoryExtractionServiceTest {
         sysConfigService = mock(SysConfigService.class);
         vectorIndexer = mock(MemoryVectorIndexer.class);
         profileCandidateService = mock(ProfileCandidateService.class);
+        memoryEnricher = mock(MemoryEnricher.class);
         service = new MemoryExtractionService(memorySettingService, sessionActivityPort, memoryExtractor,
-                memoryMapper, memoryLogService, sysConfigService, vectorIndexer, profileCandidateService);
+                memoryMapper, memoryLogService, sysConfigService, vectorIndexer, profileCandidateService,
+                memoryEnricher);
 
         when(memorySettingService.isEnabled(USER)).thenReturn(true);
         when(sessionActivityPort.recentDialogue(SESSION, MemoryExtractionService.DIALOGUE_LIMIT))
@@ -169,9 +173,49 @@ class MemoryExtractionServiceTest {
 
         verify(memoryLogService).append("b1", USER, MemoryOp.UPDATE,
                 "2型糖尿病", "2型糖尿病，控制良好", MemoryActor.EXTRACT);
-        // 向量走共用口径（与患者手动编辑同一处），不是各写一遍
+        // 向量走共用口径（与患者手动编辑同一处），不是各写一遍；
+        // 没有扩写时 retrieval_text 回退新值（绝不让它停留在旧说法的文本上）
         verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
         verify(vectorIndexer, never()).index(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("背景落库后异步补扩写：先写 mvalue，再按对话上下文调度 MemoryEnricher")
+    void schedulesEnrichmentAfterBackgroundInsert() {
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病", "health", "我有2型糖尿病", "0.95", null))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("2型糖尿病");
+        // 先写回退值；扩写由 enricher 异步覆盖（抽取同一次调用不再多写 retrievalText）
+        assertThat(inserted.getValue().getRetrievalText()).isEqualTo("2型糖尿病");
+        verify(memoryEnricher).scheduleAfterExtract(eq(USER), anyString(), eq("慢病"), eq("2型糖尿病"),
+                eq("我有2型糖尿病"), anyString());
+    }
+
+    @Test
+    @DisplayName("背景改口后异步补扩写：先回退新值并重算向量，再调度 MemoryEnricher（带上下文）")
+    void schedulesEnrichmentAfterBackgroundUpdate() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "糖尿病", "health", "我有糖尿病", "0.9", null,
+                        MemoryDedupAction.UPDATE, 1))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Memory>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(memoryMapper).update(isNull(), captor.capture());
+        // 先回退成新值，扩写成功再覆盖
+        assertThat(captor.getValue().getParamNameValuePairs().values()).contains("糖尿病");
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("糖尿病"), any(LocalDateTime.class));
+        verify(memoryEnricher).scheduleAfterExtract(eq(USER), eq("b1"), eq("慢病"), eq("糖尿病"),
+                eq("我有糖尿病"), anyString());
     }
 
     @Test
@@ -247,8 +291,7 @@ class MemoryExtractionServiceTest {
                 .doesNotThrowAnyException();
 
         verify(memoryMapper, never()).insert(any(Memory.class));
-        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"),
-                any(LocalDateTime.class));
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
     }
 
     @Test
@@ -286,8 +329,7 @@ class MemoryExtractionServiceTest {
         verify(memoryMapper, never()).insert(any(Memory.class));
         verify(memoryLogService).append("old2", USER, MemoryOp.UPDATE,
                 "值2", "糖尿病，控制良好", MemoryActor.EXTRACT);
-        verify(vectorIndexer).refreshBackgroundValue(eq(existing.get(2)), eq("糖尿病，控制良好"),
-                any(LocalDateTime.class));
+        verify(vectorIndexer).refreshBackgroundValue(eq(existing.get(2)), eq("糖尿病，控制良好"), any(LocalDateTime.class));
     }
 
     @Test

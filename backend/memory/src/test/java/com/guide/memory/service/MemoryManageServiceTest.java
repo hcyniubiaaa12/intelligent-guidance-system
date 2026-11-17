@@ -54,6 +54,7 @@ class MemoryManageServiceTest {
     private MemoryMapper memoryMapper;
     private MemoryLogService memoryLogService;
     private MemoryVectorIndexer vectorIndexer;
+    private MemoryEnricher memoryEnricher;
     private MemoryManageService service;
 
     @BeforeAll
@@ -66,7 +67,10 @@ class MemoryManageServiceTest {
         memoryMapper = mock(MemoryMapper.class);
         memoryLogService = mock(MemoryLogService.class);
         vectorIndexer = mock(MemoryVectorIndexer.class);
-        service = new MemoryManageService(memoryMapper, memoryLogService, vectorIndexer);
+        memoryEnricher = mock(MemoryEnricher.class);
+        // 条件更新默认命中 1 行（真库路径）；「命中 0 行」的用例各自覆盖
+        when(memoryMapper.update(isNull(), any())).thenReturn(1);
+        service = new MemoryManageService(memoryMapper, memoryLogService, vectorIndexer, memoryEnricher);
     }
 
     @Test
@@ -88,8 +92,9 @@ class MemoryManageServiceTest {
                 .doesNotContain("valid_from")
                 .doesNotContain("valid_to");
         verify(memoryLogService).append("m1", USER, MemoryOp.UPDATE, "讲快一点", "讲慢一点", MemoryActor.USER);
-        // 偏好不向量化：编辑不触发任何向量操作
+        // 偏好不向量化：编辑不触发任何向量操作，也不生成检索扩写
         verifyNoInteractions(vectorIndexer);
+        verifyNoInteractions(memoryEnricher);
     }
 
     @Test
@@ -107,6 +112,38 @@ class MemoryManageServiceTest {
         // 快照刷新 + 重算与抽取改口共用同一处：服务侧只负责落库与委托，不自己再拼一遍
         verify(vectorIndexer).refreshBackgroundValue(eq(row), eq("1型糖尿病"), any(LocalDateTime.class));
         verify(vectorIndexer, never()).index(any(Memory.class));
+        // 事务提交后异步补一次扩写：先回退新值保证向量不指向旧说法，再补说法。
+        // **不传旧原话**：它指向改口前的说法，传给模型会让扩写锚定旧值。
+        verify(memoryEnricher).scheduleAfterEdit(USER, "m1", "慢病", "1型糖尿病", null);
+    }
+
+    @Test
+    @DisplayName("同值保存：不写库、不写审计、不扩写（前端点保存但没改字是常见动作）")
+    void sameValueDoesNothing() {
+        Memory row = memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病");
+        when(memoryMapper.selectById("m1")).thenReturn(row);
+
+        service.updateValue(USER, "m1", " 2型糖尿病 ");
+
+        verify(memoryMapper, never()).update(any(), any());
+        verifyNoInteractions(memoryLogService);
+        verifyNoInteractions(vectorIndexer);
+        verifyNoInteractions(memoryEnricher);
+    }
+
+    @Test
+    @DisplayName("条件更新命中 0 行（并发删除/失效）：按不存在拒绝，不写审计、不补向量、不扩写")
+    void updateHitsNoRowThrowsAndSkipsSideEffects() {
+        Memory row = memory("m1", USER, MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病");
+        when(memoryMapper.selectById("m1")).thenReturn(row);
+        when(memoryMapper.update(isNull(), any())).thenReturn(0);
+
+        BizException e = assertThrows(BizException.class, () -> service.updateValue(USER, "m1", "1型糖尿病"));
+
+        assertEquals(8000, e.getCode());
+        verifyNoInteractions(memoryLogService);
+        verifyNoInteractions(vectorIndexer);
+        verifyNoInteractions(memoryEnricher);
     }
 
     @Test

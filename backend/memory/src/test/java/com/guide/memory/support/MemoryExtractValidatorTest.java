@@ -208,6 +208,20 @@ class MemoryExtractValidatorTest {
     }
 
     @Test
+    @DisplayName("检索扩展文本清理（供 MemoryEnricher 复用）：空 / 占位词 / 过短 / 超长 ⇒ null")
+    void cleansRetrievalText() {
+        // 空、模型占位词、单字、超长都按「没有扩写」处理（调用方回退 mvalue）
+        assertThat(MemoryExtractValidator.cleanRetrievalText("   ")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("无")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("N/A")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("糖")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText(
+                "长".repeat(MemoryExtractValidator.MAX_RETRIEVAL_TEXT_LENGTH + 1))).isNull();
+        // 正常文本去首尾空白
+        assertThat(MemoryExtractValidator.cleanRetrievalText("  血糖高  ")).isEqualTo("血糖高");
+    }
+
+    @Test
     @DisplayName("空 key / 空 value：丢弃（模型给了空壳也按无效处理）")
     void dropsBlankFields() {
         List<PreferenceDraft> kept = MemoryExtractValidator.validPreferences(List.of(

@@ -41,6 +41,34 @@ class MemoryPromptsProtocolTest {
     }
 
     @Test
+    @DisplayName("memory-extract 不再要求 retrievalText（抽取只负责抽什么，扩写走独立调用）")
+    void extractPromptDoesNotCarryEnrichmentProtocol() throws Exception {
+        Map<String, Object> extract = section("memory-extract");
+        String system = string(extract.get("system"));
+
+        assertThat(system).doesNotContain("retrievalText")
+                .doesNotContain("检索扩展文本");
+    }
+
+    @Test
+    @DisplayName("memory-enrich：占位符与输出协议齐全（值 + 原话 + 对话上下文）")
+    void enrichPromptCarriesEnrichmentProtocol() throws Exception {
+        Map<String, Object> enrich = section("memory-enrich");
+        String system = string(enrich.get("system"));
+        String user = string(enrich.get("user-template"));
+
+        assertThat(user).contains(PromptProperties.PLACEHOLDER_ENRICH_KEY)
+                .contains(PromptProperties.PLACEHOLDER_ENRICH_VALUE)
+                .contains(PromptProperties.PLACEHOLDER_ENRICH_QUOTE)
+                .contains(PromptProperties.PLACEHOLDER_ENRICH_CONTEXT);
+        assertThat(system).contains("retrievalText")
+                .contains("120")
+                .contains("只换说法")
+                .contains("不补充事实")
+                .contains("上下文");
+    }
+
+    @Test
     @DisplayName("memory-merge：两个占位符仍在，并要求 key 取自输入、不许自己编")
     void mergePromptRequiresKeyFromInput() throws Exception {
         Map<String, Object> merge = section("memory-merge");

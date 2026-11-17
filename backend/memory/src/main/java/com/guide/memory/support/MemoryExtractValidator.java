@@ -37,6 +37,13 @@ public final class MemoryExtractValidator {
 
     public static final int MAX_KEY_LENGTH = 8;
     public static final int MAX_VALUE_LENGTH = 60;
+    /**
+     * 检索扩展文本（retrieval_text）上限。
+     *
+     * <p>超长会稀释 embedding（文本越长、向量越均值化），而且它只该是「同一件事的别的说法」，
+     * 不是一段自由描述。超长按「没有扩写」处理（回退 mvalue），**不丢整条记忆**。
+     */
+    public static final int MAX_RETRIEVAL_TEXT_LENGTH = 120;
 
     /** 否定词：出现在 value 紧邻位置时，这一条是在说「没有」，不能记成肯定事实 */
     private static final List<String> NEGATIONS = List.of(
@@ -263,6 +270,45 @@ public final class MemoryExtractValidator {
         String type = draft.type() == null ? "health" : draft.type().trim().toLowerCase(Locale.ROOT);
         return new BackgroundDraft(trim(draft.key()), trim(draft.value()), type, trim(draft.quote()),
                 draft.confidence(), draft.validTo(), draft.action(), draft.target());
+    }
+
+    /** 模型常把「没有答案」写成这些占位词：它们嵌入后会让这条背景再也匹配不到任何 query */
+    private static final Set<String> RETRIEVAL_PLACEHOLDERS = Set.of(
+            "无", "暂无", "没有", "不知道", "未知", "null", "none", "n/a", "na", "-", "—");
+
+    /**
+     * 检索扩展文本的清理：空 / 占位词 / 过短 ⇒ null（回退 value）；超长 ⇒ null + WARN（不丢整条记忆）。
+     *
+     * <p>**只校验可用性与长度**：它不进 prompt、不给患者看，写偏的代价只是召回噪声；
+     * 用规则去判「有没有编造事实」既不可靠、又会误杀合法同义词（如「血糖高」不含「2型糖尿病」）。
+     * 事实边界靠提示词约束 + 评估集观察。
+     *
+     * <p>公开给 {@code MemoryEnricher} 复用：背景落库后的补写必须走同一套清理口径，
+     * 否则同一条模型输出在一处能落库、在另一处被当成有效文本。
+     */
+    public static String cleanRetrievalText(String raw) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        if (RETRIEVAL_PLACEHOLDERS.contains(text.toLowerCase(Locale.ROOT))) {
+            log.warn("检索扩展文本是占位词（{}），按没有扩写处理", text);
+            return null;
+        }
+        if (text.length() < 2) {
+            log.warn("检索扩展文本过短（{}），按没有扩写处理", text);
+            return null;
+        }
+        if (text.length() > MAX_RETRIEVAL_TEXT_LENGTH) {
+            log.warn("检索扩展文本超长（{} > {}），按没有扩写处理：{}",
+                    text.length(), MAX_RETRIEVAL_TEXT_LENGTH, abbreviate(text));
+            return null;
+        }
+        return text;
+    }
+
+    private static String abbreviate(String text) {
+        return text.length() > 40 ? text.substring(0, 40) + "…" : text;
     }
 
     private static String trim(String text) {

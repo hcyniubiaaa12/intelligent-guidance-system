@@ -1,7 +1,6 @@
 package com.guide.memory.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.guide.auth.service.SysConfigService;
 import com.guide.common.config.PromptProperties;
 import com.guide.llm.client.ChatModel;
@@ -14,6 +13,7 @@ import com.guide.memory.enums.MemoryDedupAction;
 import com.guide.memory.enums.MemoryType;
 import com.guide.memory.support.CandidateValidator;
 import com.guide.memory.support.MemoryExtractValidator;
+import com.guide.memory.support.MemoryJsonSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -38,8 +38,6 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class MemoryExtractor {
-
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final ChatModel chatModel;
     private final PromptProperties prompts;
@@ -82,7 +80,7 @@ public class MemoryExtractor {
         }
 
         try {
-            JsonNode root = parseObject(output);
+            JsonNode root = MemoryJsonSupport.parseObject(output);
             List<PreferenceDraft> preferences = parsePreferences(root, remembered.size());
             List<BackgroundDraft> backgrounds = parseBackgrounds(root, remembered.size());
             List<ProfileCandidateDraft> candidates = parseCandidates(root);
@@ -136,7 +134,7 @@ public class MemoryExtractor {
             throw new IllegalStateException("合并模型调用失败：" + e.getMessage(), e);
         }
         try {
-            JsonNode root = parseObject(output);
+            JsonNode root = MemoryJsonSupport.parseObject(output);
             List<MergedPreference> merged = new ArrayList<>();
             for (JsonNode node : root.path("preferences")) {
                 String key = text(node, "key");
@@ -226,36 +224,6 @@ public class MemoryExtractor {
                     text(node, "occurredOn"), text(node, "quote"), decimal(node, "confidence")));
         }
         return drafts;
-    }
-
-    /** 模型习惯把 JSON 包进 ``` 围栏或前后加解释：截取第一个 { 到最后一个 } */
-    private JsonNode parseObject(String output) {
-        if (output == null || output.isBlank()) {
-            throw new IllegalArgumentException("模型输出为空");
-        }
-        String cleaned = stripFence(output.strip());
-        int start = cleaned.indexOf('{');
-        int end = cleaned.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            throw new IllegalArgumentException("模型输出不是 JSON 对象");
-        }
-        try {
-            return OBJECT_MAPPER.readTree(cleaned.substring(start, end + 1));
-        } catch (Exception e) {
-            throw new IllegalArgumentException("模型输出的 JSON 无法解析：" + e.getMessage(), e);
-        }
-    }
-
-    private String stripFence(String text) {
-        if (!text.startsWith("```")) {
-            return text;
-        }
-        int firstNewline = text.indexOf('\n');
-        int closing = text.lastIndexOf("```");
-        if (firstNewline < 0 || closing <= firstNewline) {
-            return text;
-        }
-        return text.substring(firstNewline + 1, closing).strip();
     }
 
     private String text(JsonNode node, String field) {
