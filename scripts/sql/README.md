@@ -96,7 +96,7 @@ psql -U postgres -d guide_vec -f scripts/sql/pgvector_memory_migration.sql
 
 其中前 7 个科室各带 2 条鉴别语料（共 14 条，供 RAG 链路演示）；后 5 个科室
 （内分泌科、泌尿外科、妇科、风湿免疫科、老年医学科）只建蓝本、**切片留空**，
-语料走《测试文档/健康档案语料/》的上传链路，`kb_doc.chunk_total=0` 是
+语料走《docs/测试语料/健康档案语料/》的上传链路，`kb_doc.chunk_total=0` 是
 「科室已建、语料待上传」的合法中间态。
 
 连接参数写入 `backend/admin/src/main/resources/application-local.yml`（不提交）。

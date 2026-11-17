@@ -54,8 +54,6 @@ Thumbs.db
 # 临时排查目录（查库/回放用的中间产物与删除前备份，不入库）
 .tmp-db/
 
-# 临时测试文档（API 探针、手工验证用，不入库）
-测试文档/
 .gitattributes
 # 实现工单用的临时 worktree（本地过程文件，不入库）
 .worktrees/
