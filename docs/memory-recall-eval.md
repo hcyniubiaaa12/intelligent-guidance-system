@@ -1,6 +1,6 @@
 # 背景召回评估（retrieval_text 富增强）
 
-> 对应改动：`user_memory.retrieval_text` 从「等于 mvalue」改为「模型生成的检索扩展文本」。
+> 对应改动：`user_memory.retrieval_text` 从「等于 mvalue」改为「模型生成的检索扩展文本」（生产由背景落库后的 `MemoryEnricher` 异步补写；本评估用文件中固定的 `retrievalText` 模拟这一产物）。
 > 它**只用于 embedding**，不注入 prompt、不展示给患者、不进证据快照。
 >
 > **评估不是单元测试**：指标低不会让构建失败，输出是给提示词与阈值校准用的诊断信息。
@@ -84,7 +84,7 @@ MEMORY_RECALL_EVAL=true mvn -B -pl memory -am test -Dtest=MemoryRecallEvalTest -
 
 | 日期 | embedding 模型 | 正样本（基线 → 扩写） | 负样本误召回（基线 → 扩写） | 备注 |
 |---|---|---|---|---|
-| 2026-11-17 | DashScope（`application-local.yml` 配置） | 纯向量 **6/12 → 11/12**；词面+向量同为 **6/12 → 11/12** | **0/6 → 0/6** | 5 条救回：血糖高 / 倒班 / 独居 / 喘不上气 / 血糖方面；在 `git archive HEAD` 临时目录跑，仓库无改动 |
+| 2026-11-17 | DashScope（`application-local.yml` 配置） | 纯向量 **6/12 → 11/12**；词面+向量同为 **6/12 → 11/12** | **0/6 → 0/6** | 5 条救回：血糖高 / 倒班 / 独居 / 喘不上气 / 血糖方面；拆分后复跑结果一致 |
 
 **2026-11-17 结果解读**：
 
