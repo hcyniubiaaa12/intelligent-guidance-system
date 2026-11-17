@@ -223,7 +223,7 @@ mvn -o -B -Dstdout.encoding=UTF-8 -pl memory -am test \
 
 ## 7. 阈值校准建议（跑完后填）
 
-- **背景召回阈值 `memory.background.recall.threshold`（默认 0.70）**：gold set 目前只测**抽取**，不测召回——召回评估需要 embedding + pgvector，属可选扩展（用 `MemoryRecallService` + 固定 query 集合另写一个 `@EnabledIf...` 测试）。**在没有真实召回数据前，不要仅凭抽取结果调这个阈值**；抽取与召回是两件事，抽得准不代表向量分得开。
+- **背景召回阈值 `memory.background.recall.threshold`（默认 0.70）**：gold set 只测**抽取**，不测召回。召回评估已独立落地在 `docs/memory-recall-eval.md`（`MemoryRecallEvalTest`，真实 embedding + 内存余弦，不连 pgvector）；**在没有真实召回数据前，不要仅凭抽取结果调这个阈值**——抽取与召回是两件事，抽得准不代表向量分得开。
   - **2026-11-14 真机反馈**：患者说「我有2型糖尿病」被记住后，换会话问「是不是和我的糖尿病有关」，**没有召回**（模型答"档案里没有糖尿病"）。说明 0.70 对短中文改写偏严——同义改写不一定能过阈值。处理方式是**加一路词面命中**（完整子串 / 足够长的公共子串，见 `MemoryNegation`），而不是直接把阈值往下调：词面命中是可解释的"患者明说到了"，阈值仍管语义。后续若要做召回评测，样本应覆盖「近义改写 / 只提上位词 / 无关」三类，据此再决定是否调阈值。
 - **抽取置信度下限 `memory.extract.confidence.min`（默认 0.6）**：若 gold set 显示"高置信度但错误"的样本多，说明提示词口径没压住，不应靠调高阈值掩盖；若"正确的低置信度"多，再考虑下调到 0.5。
 - **偏好条数上限 `memory.preference.max`（默认 5）**：gold set 的偏好样本都是单条；合并行为要另造"满额 + 同义"样本测，不在本次 82 条内。
@@ -233,5 +233,6 @@ mvn -o -B -Dstdout.encoding=UTF-8 -pl memory -am test \
 
 - 新增样本直接往 `docs/memory-gold-set.jsonl` 追加，`id` 不重复、`category` 用现有十类抽取类或 `dedup`（判重样本必须带 `existing`，否则会按普通抽取样本计入 P/R/F1）；
 - 改提示词或校验规则后**必须重跑**，并在本文档第 6 节回填结果；
+- **`memory-extract` 的 `retrievalText` 字段改动要同时跑两份评估**：抽取金标集（不能因新字段掉 F1）+ 背景召回评估（`docs/memory-recall-eval.md`，看扩写是否真的救回换说法）；
 - 不要把患者真实对话原样贴进来——样本必须是人工改写、不含可识别个人信息；
 - 这份文件**不是基线规范**，不参与 `.claude/rules/` 的强制校验，但**引用时请带文件名**。
