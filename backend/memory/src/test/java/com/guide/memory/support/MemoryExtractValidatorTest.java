@@ -2,6 +2,7 @@ package com.guide.memory.support;
 
 import com.guide.memory.dto.MemoryExtractionResult.BackgroundDraft;
 import com.guide.memory.dto.MemoryExtractionResult.PreferenceDraft;
+import com.guide.memory.enums.MemoryDedupAction;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -205,6 +206,32 @@ class MemoryExtractValidatorTest {
 
         // 前两条是患者明确说出的稳定背景；第三条的值本身就是药名，应走档案候选。
         assertThat(kept).extracting(BackgroundDraft::value).containsExactly("糖尿病", "素食");
+    }
+
+    @Test
+    @DisplayName("检索扩展文本：保留并去空白；空 ⇒ null；超长 ⇒ null（不丢整条记忆）")
+    void cleansRetrievalText() {
+        List<BackgroundDraft> kept = MemoryExtractValidator.validBackgrounds(List.of(
+                new BackgroundDraft("慢病", "2型糖尿病", "health", "我有2型糖尿病", OK, null,
+                        "  2型糖尿病；糖尿病、血糖高  ", MemoryDedupAction.NEW, null),
+                new BackgroundDraft("生活", "长期夜班", "other", "我一直上夜班", OK, null,
+                        "   ", MemoryDedupAction.NEW, null),
+                new BackgroundDraft("慢病", "高血压", "health", "我有高血压", OK, null,
+                        "长".repeat(MemoryExtractValidator.MAX_RETRIEVAL_TEXT_LENGTH + 1),
+                        MemoryDedupAction.NEW, null)), MIN);
+
+        // 扩写超长只丢扩写、不丢记忆：这条背景照常落库，召回回退 mvalue
+        assertThat(kept).extracting(BackgroundDraft::value)
+                .containsExactly("2型糖尿病", "长期夜班", "高血压");
+        assertThat(kept.get(0).retrievalText()).isEqualTo("2型糖尿病；糖尿病、血糖高");
+        assertThat(kept.get(1).retrievalText()).isNull();
+        assertThat(kept.get(2).retrievalText()).isNull();
+
+        // 模型常把「没有答案」写成占位词：嵌进去会让这条背景再也匹配不到任何 query
+        assertThat(MemoryExtractValidator.cleanRetrievalText("无")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("N/A")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("糖")).isNull();
+        assertThat(MemoryExtractValidator.cleanRetrievalText("  血糖高  ")).isEqualTo("血糖高");
     }
 
     @Test

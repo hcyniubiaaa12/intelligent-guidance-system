@@ -81,18 +81,27 @@ public record MemoryExtractionResult(List<PreferenceDraft> preferences, List<Bac
     /**
      * 稳定背景草稿。
      *
-     * @param type    health / other（其余值按 health 处理）
-     * @param validTo 可选结束日期（已结束的长期用药等）
-     * @param target  旧清单序号，仅 {@code action=update} 时有值
+     * @param type          health / other（其余值按 health 处理）
+     * @param validTo       可选结束日期（已结束的长期用药等）
+     * @param retrievalText 供 embedding 的检索扩展文本（只换说法、不新增事实；空 ⇒ 回退 value）。
+     *                      **不注入 prompt、不给患者看**，见 {@code MemoryVectorIndexer}。
+     * @param target        旧清单序号，仅 {@code action=update} 时有值
      */
     public record BackgroundDraft(String key, String value, String type, String quote,
-                                  BigDecimal confidence, LocalDate validTo,
+                                  BigDecimal confidence, LocalDate validTo, String retrievalText,
                                   MemoryDedupAction action, Integer target) implements DedupDraft {
 
         /** 兼容不关心判重的调用方：等价于 {@code action=new} */
         public BackgroundDraft(String key, String value, String type, String quote,
                                BigDecimal confidence, LocalDate validTo) {
-            this(key, value, type, quote, confidence, validTo, MemoryDedupAction.NEW, null);
+            this(key, value, type, quote, confidence, validTo, null, MemoryDedupAction.NEW, null);
+        }
+
+        /** 兼容不关心扩写文本与判重的调用方（测试 / 校验器内部重建） */
+        public BackgroundDraft(String key, String value, String type, String quote,
+                               BigDecimal confidence, LocalDate validTo,
+                               MemoryDedupAction action, Integer target) {
+            this(key, value, type, quote, confidence, validTo, null, action, target);
         }
 
         public BackgroundDraft {

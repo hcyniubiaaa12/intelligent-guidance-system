@@ -284,7 +284,7 @@ public class MemoryExtractionService {
             if (existing.size() + toInsert.size() <= max) {
                 for (PreferenceDraft draft : toInsert) {
                     Memory saved = insert(userId, MemoryType.PREFERENCE, draft.key(), draft.value(),
-                            draft.quote(), draft.confidence(), null);
+                            draft.quote(), draft.confidence(), null, null);
                     audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 }
                 return;
@@ -410,7 +410,7 @@ public class MemoryExtractionService {
             String quote = bestQuote(item.value(), existing, fresh);
             BigDecimal confidence = bestConfidence(item.value(), existing, fresh);
             Memory saved = insert(userId, MemoryType.PREFERENCE, item.key(), item.value(),
-                    quote, confidence, null);
+                    quote, confidence, null, null);
             audit(saved, userId, MemoryOp.MERGE, null, item.value());
         }
         // 合并结果已写入后再清旧行：审计逐条留痕，谁被合并掉了可追溯
@@ -478,7 +478,7 @@ public class MemoryExtractionService {
             }
             for (BackgroundDraft draft : toInsert) {
                 Memory saved = insert(userId, backgroundType(draft), draft.key(), draft.value(),
-                        draft.quote(), draft.confidence(), draft.validTo());
+                        draft.quote(), draft.confidence(), draft.validTo(), draft.retrievalText());
                 audit(saved, userId, MemoryOp.ADD, null, draft.value());
                 // 稳定背景需要向量才能被按需召回；写入失败由 indexer 降级（WARN + 回填任务补），
                 // 抽取本身已在线程池里，这里同步调用即可，不再多包一层异步。
@@ -550,6 +550,9 @@ public class MemoryExtractionService {
         Memory row = update.row();
         BackgroundDraft draft = update.draft();
         String oldValue = row.getMvalue();
+        // 新值必须带新扩写：扩写文本跟着值走，缺失时回退新值（绝不让检索继续用旧说法的文本）
+        String retrievalText = (draft.retrievalText() == null || draft.retrievalText().isBlank())
+                ? draft.value() : draft.retrievalText().trim();
         LocalDateTime now = LocalDateTime.now();
         int affected;
         try {
@@ -560,7 +563,7 @@ public class MemoryExtractionService {
                     .set(Memory::getConfidence, draft.confidence())
                     .set(Memory::getObservedAt, now)
                     .set(Memory::getUpdatedAt, now)
-                    .set(Memory::getRetrievalText, draft.value())
+                    .set(Memory::getRetrievalText, retrievalText)
                     .eq(Memory::getId, row.getId())
                     .eq(Memory::getUserId, userId)
                     .eq(Memory::getStatus, MemoryStatus.ACTIVE));
@@ -583,7 +586,7 @@ public class MemoryExtractionService {
         auditUpdate(row.getId(), userId, oldValue, draft.value());
         // 向量重算是旁路：MySQL 已写成新值，这里失败只 WARN，回填任务会按 updated_at 补
         try {
-            vectorIndexer.refreshBackgroundValue(row, draft.value(), now);
+            vectorIndexer.refreshBackgroundValue(row, draft.value(), retrievalText, now);
         } catch (RuntimeException e) {
             log.warn("稳定背景向量刷新失败（记忆本身已更新，回填任务会补）：userId={} memoryId={}｜原因={}",
                     userId, row.getId(), e.getMessage());
@@ -596,16 +599,16 @@ public class MemoryExtractionService {
     // ---------------- 公共落库 ----------------
 
     private Memory insert(String userId, MemoryType type, String key, String value, String quote,
-                          BigDecimal confidence, LocalDate validTo) {
+                          BigDecimal confidence, LocalDate validTo, String retrievalText) {
         LocalDateTime now = LocalDateTime.now();
         Memory memory = new Memory();
         memory.setUserId(userId);
         memory.setType(type);
         memory.setMkey(key);
         memory.setMvalue(value);
-        // 08 工单接 embedding 前先写 value：retrieval_text 是「供 embedding 的扩展文本」，
-        // 现在与 value 同值，后续补向量时不必回填历史行
-        memory.setRetrievalText(value);
+        // retrieval_text 是「供 embedding 的检索扩展文本」：背景用模型给的扩写（缺失/超长已在校验层
+        // 置 null，这里回退 value）；偏好不向量化，与 value 同值即可。
+        memory.setRetrievalText(retrievalText == null || retrievalText.isBlank() ? value : retrievalText);
         memory.setSourceQuote(quote);
         memory.setConfidence(confidence);
         memory.setObservedAt(now);

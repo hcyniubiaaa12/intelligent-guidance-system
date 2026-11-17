@@ -169,9 +169,50 @@ class MemoryExtractionServiceTest {
 
         verify(memoryLogService).append("b1", USER, MemoryOp.UPDATE,
                 "2型糖尿病", "2型糖尿病，控制良好", MemoryActor.EXTRACT);
-        // 向量走共用口径（与患者手动编辑同一处），不是各写一遍
-        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
+        // 向量走共用口径（与患者手动编辑同一处），不是各写一遍；
+        // 没有扩写时 retrieval_text 回退新值（绝不让它停留在旧说法的文本上）
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"),
+                eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
         verify(vectorIndexer, never()).index(any(Memory.class));
+    }
+
+    @Test
+    @DisplayName("背景带检索扩展文本落库：retrieval_text 用扩写，mvalue 仍是患者说的值")
+    void persistsBackgroundRetrievalText() {
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "2型糖尿病", "health", "我有2型糖尿病", "0.95", null,
+                        "2型糖尿病；糖尿病、血糖高；我血糖高要注意什么",
+                        MemoryDedupAction.NEW, null))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        ArgumentCaptor<Memory> inserted = ArgumentCaptor.forClass(Memory.class);
+        verify(memoryMapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMvalue()).isEqualTo("2型糖尿病");
+        assertThat(inserted.getValue().getRetrievalText())
+                .isEqualTo("2型糖尿病；糖尿病、血糖高；我血糖高要注意什么");
+    }
+
+    @Test
+    @DisplayName("背景改口带新扩写：retrieval_text 写新扩写，向量按它重算（不能停留在旧说法上）")
+    void updateBackgroundWritesNewRetrievalText() {
+        Memory old = existing("b1", MemoryType.BACKGROUND_HEALTH, "慢病", "2型糖尿病", "0.8");
+        when(memoryMapper.selectList(any())).thenReturn(List.of(old));
+        when(memoryExtractor.extract(any(), any())).thenReturn(new MemoryExtractionResult(
+                List.of(), List.of(background("慢病", "糖尿病", "health", "我有糖尿病", "0.9", null,
+                        "糖尿病；血糖高、血糖病；我血糖高要注意什么",
+                        MemoryDedupAction.UPDATE, 1))));
+
+        service.onTurnCompleted(new TurnCompletedEvent(USER, SESSION));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Memory>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(memoryMapper).update(isNull(), captor.capture());
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains("糖尿病；血糖高、血糖病；我血糖高要注意什么");
+        verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("糖尿病"),
+                eq("糖尿病；血糖高、血糖病；我血糖高要注意什么"), any(LocalDateTime.class));
     }
 
     @Test
@@ -248,7 +289,7 @@ class MemoryExtractionServiceTest {
 
         verify(memoryMapper, never()).insert(any(Memory.class));
         verify(vectorIndexer).refreshBackgroundValue(eq(old), eq("2型糖尿病，控制良好"),
-                any(LocalDateTime.class));
+                eq("2型糖尿病，控制良好"), any(LocalDateTime.class));
     }
 
     @Test
@@ -287,7 +328,7 @@ class MemoryExtractionServiceTest {
         verify(memoryLogService).append("old2", USER, MemoryOp.UPDATE,
                 "值2", "糖尿病，控制良好", MemoryActor.EXTRACT);
         verify(vectorIndexer).refreshBackgroundValue(eq(existing.get(2)), eq("糖尿病，控制良好"),
-                any(LocalDateTime.class));
+                eq("糖尿病，控制良好"), any(LocalDateTime.class));
     }
 
     @Test
@@ -666,6 +707,13 @@ class MemoryExtractionServiceTest {
                                        MemoryDedupAction action, Integer target) {
         return new BackgroundDraft(key, value, type, quote, new BigDecimal(confidence), validTo,
                 action, target);
+    }
+
+    private BackgroundDraft background(String key, String value, String type, String quote,
+                                       String confidence, LocalDate validTo,
+                                       String retrievalText, MemoryDedupAction action, Integer target) {
+        return new BackgroundDraft(key, value, type, quote, new BigDecimal(confidence), validTo,
+                retrievalText, action, target);
     }
 
     private Memory existing(String id, MemoryType type, String key, String value, String confidence) {

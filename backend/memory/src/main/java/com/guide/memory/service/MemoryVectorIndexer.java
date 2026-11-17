@@ -74,11 +74,22 @@ public class MemoryVectorIndexer {
      * 重算失败不上抛（{@link #index} 已降级为 WARN），回填任务按 {@code updated_at} 收敛。
      */
     public void refreshBackgroundValue(Memory row, String newValue, LocalDateTime now) {
+        refreshBackgroundValue(row, newValue, null, now);
+    }
+
+    /**
+     * 背景值变了同时带新检索扩展文本（抽取改口路径）。
+     *
+     * @param newRetrievalText 新的扩写文本；空 ⇒ 回退 newValue（与「没有扩写」语义一致）
+     */
+    public void refreshBackgroundValue(Memory row, String newValue, String newRetrievalText, LocalDateTime now) {
         if (row == null || !isBackground(row.getType())) {
             return;
         }
+        String retrievalText = (newRetrievalText == null || newRetrievalText.isBlank())
+                ? newValue : newRetrievalText.trim();
         row.setMvalue(newValue);
-        row.setRetrievalText(newValue);
+        row.setRetrievalText(retrievalText);
         row.setUpdatedAt(now);
         index(row);
     }

@@ -207,13 +207,18 @@ prompts:
       输出要求：
       1. 只输出一个 JSON 对象，不要解释、不要代码围栏：
          {"preferences":[{"key":"回答方式","value":"讲慢一点","quote":"我希望你讲慢一点","confidence":0.9,"action":"new","target":null}],
-          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null,"action":"new","target":null}],
+          "background":[{"key":"慢病","value":"2型糖尿病","type":"health","quote":"我有2型糖尿病","confidence":0.95,"validTo":null,"retrievalText":"2型糖尿病；糖尿病、血糖高；我血糖高要注意什么","action":"new","target":null}],
           "profile_candidates":[{"field":"allergy","value":"青霉素","occurredOn":null,"quote":"我青霉素过敏","confidence":0.95}]}
       2. key 不超过 8 个字；value 不超过 60 个字。
       3. quote 必须是对话里患者的**原话片段**，逐字照抄，不得改写；找不到原话就不要输出这一条。
       4. confidence 是 0—1 的小数，如实反映把握程度。
       5. background 的 type 只能是 health（健康相关）或 other（生活背景）；validTo 是可选的结束日期（YYYY-MM-DD），不确定就写 null。
       6. 没有可抽的信息时输出 {"preferences":[],"background":[],"profile_candidates":[]}。
+      7. background 的每条都要带 retrievalText（检索扩展文本，≤120 字），结构为「值；2—4 个同义或口语说法；一句患者可能怎么问」。
+         它**只用于系统检索、不展示给患者**，所以可以写患者没说过的**说法**，但**绝不能新增患者没说过的事实**：
+         不许写病程、用药、诱因、并发症、检查结果。重点覆盖患者换一种说法时可能用的词
+         （如「2型糖尿病」→「糖尿病、血糖高、血糖病」；「长期夜班」→「夜班、倒班、作息不规律」）。
+         action=skip 时可省略；给不出时写空字符串。
 
       **判重（action / target）**：用户消息里有一段「已记住的记忆」，按序号编号、分 [偏好] / [背景] 两组。
       你抽出的每一条 preference 与 background 都要带两个字段：
@@ -239,6 +244,22 @@ prompts:
 
       对话记录：
       {dialogue}
+
+  # —— 稳定背景的检索扩展文本（患者手动改值后异步补一次）——
+  # 只给条目本身（键 / 值 / 原话），不给整段对话：扩写的职责是「同一件事的别的说法」，不是补充背景。
+  # 只用于 embedding，不注入 prompt、不展示给患者。失败由调用方回退 mvalue。
+  memory-enrich:
+    system: |
+      你负责为一条「长期背景记忆」生成**检索用扩展文本**。
+      只换说法，不补充事实：不得新增患者没说过的东西（病程、用药、诱因、并发症、检查结果都不许写）。
+      输出结构固定为：值；2—4 个同义或口语说法；一句患者可能怎么问。总长度不超过 120 字。
+      它只用于系统检索、不会展示给患者，所以可以写患者没说过的**说法**，但不能写没说过的事实。
+      只输出一个 JSON 对象，不要解释、不要代码围栏：{"retrievalText":"..."}
+      给不出时输出 {"retrievalText":""}。
+    user-template: |
+      键：{key}
+      值：{value}
+      患者原话：{quote}
 
   # —— 偏好满额时的合并去重：把旧偏好与本批新偏好压成不超过上限的清单 ——
   # 合并失败或输出不可解析时，抽取侧会**丢弃本批新偏好**（不删旧偏好）——宁可不记，也不写坏数据。

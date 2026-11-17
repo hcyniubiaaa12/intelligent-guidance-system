@@ -1,0 +1,31 @@
+{
+  "_comment": "背景召回 gold set：用真实 embedding 对比『mvalue 向量』与『retrievalText 向量』。正样本尽量让 query 不含 mvalue 原文，只在扩写里出现同义/口语说法（个别近义如「血压偏高」仍会被词面命中，评估另外统计纯向量指标）；负样本不应召回任何背景。跑法见 docs/memory-recall-eval.md。",
+  "memories": [
+    {"key": "慢病", "value": "2型糖尿病", "retrievalText": "2型糖尿病；糖尿病、血糖高、血糖病；我血糖高要注意什么"},
+    {"key": "慢病", "value": "高血压", "retrievalText": "高血压；血压高、血压偏高、血压不稳；我血压高要注意什么"},
+    {"key": "作息", "value": "长期夜班", "retrievalText": "长期夜班；夜班、倒班、作息不规律；我长期上夜班要注意什么"},
+    {"key": "生活", "value": "一直独居", "retrievalText": "一直独居；独居、一个人住、独自生活；我一个人住，看病不方便"},
+    {"key": "慢病", "value": "哮喘", "retrievalText": "哮喘；气喘、喘不上气、过敏性哮喘；我喘不上气是怎么回事"},
+    {"key": "慢病", "value": "慢性胃炎", "retrievalText": "慢性胃炎；胃病、胃不太好、胃不舒服；我胃一直不好要注意什么"}
+  ],
+  "cases": [
+    {"query": "血糖高要挂什么科", "expect": ["2型糖尿病"], "negative": false},
+    {"query": "我血压有点高，需要看医生吗", "expect": ["高血压"], "negative": false},
+    {"query": "经常倒班对身体有什么影响", "expect": ["长期夜班"], "negative": false},
+    {"query": "我一个人住，晚上不舒服怎么办", "expect": ["一直独居"], "negative": false},
+    {"query": "喘不上气挂哪个科", "expect": ["哮喘"], "negative": false},
+    {"query": "胃不太好，老是反酸", "expect": ["慢性胃炎"], "negative": false},
+    {"query": "血压偏高要复查吗", "expect": ["高血压"], "negative": false},
+    {"query": "作息不规律会引起头晕吗", "expect": ["长期夜班"], "negative": false},
+    {"query": "独自生活，去医院不方便", "expect": ["一直独居"], "negative": false},
+    {"query": "老是喘，尤其晚上", "expect": ["哮喘"], "negative": false},
+    {"query": "胃病很多年了，怎么调理", "expect": ["慢性胃炎"], "negative": false},
+    {"query": "血糖方面平时要注意什么", "expect": ["2型糖尿病"], "negative": false},
+    {"query": "今天手指被划伤了", "expect": [], "negative": true},
+    {"query": "孩子发烧咳嗽怎么办", "expect": [], "negative": true},
+    {"query": "体检报告怎么看", "expect": [], "negative": true},
+    {"query": "牙疼得厉害", "expect": [], "negative": true},
+    {"query": "最近掉头发", "expect": [], "negative": true},
+    {"query": "眼睛干涩", "expect": [], "negative": true}
+  ]
+}

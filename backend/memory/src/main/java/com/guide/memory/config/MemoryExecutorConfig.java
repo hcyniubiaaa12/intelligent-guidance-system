@@ -18,6 +18,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class MemoryExecutorConfig {
 
     public static final String MEMORY_EXECUTOR = "memoryExecutor";
+    public static final String MEMORY_ENRICH_EXECUTOR = "memoryEnrichExecutor";
 
     @Bean(name = MEMORY_EXECUTOR)
     public ThreadPoolTaskExecutor memoryExecutor() {
@@ -26,6 +27,26 @@ public class MemoryExecutorConfig {
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("memory-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * 记忆扩写专用单线程池：与抽取池隔离。
+     *
+     * <p>为什么不能共用 {@link #memoryExecutor()}：扩写是一次完整的 chat 调用（可达数十秒），
+     * 患者连续改两条就会占满抽取池的两个核心线程；抽取每轮完成与空闲兜底都靠它，
+     * 被一个「只影响 embedding 文本」的附属功能饿住不值得。单线程足够——改口是低频动作。
+     * 队列满同样 AbortPolicy，由 {@code MemoryEnricher} 捕获并 WARN（扩写是旁路）。
+     */
+    @Bean(name = MEMORY_ENRICH_EXECUTOR)
+    public ThreadPoolTaskExecutor memoryEnrichExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("memory-enrich-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         executor.initialize();
         return executor;
